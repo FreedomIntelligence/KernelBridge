@@ -46,7 +46,7 @@ KernelCat 是面向算子生成的 CLI 与 TypeScript 应用 SDK。输入明确�
 
 ## 任务与上下文输入
 
-首次任务在创建会话前准备。独立 CLI 使用 `task.json`；托管 SDK 使用完整的 `run.json` manifest。`run()` 执行已选择的输入，任务文字来自这些文件。
+首次任务在创建会话前准备。普通 CLI 和 SDK `KernelCat.runTask({task,onEvent,signal})` 使用 `task.json`，其中 `goal` 是交给 Pi 的 prompt。托管 SDK 使用完整的 `run.json` manifest；选用 Goal 模式后绑定 `LoopXGoal`，执行仍由 Pi 持有。`run()` 执行已选择的输入，任务文字来自这些文件。可直接修改和运行的 CANN Vector/Cube task、SDK runner 与独立验收检查见 [CANN 示例](../examples/cann/README.md)。
 
 ### 独立任务 JSON
 

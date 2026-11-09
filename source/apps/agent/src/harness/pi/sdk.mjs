@@ -46,7 +46,7 @@ async function childReply(rpc, child, model, assistantMessage) {
     error.knownChildStop = true;
     throw error;
   }
-  return assistantMessage({ text: reply.text, calls: reply.calls ?? [] }, model, Date.now(), 'kernelcat_child_effect');
+  return assistantMessage({ text: reply.text, calls: reply.calls ?? [], usage: reply.usage ?? {} }, model, Date.now(), 'kernelcat_child_effect');
 }
 
 async function withAgentEnvironment(home, execute) {

@@ -18,6 +18,8 @@ class AscendRuntime:
         self.settings = settings
         self.context: dict[str, Any] = {}
         self.device = torch.device(f"npu:{settings.device}")
+        # ASCEND_DEVICE_ID does not select torch_npu's current device.
+        torch_npu.npu.set_device(self.device)
 
     def load(self, outputs: BuildOutputs, model_source: str) -> None:
         verify_outputs(outputs, self.settings.workspace)

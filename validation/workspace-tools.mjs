@@ -15,7 +15,7 @@ async function fixture(run) {
   await fs.writeFile(join(base, 'private.txt'), 'EXTERNAL_SECRET_MARKER');
   const tools = new Map(workspaceTools(sdk, {root,tools:['read','write','edit','ls','find','grep','bash'],
     writable_paths:['solution.py','nested/new.py'],readonly_paths:['reference']}).map(tool=>[tool.name,tool]));
-  const call = (name, args) => tools.get(name).execute('fixture', args);
+  const call = (name, args, signal, update) => tools.get(name).execute('fixture', args, signal, update);
   try { await run({base, root, call}); } finally { await fs.rm(base,{recursive:true,force:true}); }
 }
 
@@ -82,4 +82,36 @@ test('bash preserves executable permissions on an authorized file', () => fixtur
 test('bash cancellation and timeout do not commit a partial candidate', () => fixture(async ({root,call}) => {
   await assert.rejects(call('bash',{command:'printf bad > solution.py; sleep 3',timeout:0.05}),/timed out|timeout/i);
   assert.equal(await fs.readFile(join(root,'solution.py'),'utf8'),'x = 1\ny = 2\n');
+}));
+
+test('read truncation and missing edits preserve complete source', () => fixture(async ({root,call}) => {
+  const content=Array.from({length:4000},(_,i)=>`line ${i}`).join('\n');
+  await fs.writeFile(join(root,'solution.py'),content);
+  const result=await call('read',{path:'solution.py'});
+  assert.ok(result.content[0].text.length<content.length);
+  assert.match(result.content[0].text,/offset|truncat|lines/i);
+  await assert.rejects(call('edit',{path:'solution.py',edits:[{oldText:'missing text',newText:'bad'}]}));
+  assert.equal(await fs.readFile(join(root,'solution.py'),'utf8'),content);
+}));
+
+test('bash detects concurrent edits before writeback', () => fixture(async ({root,call}) => {
+  const running=call('bash',{command:'sleep 0.3; printf shell > solution.py',timeout:5});
+  await new Promise(resolve=>setTimeout(resolve,150));
+  await fs.writeFile(join(root,'solution.py'),'external editor');
+  await assert.rejects(running,/changed during bash/);
+  assert.equal(await fs.readFile(join(root,'solution.py'),'utf8'),'external editor');
+}));
+
+test('explicit cancellation stops the shell without candidate writeback', () => fixture(async ({root,call}) => {
+  const controller=new AbortController();
+  const running=call('bash',{command:'printf bad > solution.py; sleep 30',timeout:40},controller.signal);
+  const timer=setTimeout(()=>controller.abort(),150);
+  try { await assert.rejects(running,/abort|cancel/i); } finally { clearTimeout(timer); }
+  assert.equal(await fs.readFile(join(root,'solution.py'),'utf8'),'x = 1\ny = 2\n');
+}));
+
+test('isolated shell has a writable private temporary directory', () => fixture(async ({call}) => {
+  const result=await call('bash',{command:'p=$(mktemp "$TMPDIR/kb.XXXXXX"); echo temporary > "$p"; cat "$p"; rm "$p"',timeout:5});
+  assert.match(result.content[0].text,/temporary/);
+  assert.equal(result.structuredContent.exit_code,0);
 }));

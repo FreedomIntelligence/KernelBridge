@@ -1,10 +1,18 @@
 import { MAX_LAUNCH_BYTES, digestBytes, loadLaunchManifest, readBoundedUtf8 } from "../tasks/launch-manifest.ts";
 import type { WorkerConnectionOptions } from "../clients/worker-client.ts";
+import { runWithWorker } from "../clients/worker-client.ts";
+import { withPreparedPi } from "../loopx/pi-host.ts";
+import type { HarnessOptions } from "../harness/types.ts";
 import { KernelCatSession } from "./session.ts";
 
 export interface SessionSelection {
   readonly manifest: string;
   readonly applicationSessionId?: string;
+}
+
+/** task.goal is the initial Pi prompt; task.contract and seed_files supply context. */
+export interface TaskRunOptions extends HarnessOptions {
+  readonly task: string;
 }
 
 /** Importing or constructing the client starts no process and performs no effect. */
@@ -13,6 +21,20 @@ export class KernelCat {
 
   constructor(options: WorkerConnectionOptions) {
     this.worker = { ...options };
+  }
+
+  /** One bounded Pi session with the same tools, Gateway and receipts as the CLI.
+   * Goal mode uses createSession + LoopXGoal; it does not add another agent loop.
+   * A failed invocation is never automatically retried.
+   */
+  async runTask(options: TaskRunOptions): Promise<Record<string, unknown>> {
+    const signals = [this.worker.signal, options.signal].filter((value): value is AbortSignal => value !== undefined);
+    const signal = signals.length ? AbortSignal.any(signals) : undefined;
+    signal?.throwIfAborted();
+    await readBoundedUtf8(this.worker.config, "Worker configuration", MAX_LAUNCH_BYTES);
+    await readBoundedUtf8(options.task, "Worker task", MAX_LAUNCH_BYTES);
+    return await withPreparedPi(run => runWithWorker({ ...this.worker, task: options.task, signal },
+      rpc => run(rpc, { signal, onEvent: options.onEvent })), { signal });
   }
 
   async createSession(selection: SessionSelection): Promise<KernelCatSession> {

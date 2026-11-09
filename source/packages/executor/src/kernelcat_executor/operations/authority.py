@@ -37,6 +37,7 @@ from kernelcat_executor.contracts.models import (
     Policy,
     Task,
     canonical,
+    same_json_value,
     digest,
 )
 from kernelcat_executor.contracts.ports import HarnessProposer, ManagedStore, ProfileStore
@@ -303,7 +304,7 @@ class ExecutionRPC:
         self.outcomes = []
         self.prepared, self.active = False, True
         return {"proposal_id": identity, "text": self.text, "parallel": self.plan is not None,
-                "calls": [self.wire(a) for a in self.calls]}
+                "calls": [self.wire(a) for a in self.calls], "usage": proposal.data.get("usage", {})}
 
     def _provider_failed(self, identity: str, policy: Policy) -> Json:
         self.failed.append(identity)
@@ -334,7 +335,7 @@ class ExecutionRPC:
         if not self.active or index >= len(self.calls):
             raise Conflict("no pending tool call")
         action = self.calls[index]
-        if canonical(params) != canonical(self.wire(action)):
+        if not same_json_value(params, self.wire(action)):
             raise Conflict("worker tool differs from the durable model response")
         return action
 

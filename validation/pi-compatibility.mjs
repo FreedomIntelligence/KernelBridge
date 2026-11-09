@@ -48,7 +48,7 @@ test('real Pi native session executes CodeMode/MCP and checkpoints with the cont
 
 test('Pi native read/write/edit preserve generated source without CodeMode interpolation', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'pi15-tools-check-'));
-  const content = 'set(PKG_NAME "fixture")\nadd_library(${PKG_NAME} SHARED source.cpp)\n# literal `backtick`\n';
+  const content = 'set(PKG_NAME "fixture")\nadd_library(${PKG_NAME} SHARED source.cpp)\n# literal `backtick`\n${KERNEL_OBJ_NAME}\n${CMAKE_CURRENT_SOURCE_DIR}\n# r0 is source text\n';
   try {
     await sdk.createWriteTool(directory).execute('w1', {path:'CMakeLists.txt',content});
     assert.equal(await readFile(join(directory,'CMakeLists.txt'),'utf8'), content);

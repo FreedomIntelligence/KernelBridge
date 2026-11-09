@@ -4,7 +4,7 @@ import type { KnowledgeCaptureRequest, KnowledgeRegistration, KnowledgeViewRefer
 import type { AgentSession, Branch, Capsule, ContextManifest, LabObject, ObjectGraph, OwnerReference, Program, TaskMemoryRevision, TaskRun, Trial, TrialKnowledgeBinding, TurnContext, VersionLockEntry } from "./objects.ts";
 import type { Digest, Identifier, TaskContractSource } from "./task-contract.ts";
 import type { IdentityObservation } from "./version-lock.ts";
-export const SCHEMA_SHA256 = "199d66e5b4a959cf036779f6293336b4ad791244cd26bcf304795f441bdf7c85";
+export const SCHEMA_SHA256 = "95dbe8558c950b188bb3f6faefb0c53a814b2f46543ff89539550317659e1174";
 export const SCHEMA = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kernelcat.local/contracts/execution/v1/runtime.schema.json",
@@ -520,7 +520,8 @@ export const SCHEMA = {
         "pending_effect_ids": {
           "type": "array",
           "items": {
-            "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+            "type": "string",
+            "minLength": 1
           },
           "minItems": 0,
           "maxItems": 16384
@@ -1480,7 +1481,7 @@ export interface RuntimeState {
   readonly account_budget: CreditBudget;
   readonly run_budget: CreditBudget;
   readonly trial_budget: CreditBudget;
-  readonly pending_effect_ids: ReadonlyArray<Identifier>;
+  readonly pending_effect_ids: ReadonlyArray<string>;
   readonly capsule?: Capsule;
   readonly context?: ContextManifest;
   readonly last_control_intent_id?: Identifier;

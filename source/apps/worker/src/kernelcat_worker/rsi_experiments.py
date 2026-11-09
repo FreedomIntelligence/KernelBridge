@@ -30,7 +30,8 @@ class SourceGuard:
 class ExperimentTool:
     spec = ToolSpec(name="run_experiment", credits=1,
         description=("Submit the current source for independent evaluation and simplification. "
-                     "Provide a falsifiable hypothesis, expected improvement and cited KU IDs. "
+                     "Provide a falsifiable hypothesis, expected improvement and registered KU IDs. "
+                     "Use cites=[] when no registered knowledge was supplied; never invent an ID. "
                      "A submission is not correctness, timing or acceptance evidence."),
         parameters=SCHEMA["$defs"]["ExperimentProposal"])
 
@@ -41,9 +42,35 @@ class ExperimentTool:
     def execute(self, action: Action) -> Outcome:
         proposal = validate_rsi(action.arguments, "ExperimentProposal")
         records = Records(self.store, self.artifacts, action.task)
+        known = set()
+        for item in records.entries():
+            retained = records.decode(item)
+            if retained["kind"] == "candidates":
+                candidates = validate_rsi(retained["value"]["candidates"], "RsiCandidates")
+                known.update(candidate["ku_id"] for candidate in candidates["candidates"])
+        unknown = sorted(set(proposal["cites"]) - known)
+        if unknown:
+            # Reject before writing a pending proposal. A model argument error
+            # must not poison the protected settlement/checkpoint lifecycle.
+            return Outcome(status="failed", data={"reason": "unknown_knowledge_identity",
+                "unknown_cites": unknown, "submitted": False,
+                "message": "Cite registered KU IDs only, or use cites=[] when none were supplied."})
+        confirmations = sum(item["action"]["task"] == action.task
+            and item["action"]["tool"] == "__rsi_adapter__"
+            and item["action"]["arguments"].get("operation") == "confirm"
+            for item in self.store.snapshot()["actions"].values())
+        limit = self.config.get("policy", {}).get("holdout_limit")
+        if limit is not None and confirmations >= limit:
+            return Outcome(status="failed", data={"reason": "holdout_limit_exhausted",
+                "submitted": False, "message": "The configured independent-confirmation budget is exhausted. Preserve the last accepted source and report this limit."})
+        candidate = source_files(self.workspace, self.config["source_paths"])
+        if candidate == records.baseline()["value"]["source"]:
+            return Outcome(status="failed", data={"reason": "unchanged_source",
+                "submitted": False,
+                "message": "The current source equals the retained baseline. Use Pi edit/write to implement your hypothesis before submitting. After a rejected experiment, reread the restored source before editing."})
         record = validate_rsi({"record_id": action.id, "sequence": len(records.entries()) + 1,
             "kind": "proposal", "value": {"experiment_id": action.id, "proposal": proposal,
-                "candidate": source_files(self.workspace, self.config["source_paths"]),
+                "candidate": candidate,
                 "integration": False}}, "PrivateRecord")
         outcome = records.outcome(record)
         return outcome.model_copy(update={"data": {**outcome.data,

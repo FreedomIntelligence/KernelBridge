@@ -1,0 +1,16 @@
+{
+  "kind": "matmul",
+  "task_id": "cann-cube-matmul-fp16-128",
+  "native_operator": "matmul",
+  "soc": "ai_core-Ascend910_9382",
+  "device": 1,
+  "m": 128,
+  "n": 128,
+  "k": 128,
+  "dtype": "float16",
+  "accumulator_dtype": "float32",
+  "seeds": [1024, 1025, 1026, 1027, 1028],
+  "distribution": "standard_normal",
+  "atol": 0.01,
+  "rtol": 0.01
+}

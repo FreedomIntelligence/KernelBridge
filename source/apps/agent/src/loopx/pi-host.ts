@@ -68,6 +68,7 @@ class PiProcess {
   private expectedEventId = 1;
   private onEvent?: (event: HarnessEvent) => void;
   private busy = false;
+  private stderr = "";
   private phase: "loading" | "ready" | "running" | "done" | "failed" = "loading";
 
   private readonly options: HarnessOptions;
@@ -82,9 +83,11 @@ class PiProcess {
     });
     this.startup = setTimeout(() => this.fail(new Error("Pi startup timed out before execution")), 30000);
     this.child.on("error", (error) => this.fail(error));
-    this.child.stderr?.on("data", () => {});
+    this.child.stderr?.on("data", (chunk: Buffer) => {
+      this.stderr = (this.stderr + chunk.toString("utf8")).slice(-65536);
+    });
     this.exited = new Promise<void>((resolve) => this.child.once("exit", (code, signal) => {
-      if (this.phase !== "done") this.fail(new Error(`Pi exited (${signal ?? code}); reconcile original receipts before continuing`));
+      if (this.phase !== "done") this.fail(new Error(`Pi exited (${signal ?? code}); reconcile original receipts before continuing\n${this.stderr}`));
       resolve();
     }));
     options.signal?.addEventListener("abort", this.interrupted, { once: true });

@@ -1,0 +1,13 @@
+{
+  "kind": "vector_add",
+  "task_id": "cann-vector-add-fp32-128",
+  "native_operator": "vector_add",
+  "soc": "ai_core-Ascend910_9382",
+  "device": 1,
+  "shape": [128],
+  "dtype": "float32",
+  "seeds": [1024, 1025, 1026, 1027, 1028],
+  "distribution": "standard_normal",
+  "atol": 0.0001,
+  "rtol": 0.0001
+}

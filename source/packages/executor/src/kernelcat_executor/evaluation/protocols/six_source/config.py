@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 
 from kernelcat_executor.build.inputs import BuildSettings
@@ -23,11 +24,13 @@ class Request:
     device: int = 0
     fast: bool = False
     timeout: int = 600
+    atol: float = 1e-4
+    rtol: float = 1e-4
 
     @classmethod
     def from_dict(cls, data: dict, base: Path | None = None) -> Request:
         if not isinstance(data, dict) or set(data) - {
-            "candidate", "reference", "workspace", "operator", "soc", "device", "fast", "timeout"
+            "candidate", "reference", "workspace", "operator", "soc", "device", "fast", "timeout", "atol", "rtol"
         }:
             raise ValueError("unknown evaluation request field")
         base = (base or Path.cwd()).resolve()
@@ -41,6 +44,9 @@ class Request:
         BuildSettings(request.operator, request.workspace, request.soc, request.device)
         if type(request.fast) is not bool or type(request.timeout) is not int or not 1 <= request.timeout <= 86400:
             raise ValueError("fast must be boolean; timeout must be in [1,86400] seconds")
+        if any(type(value) not in (int, float) or not math.isfinite(value) or value < 0
+               for value in (request.atol, request.rtol)):
+            raise ValueError("atol and rtol must be finite nonnegative numbers")
         for source in (request.candidate, request.reference):
             if not source.is_file() or not 0 < source.stat().st_size <= 4_000_000:
                 raise ValueError("candidate and reference must be nonempty files at most 4 MB")

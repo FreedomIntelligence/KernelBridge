@@ -28,7 +28,7 @@ from .runtime_control import CreditBudget, ExecutionStamp
 from .task_contract import Digest, Identifier, TaskContractSource
 from .version_lock import IdentityObservation
 
-SCHEMA_SHA256 = "199d66e5b4a959cf036779f6293336b4ad791244cd26bcf304795f441bdf7c85"
+SCHEMA_SHA256 = "95dbe8558c950b188bb3f6faefb0c53a814b2f46543ff89539550317659e1174"
 SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/draft/2020-12/schema',
  '$id': 'https://kernelcat.local/contracts/execution/v1/runtime.schema.json',
  '$ref': '#/$defs/RunLaunchManifest',
@@ -340,7 +340,7 @@ SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/draft/2020-12/sche
                                            'run_budget': {'$ref': 'https://kernelcat.local/contracts/execution/v1/runtime_control.schema.json#/$defs/CreditBudget'},
                                            'trial_budget': {'$ref': 'https://kernelcat.local/contracts/execution/v1/runtime_control.schema.json#/$defs/CreditBudget'},
                                            'pending_effect_ids': {'type': 'array',
-                                                                  'items': {'$ref': 'https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier'},
+                                                                  'items': {'type': 'string', 'minLength': 1},
                                                                   'minItems': 0,
                                                                   'maxItems': 16384},
                                            'capsule': {'$ref': 'https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/Capsule'},
@@ -957,7 +957,7 @@ class RuntimeState(TypedDict):
     account_budget: CreditBudget
     run_budget: CreditBudget
     trial_budget: CreditBudget
-    pending_effect_ids: list[Identifier]
+    pending_effect_ids: list[str]
     capsule: NotRequired[Capsule]
     context: NotRequired[ContextManifest]
     last_control_intent_id: NotRequired[Identifier]

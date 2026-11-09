@@ -170,14 +170,22 @@ export function workspaceTools(sdk, capability) {
           + '(allow file-read* (literal "/") '
           + [...system, scratch].map(p => `(subpath ${JSON.stringify(p)})`).join(' ') + ')'
           + `(allow file-write* (subpath ${JSON.stringify(scratch)}) (literal "/dev/null"))`;
-        isolated = ['/usr/bin/sandbox-exec', '-p', profile, '/bin/bash', '--noprofile', '--norc', '-c', command].map(quote).join(' ');
+        isolated = ['/usr/bin/sandbox-exec', '-p', profile, '/usr/bin/env', '-i',
+          'PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin', 'LANG=en_US.UTF-8', `TMPDIR=${scratch}`, `HOME=${scratch}`,
+          '/bin/bash', '--noprofile', '--norc', '-c', command].map(quote).join(' ');
       } else if (process.platform === 'linux') {
         // No unsandboxed fallback: provision bubblewrap in the runner image.
-        const argv = ['bwrap', '--unshare-all', '--die-with-parent', '--new-session'];
+        const executable = process.env.KERNELCAT_BWRAP ?? 'bwrap';
+        if (executable !== 'bwrap' && !isAbsolute(executable)) throw new Error('KERNELCAT_BWRAP must be an absolute host path');
+        const argv = [executable, '--unshare-all', '--die-with-parent', '--new-session'];
         for (const path of ['/usr', '/bin', '/sbin', '/lib', '/lib64']) {
           try { await fs.stat(path); argv.push('--ro-bind', path, path); } catch (error) { if (error.code !== 'ENOENT') throw error; }
         }
-        argv.push('--proc', '/proc', '--dev', '/dev', '--bind', scratch, '/workspace', '--chdir', '/workspace',
+        // An empty /proc also works in nested runners that prohibit proc mounts;
+        // never bind the host's /proc (which can expose other processes/files).
+        argv.push('--dir', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--setenv', 'TMPDIR', '/tmp',
+          '--bind', scratch, '/workspace', '--chdir', '/workspace',
+          '/usr/bin/env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin', 'LANG=C.UTF-8', 'TMPDIR=/tmp', 'HOME=/workspace',
           '/bin/bash', '--noprofile', '--norc', '-c', command);
         isolated = argv.map(quote).join(' ');
       } else throw new Error('No isolated bash backend on this platform');

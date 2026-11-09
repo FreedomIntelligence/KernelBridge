@@ -136,7 +136,18 @@ export function assistant(reply, model={api:'openai-completions',provider:'kerne
     content.push({type:'toolCall',id:call.id,name:toolName ?? call.name,arguments:toolName === null ? call.arguments : call});
   }
   if(!content.length) content.push({type:'text',text:'Host stopped this invocation.'});
+  const usage = reply.usage ?? {};
+  const count = (...names) => {
+    for (const name of names) if (Number.isSafeInteger(usage[name]) && usage[name] >= 0) return usage[name];
+    return 0;
+  };
+  const cacheRead = count('cache_read_input_tokens', 'prompt_cache_hit_tokens');
+  const cacheWrite = count('cache_creation_input_tokens');
+  // OpenAI prompt_tokens includes cache hits; Anthropic input_tokens excludes them.
+  const input = Object.hasOwn(usage, 'prompt_tokens') ? Math.max(0, count('prompt_tokens') - cacheRead) : count('input_tokens');
+  const output = count('completion_tokens', 'output_tokens');
   return {role:'assistant',content,api:model.api,provider:model.provider,model:model.id,
-    usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}},
+    usage:{input,output,cacheRead,cacheWrite,totalTokens:Object.hasOwn(usage,'total_tokens') ? count('total_tokens') : input+output+cacheRead+cacheWrite,
+      cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}},
     stopReason:reply.calls.length?'toolUse':'stop',timestamp};
 }

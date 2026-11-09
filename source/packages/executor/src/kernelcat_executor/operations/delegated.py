@@ -6,6 +6,7 @@ from typing import Any
 
 from kernelcat_executor.contracts.messages import AssistantTurn, turn_actions
 from kernelcat_executor.contracts.models import (
+    same_json_value,
     Action,
     BudgetExceeded,
     Conflict,
@@ -132,7 +133,7 @@ class DelegatedEffects:
         if stopped:
             return stopped
         index = len(self.outcomes)
-        if index >= len(self.calls) or canonical(call) != canonical(self.wire(self.calls[index])):
+        if index >= len(self.calls) or not same_json_value(call, self.wire(self.calls[index])):
             raise Conflict("child tool differs from its recorded model reply")
         if self.tool_count >= 16:
             return self._stop("tool_limit")

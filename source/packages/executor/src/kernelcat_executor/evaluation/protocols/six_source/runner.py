@@ -28,7 +28,8 @@ def main() -> int:
     from kernelcat_executor.evaluation.protocols.six_source.session import AscendBackend
     from kernelcat_executor.evaluation.protocols.six_source.evaluator import evaluate
     settings = BuildSettings(request["operator"], job / "build", request["soc"], request["device"])
-    result = evaluate(frozen["candidate"], frozen["reference"], AscendBackend(settings), fast=request["fast"])
+    result = evaluate(frozen["candidate"], frozen["reference"], AscendBackend(settings,
+        atol=request.get("atol", 1e-4), rtol=request.get("rtol", 1e-4)), fast=request["fast"])
     temporary = job / "native-result.tmp"
     temporary.write_text(json.dumps(result, allow_nan=False), encoding="utf-8")
     temporary.replace(job / "native-result.json")

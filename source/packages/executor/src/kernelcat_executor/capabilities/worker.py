@@ -53,6 +53,11 @@ def run_worker(
         raise WorkerError("worker cwd must be an existing absolute directory")
     # Deliberately omit HOME, PATH, NODE_OPTIONS, proxy settings and provider keys.
     env = {key: os.environ[key] for key in ("LANG", "LC_ALL", "TZ") if key in os.environ}
+    if os.environ.get("KERNELCAT_BWRAP"):
+        backend = Path(os.environ["KERNELCAT_BWRAP"])
+        if not backend.is_absolute() or not backend.is_file():
+            raise WorkerError("KERNELCAT_BWRAP must name an absolute host executable")
+        env["KERNELCAT_BWRAP"] = str(backend)
     env["KERNELCAT_MAX_FRAME_BYTES"] = str(max_frame_bytes)
     process = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.PIPE,
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,

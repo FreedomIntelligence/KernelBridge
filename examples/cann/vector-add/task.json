@@ -1,0 +1,82 @@
+{
+  "id": "cann-vector-add-fp32-128",
+  "scope": "cann-operator-generation",
+  "goal": "使用 Ascend C 实现Vector 向量加法。逐元素计算 c = a + b，两个输入形状相同，不广播。 输入形状为 [[128], [128]]，连续 ND 布局，dtype=float32；输出形状 [128]，dtype=float32。目标为 ai_core-Ascend910_9382。先读取 reference/case.json 与 reference/reference.py，再用 Pi 文件工具在 solution.py 中生成完整候选。solution.py 须定义六个非空字符串：project_json_src, host_tiling_src, host_operator_src, kernel_src, python_bind_src, model_src。project_json_src 的算子名为 VectorAddCustom，kernel 入口为 vector_add_custom，model_src 定义 torch.nn.Module 子类 ModelNew，其 forward(a,b) 返回单个 Tensor。使用 Vector 计算单元实现。禁止调用 torch 加法/matmul 代替候选内核，禁止修改输入、参考文件、测试数据或评测器。每次有意义的修改后调用配置的业务评测工具，依据原始编译错误、正确性和性能结果修复；必须通过 case.json 中全部五个随机种子，浮点比较 atol=0.0001, rtol=0.0001。只有原始评测凭据能够证明正确性与性能。没有成对复测时不要宣称加速；结束时留下有通过凭据的候选。 Read reference/native-template.py for a verified six-source example of this operator on CANN 9.1 / Ascend910_9382; adapt names, shapes and tiling for the declared task. Preserve the demonstrated tiling serialization, workspace and synchronization contracts. Use evaluate(candidate=\"solution.py\") and read original receipts. Do not finish with any compile or correctness failure. This generation example requires one verified candidate: after all five input seeds pass, read its original receipt and finish. Run longer performance search as a separate goal.",
+  "contract": {
+    "operator": "vector_add",
+    "native_operator": "vector_add",
+    "target": {
+      "soc": "ai_core-Ascend910_9382",
+      "device": 1
+    },
+    "inputs": [
+      {
+        "name": "a",
+        "shape": [
+          128
+        ],
+        "dtype": "float32",
+        "layout": "contiguous ND"
+      },
+      {
+        "name": "b",
+        "shape": [
+          128
+        ],
+        "dtype": "float32",
+        "layout": "contiguous ND"
+      }
+    ],
+    "output": {
+      "shape": [
+        128
+      ],
+      "dtype": "float32",
+      "layout": "contiguous ND"
+    },
+    "semantics": "逐元素计算 c = a + b，两个输入形状相同，不广播。",
+    "input_mutation_allowed": false,
+    "test_data": {
+      "distribution": "standard_normal",
+      "seeds": [
+        1024,
+        1025,
+        1026,
+        1027,
+        1028
+      ],
+      "generator": "reference/reference.py:get_inputs",
+      "correctness_trials": 5
+    },
+    "correctness": {
+      "atol": 0.0001,
+      "rtol": 0.0001,
+      "finite_inputs": true
+    },
+    "candidate": {
+      "path": "solution.py",
+      "format": "six_source",
+      "required_fields": [
+        "project_json_src",
+        "host_tiling_src",
+        "host_operator_src",
+        "kernel_src",
+        "python_bind_src",
+        "model_src"
+      ]
+    },
+    "performance": {
+      "timer": "npu_event",
+      "device_stream": "explicit target device",
+      "warmup": 3,
+      "samples": 100,
+      "comparison": "same-device interleaved paired measurements; compile and input preparation excluded"
+    }
+  },
+  "seed_files": {
+    "solution.py": "\"\"\"Implement the six-source Ascend C candidate specified by this task.\"\"\"\n",
+    "reference/case.json": "{\n  \"kind\": \"vector_add\",\n  \"task_id\": \"cann-vector-add-fp32-128\",\n  \"native_operator\": \"vector_add\",\n  \"soc\": \"ai_core-Ascend910_9382\",\n  \"device\": 1,\n  \"shape\": [\n    128\n  ],\n  \"dtype\": \"float32\",\n  \"seeds\": [\n    1024,\n    1025,\n    1026,\n    1027,\n    1028\n  ],\n  \"distribution\": \"standard_normal\",\n  \"atol\": 0.0001,\n  \"rtol\": 0.0001\n}\n",
+    "reference/reference.py": "\"\"\"Frozen reference and input generator; generated from case.json.\"\"\"\nimport torch\n\nSHAPES = [[128], [128]]\nSEEDS = [1024, 1025, 1026, 1027, 1028]\nDTYPE = torch.float32\n_trial = 0\n\nclass Model(torch.nn.Module):\n    def forward(self, a, b):\n        return a + b\n\ndef get_inputs():\n    global _trial\n    generator = torch.Generator(device='cpu').manual_seed(SEEDS[_trial % len(SEEDS)])\n    _trial += 1\n    return [torch.randn(shape, generator=generator, dtype=DTYPE) for shape in SHAPES]\n\ndef get_init_inputs():\n    return []\n",
+    "reference/native-template.py": "\"\"\"Six-source Ascend C candidate: fp32 vector addition c = a + b using the Vector unit.\"\"\"\nimport json\n\nproject_json_src = json.dumps([{\n    'op': 'VectorAddCustom', 'language': 'cpp',\n    'input_desc': [{'name': name, 'param_type': 'required', 'format': ['ND'], 'type': ['float']} for name in ('x', 'y')],\n    'output_desc': [{'name': 'z', 'param_type': 'required', 'format': ['ND'], 'type': ['float']}],\n}])\n\nhost_tiling_src = r'''\n#ifndef VECTOR_ADD_CUSTOM_TILING_H\n#define VECTOR_ADD_CUSTOM_TILING_H\n#include <cstdint>\nstruct VectorAddCustomTilingData {\n    uint32_t size;     // total element count\n    uint32_t tileLen;  // elements handled per UB tile (32B aligned)\n    uint32_t tileNum;  // number of tiles\n    uint32_t lastLen;  // elements in the last tile\n};\n#endif\n'''\n\nhost_operator_src = r'''\n#include \"../op_kernel/vector_add_custom_tiling.h\"\n#include \"register/op_def_registry.h\"\n\nnamespace optiling {\nstatic ge::graphStatus TilingFunc(gert::TilingContext* c) {\n    auto* t = c->GetTilingData<VectorAddCustomTilingData>();\n    uint32_t size = static_cast<uint32_t>(c->GetInputShape(0)->GetStorageShape().GetShapeSize());\n    constexpr uint32_t kAlign = 8;  // 32B / sizeof(float)\n    uint32_t tileLen = 8192;\n    if (tileLen > size) tileLen = size;\n    tileLen = (tileLen / kAlign) * kAlign;\n    if (tileLen == 0) tileLen = kAlign;\n    if (tileLen > size) tileLen = size;\n    uint32_t tileNum = (size + tileLen - 1) / tileLen;\n    if (tileNum == 0) { tileLen = kAlign; tileNum = 1; }\n    t->size = size;\n    t->tileLen = tileLen;\n    t->tileNum = tileNum;\n    t->lastLen = size - (tileNum - 1) * tileLen;\n    c->SetBlockDim(1);\n    c->GetWorkspaceSizes(1)[0] = 0;\n    return ge::GRAPH_SUCCESS;\n}\n}\n\nnamespace ge {\nstatic ge::graphStatus InferShape(gert::InferShapeContext* c) {\n    *c->GetOutputShape(0) = *c->GetInputShape(0);\n    return GRAPH_SUCCESS;\n}\nstatic ge::graphStatus InferDataType(gert::InferDataTypeContext* c) {\n    c->SetOutputDataType(0, c->GetInputDataType(0));\n    return GRAPH_SUCCESS;\n}\n}\n\nnamespace ops {\nclass VectorAddCustom : public OpDef {\npublic:\n    explicit VectorAddCustom(const char* name) : OpDef(name) {\n        this->Input(\"x\").ParamType(REQUIRED).DataType({ge::DT_FLOAT}).Format({ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND});\n        this->Input(\"y\").ParamType(REQUIRED).DataType({ge::DT_FLOAT}).Format({ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND});\n        this->Output(\"z\").ParamType(REQUIRED).DataType({ge::DT_FLOAT}).Format({ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND});\n        this->SetInferShape(ge::InferShape).SetInferDataType(ge::InferDataType);\n        this->AICore().SetTiling(optiling::TilingFunc);\n        this->AICore().AddConfig(\"ascend910_93\");\n    }\n};\nOP_ADD(VectorAddCustom);\n}\n'''\n\nkernel_src = r'''\n#include \"kernel_operator.h\"\n#include \"vector_add_custom_tiling.h\"\n\nusing namespace AscendC;\n\nclass VectorAddKernel {\npublic:\n    __aicore__ inline VectorAddKernel() {}\n\n    __aicore__ inline void Init(GM_ADDR x, GM_ADDR y, GM_ADDR z, const VectorAddCustomTilingData& t) {\n        xGm_.SetGlobalBuffer((__gm__ float*)x, t.size);\n        yGm_.SetGlobalBuffer((__gm__ float*)y, t.size);\n        zGm_.SetGlobalBuffer((__gm__ float*)z, t.size);\n        pipe_.InitBuffer(inQx_, 1, t.tileLen * sizeof(float));\n        pipe_.InitBuffer(inQy_, 1, t.tileLen * sizeof(float));\n        pipe_.InitBuffer(outQ_, 1, t.tileLen * sizeof(float));\n        size_ = t.size;\n        tileLen_ = t.tileLen;\n    }\n\n    __aicore__ inline void Process() {\n        uint32_t off = 0;\n        while (off < size_) {\n            uint32_t n = size_ - off;\n            if (n > tileLen_) n = tileLen_;\n            CopyAdd(off, n);\n            off += n;\n        }\n    }\n\nprivate:\n    __aicore__ inline void CopyAdd(uint32_t srcOff, uint32_t n) {\n        LocalTensor<float> lx = inQx_.AllocTensor<float>();\n        LocalTensor<float> ly = inQy_.AllocTensor<float>();\n        LocalTensor<float> lz = outQ_.AllocTensor<float>();\n        const uint32_t aligned = n & ~7u;\n        const uint32_t tail = n - aligned;\n        if (aligned > 0) {\n            DataCopy(lx, xGm_[srcOff], aligned);\n            DataCopy(ly, yGm_[srcOff], aligned);\n        }\n        if (tail > 0) {\n            DataCopyExtParams tp{1, static_cast<uint32_t>(tail * sizeof(float)), 0, 0, 0};\n            DataCopyPadExtParams<float> padParams{false, 0, 0, 0.0f};\n            DataCopyPad(lx[aligned], xGm_[srcOff + aligned], tp, padParams);\n            DataCopyPad(ly[aligned], yGm_[srcOff + aligned], tp, padParams);\n        }\n        inQx_.EnQue(lx);\n        inQy_.EnQue(ly);\n        lx = inQx_.DeQue<float>();\n        ly = inQy_.DeQue<float>();\n        Add(lz, lx, ly, n);\n        outQ_.EnQue(lz);\n        lz = outQ_.DeQue<float>();\n        if (aligned > 0) {\n            DataCopy(zGm_[srcOff], lz, aligned);\n        }\n        if (tail > 0) {\n            DataCopyExtParams tp{1, static_cast<uint32_t>(tail * sizeof(float)), 0, 0, 0};\n            DataCopyPad(zGm_[srcOff + aligned], lz[aligned], tp);\n        }\n        inQx_.FreeTensor(lx);\n        inQy_.FreeTensor(ly);\n        outQ_.FreeTensor(lz);\n    }\n\n    TPipe pipe_;\n    TQue<QuePosition::VECIN, 1> inQx_;\n    TQue<QuePosition::VECIN, 1> inQy_;\n    TQue<QuePosition::VECOUT, 1> outQ_;\n    GlobalTensor<float> xGm_, yGm_, zGm_;\n    uint32_t size_ = 0;\n    uint32_t tileLen_ = 0;\n};\n\nextern \"C\" __global__ __aicore__ void vector_add_custom(GM_ADDR x, GM_ADDR y, GM_ADDR z, GM_ADDR workspace, GM_ADDR tiling) {\n    REGISTER_TILING_DEFAULT(VectorAddCustomTilingData);\n    GET_TILING_DATA(t, tiling);\n    VectorAddKernel k;\n    k.Init(x, y, z, t);\n    k.Process();\n}\n'''\n\npython_bind_src = r'''\n#include <torch/extension.h>\n#include \"pytorch_npu_helper.hpp\"\nat::Tensor add(const at::Tensor& x, const at::Tensor& y) {\n    auto z = at::empty_like(x);\n    EXEC_NPU_CMD(aclnnVectorAddCustom, x, y, z);\n    return z;\n}\nPYBIND11_MODULE(custom_ops_lib, m) { m.def(\"add\", &add); }\n'''\n\nmodel_src = '''\nimport torch\nimport custom_ops_lib\n\nclass ModelNew(torch.nn.Module):\n    def forward(self, x, y):\n        return custom_ops_lib.add(x, y)\n'''\n"
+  }
+}

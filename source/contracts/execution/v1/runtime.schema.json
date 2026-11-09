@@ -513,7 +513,8 @@
         "pending_effect_ids": {
           "type": "array",
           "items": {
-            "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+            "type": "string",
+            "minLength": 1
           },
           "minItems": 0,
           "maxItems": 16384

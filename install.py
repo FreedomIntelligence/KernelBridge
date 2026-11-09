@@ -127,6 +127,19 @@ def execute(command: list[str], cwd: Path, environment: dict[str, str]) -> None:
     subprocess.run(command, cwd=cwd, env=environment, check=True, timeout=600)
 
 
+def verify_node(node: Path, environment: dict[str, str]) -> None:
+    # A numerically newer odd release can lack APIs backported to the LTS line.
+    probe = subprocess.check_output(
+        [str(node), "-e", "console.log(JSON.stringify({version:process.versions.node,"
+         "zstd:typeof require('node:zlib').createZstdDecompress==='function'}))"],
+        text=True, env=environment, timeout=30,
+    )
+    capabilities = json.loads(probe)
+    if (tuple(map(int, capabilities["version"].split("."))) < (22, 19, 0)
+            or capabilities.get("zstd") is not True):
+        raise ValueError("Node >=22.19.0 with zlib Zstd support is required; use Node 22.22.3+ LTS")
+
+
 def install(bundle: Path, runtime: Path, python: Path, node: Path, npm: Path) -> None:
     verify_bundle(bundle)
     if runtime.exists() or runtime.is_symlink():
@@ -159,11 +172,7 @@ def install(bundle: Path, runtime: Path, python: Path, node: Path, npm: Path) ->
     )
     if version.strip() != "True":
         raise ValueError("Python >=3.11 is required")
-    version = subprocess.check_output(
-        [str(node), "--version"], text=True, env=environment
-    ).strip()
-    if tuple(map(int, version.removeprefix("v").split("."))) < (22, 19, 0):
-        raise ValueError("Node >=22.19.0 is required")
+    verify_node(node, environment)
     # A bundle owns one shared npm tree, even when --runtime selects an external
     # directory. Keep failed admission so another install cannot destroy that tree.
     admission.mkdir()
@@ -237,6 +246,11 @@ def install(bundle: Path, runtime: Path, python: Path, node: Path, npm: Path) ->
         source / "apps/agent",
         environment,
     )
+    execute([str(node), "--input-type=module", "-e",
+             "await import('@earendil-works/pi-coding-agent')"], source / "apps/agent", environment)
+    # ZIP extractors need not retain the executable bit.
+    launcher = bundle / "kernelagent"
+    launcher.chmod(launcher.stat().st_mode | stat.S_IXUSR)
     (admission / "node").write_text(str(node) + "\n")
     (admission / "runtime").write_text(str(runtime) + "\n")
     with (admission / "ready").open("x") as ready:

@@ -1,0 +1,85 @@
+{
+  "id": "cann-cube-matmul-fp16-128",
+  "scope": "cann-operator-generation",
+  "goal": "使用 Ascend C 实现Cube 矩阵乘法。计算 C[M,N] = A[M,K] @ B[K,N]，不转置、无 bias、无 batch；以 FP32 累加，最终转换为 float16 输出。 输入形状为 [[128, 128], [128, 128]]，连续 ND 布局，dtype=float16；输出形状 [128, 128]，dtype=float16。目标为 ai_core-Ascend910_9382。先读取 reference/case.json 与 reference/reference.py，再用 Pi 文件工具在 solution.py 中生成完整候选。solution.py 须定义六个非空字符串：project_json_src, host_tiling_src, host_operator_src, kernel_src, python_bind_src, model_src。project_json_src 的算子名为 MatmulCustom，kernel 入口为 matmul_custom，model_src 定义 torch.nn.Module 子类 ModelNew，其 forward(a,b) 返回单个 Tensor。使用 Cube/Matmul 计算路径实现，不能用标量循环模拟矩阵乘法。禁止调用 torch 加法/matmul 代替候选内核，禁止修改输入、参考文件、测试数据或评测器。每次有意义的修改后调用配置的业务评测工具，依据原始编译错误、正确性和性能结果修复；必须通过 case.json 中全部五个随机种子，浮点比较 atol=0.01, rtol=0.01。只有原始评测凭据能够证明正确性与性能。没有成对复测时不要宣称加速；结束时留下有通过凭据的候选。 Read reference/native-template.py for a verified six-source example of this operator on CANN 9.1 / Ascend910_9382; adapt names, shapes and tiling for the declared task. Preserve the demonstrated tiling serialization, workspace and synchronization contracts. Use evaluate(candidate=\"solution.py\") and read original receipts. Do not finish with any compile or correctness failure. This generation example requires one verified candidate: after all five input seeds pass, read its original receipt and finish. Run longer performance search as a separate goal.",
+  "contract": {
+    "operator": "matmul",
+    "native_operator": "matmul",
+    "target": {
+      "soc": "ai_core-Ascend910_9382",
+      "device": 1
+    },
+    "inputs": [
+      {
+        "name": "a",
+        "shape": [
+          128,
+          128
+        ],
+        "dtype": "float16",
+        "layout": "contiguous ND"
+      },
+      {
+        "name": "b",
+        "shape": [
+          128,
+          128
+        ],
+        "dtype": "float16",
+        "layout": "contiguous ND"
+      }
+    ],
+    "output": {
+      "shape": [
+        128,
+        128
+      ],
+      "dtype": "float16",
+      "layout": "contiguous ND"
+    },
+    "semantics": "计算 C[M,N] = A[M,K] @ B[K,N]，不转置、无 bias、无 batch；以 FP32 累加，最终转换为 float16 输出。",
+    "input_mutation_allowed": false,
+    "test_data": {
+      "distribution": "standard_normal",
+      "seeds": [
+        1024,
+        1025,
+        1026,
+        1027,
+        1028
+      ],
+      "generator": "reference/reference.py:get_inputs",
+      "correctness_trials": 5
+    },
+    "correctness": {
+      "atol": 0.01,
+      "rtol": 0.01,
+      "finite_inputs": true
+    },
+    "candidate": {
+      "path": "solution.py",
+      "format": "six_source",
+      "required_fields": [
+        "project_json_src",
+        "host_tiling_src",
+        "host_operator_src",
+        "kernel_src",
+        "python_bind_src",
+        "model_src"
+      ]
+    },
+    "performance": {
+      "timer": "npu_event",
+      "device_stream": "explicit target device",
+      "warmup": 3,
+      "samples": 100,
+      "comparison": "same-device interleaved paired measurements; compile and input preparation excluded"
+    }
+  },
+  "seed_files": {
+    "solution.py": "\"\"\"Implement the six-source Ascend C candidate specified by this task.\"\"\"\n",
+    "reference/case.json": "{\n  \"kind\": \"matmul\",\n  \"task_id\": \"cann-cube-matmul-fp16-128\",\n  \"native_operator\": \"matmul\",\n  \"soc\": \"ai_core-Ascend910_9382\",\n  \"device\": 1,\n  \"m\": 128,\n  \"n\": 128,\n  \"k\": 128,\n  \"dtype\": \"float16\",\n  \"accumulator_dtype\": \"float32\",\n  \"seeds\": [\n    1024,\n    1025,\n    1026,\n    1027,\n    1028\n  ],\n  \"distribution\": \"standard_normal\",\n  \"atol\": 0.01,\n  \"rtol\": 0.01\n}\n",
+    "reference/reference.py": "\"\"\"Frozen reference and input generator; generated from case.json.\"\"\"\nimport torch\n\nSHAPES = [[128, 128], [128, 128]]\nSEEDS = [1024, 1025, 1026, 1027, 1028]\nDTYPE = torch.float16\n_trial = 0\n\nclass Model(torch.nn.Module):\n    def forward(self, a, b):\n        return torch.matmul(a.detach().cpu().float(), b.detach().cpu().float()).to(device=a.device, dtype=a.dtype)\n\ndef get_inputs():\n    global _trial\n    generator = torch.Generator(device='cpu').manual_seed(SEEDS[_trial % len(SEEDS)])\n    _trial += 1\n    return [torch.randn(shape, generator=generator, dtype=DTYPE) for shape in SHAPES]\n\ndef get_init_inputs():\n    return []\n",
+    "reference/native-template.py": "\"\"\"Six-source candidate: Cube matmul C = A @ B (no transpose, no bias), FP32 accum, FP16 out.\"\"\"\nimport json\n\nproject_json_src = json.dumps([{\n    'op': 'MatmulCustom', 'language': 'cpp',\n    'input_desc': [\n        {'name': 'a', 'param_type': 'required', 'format': ['ND'], 'type': ['float16']},\n        {'name': 'b', 'param_type': 'required', 'format': ['ND'], 'type': ['float16']},\n    ],\n    'output_desc': [{'name': 'c', 'param_type': 'required', 'format': ['ND'], 'type': ['float16']}],\n}])\n\nhost_tiling_src = r'''\n#ifndef MATMUL_CUSTOM_TILING_H\n#define MATMUL_CUSTOM_TILING_H\n#include \"register/tilingdata_base.h\"\n#include \"tiling/tiling_api.h\"\n\nnamespace optiling {\nBEGIN_TILING_DATA_DEF(MatmulCustomTilingData)\nTILING_DATA_FIELD_DEF_STRUCT(TCubeTiling, cubeTiling);\nEND_TILING_DATA_DEF;\n\nREGISTER_TILING_DATA_CLASS(MatmulCustom, MatmulCustomTilingData)\n}  // namespace optiling\n\n// Host-side mirror of the registered tiling struct for the kernel-side header copy.\nstruct MatmulCustomTilingData { TCubeTiling cubeTiling; };\n#endif\n'''\n\nhost_operator_src = r'''\n#include <cstdint>\n#include \"tiling/platform/platform_ascendc.h\"\n#include \"tiling/tiling_api.h\"\n#include \"../op_kernel/matmul_custom_tiling.h\"\n#include \"register/op_def_registry.h\"\n\nnamespace optiling {\nstatic ge::graphStatus TilingFunc(gert::TilingContext* c) {\n  MatmulCustomTilingData tilingData;\n  optiling::TCubeTiling& cubeTiling = tilingData.cubeTiling;\n\n  const gert::StorageShape* aShape = c->GetInputShape(0);\n  const gert::StorageShape* bShape = c->GetInputShape(1);\n  int32_t M = static_cast<int32_t>(aShape->GetStorageShape().GetDim(0));\n  int32_t K = static_cast<int32_t>(aShape->GetStorageShape().GetDim(1));\n  int32_t N = static_cast<int32_t>(bShape->GetStorageShape().GetDim(1));\n\n  platform_ascendc::PlatformAscendC platform(c->GetPlatformInfo());\n  matmul_tiling::MatmulApiTiling mmTiling(platform);\n  mmTiling.SetAType(matmul_tiling::TPosition::GM, matmul_tiling::CubeFormat::ND,\n                    matmul_tiling::DataType::DT_FLOAT16, false);\n  mmTiling.SetBType(matmul_tiling::TPosition::GM, matmul_tiling::CubeFormat::ND,\n                    matmul_tiling::DataType::DT_FLOAT16, false);\n  mmTiling.SetCType(matmul_tiling::TPosition::GM, matmul_tiling::CubeFormat::ND,\n                    matmul_tiling::DataType::DT_FLOAT16);\n  mmTiling.SetBias(false);\n  mmTiling.SetShape(M, N, K);\n  mmTiling.SetOrgShape(M, N, K);\n  mmTiling.SetFixSplit(M, N, K);\n\n  if (mmTiling.GetTiling(cubeTiling) == -1) {\n    return ge::GRAPH_FAILED;\n  }\n\n  cubeTiling.set_usedCoreNum(1);\n  cubeTiling.set_singleCoreM(M);\n  cubeTiling.set_singleCoreN(N);\n  cubeTiling.set_singleCoreK(K);\n\n  tilingData.SaveToBuffer(c->GetRawTilingData()->GetData(),\n                          c->GetRawTilingData()->GetCapacity());\n  c->GetRawTilingData()->SetDataSize(tilingData.GetDataSize());\n\n  c->SetBlockDim(1);\n  c->GetWorkspaceSizes(1)[0] =\n      static_cast<size_t>(platform.GetLibApiWorkSpaceSize());\n  return ge::GRAPH_SUCCESS;\n}\n}  // namespace optiling\n\nnamespace ge {\nstatic ge::graphStatus InferShape(gert::InferShapeContext* c) {\n  auto aShape = *c->GetInputShape(0);\n  auto bShape = *c->GetInputShape(1);\n  gert::Shape* outShape = c->GetOutputShape(0);\n  outShape->SetDimNum(2);\n  outShape->SetDim(0, aShape.GetDim(0));\n  outShape->SetDim(1, bShape.GetDim(1));\n  return GRAPH_SUCCESS;\n}\nstatic ge::graphStatus InferDataType(gert::InferDataTypeContext* c) {\n  c->SetOutputDataType(0, c->GetInputDataType(0));\n  return GRAPH_SUCCESS;\n}\n}  // namespace ge\n\nnamespace ops {\nclass MatmulCustom : public OpDef {\n public:\n  explicit MatmulCustom(const char* name) : OpDef(name) {\n    this->Input(\"a\").ParamType(REQUIRED).DataType({ge::DT_FLOAT16}).Format({ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND});\n    this->Input(\"b\").ParamType(REQUIRED).DataType({ge::DT_FLOAT16}).Format({ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND});\n    this->Output(\"c\").ParamType(REQUIRED).DataType({ge::DT_FLOAT16}).Format({ge::FORMAT_ND}).UnknownShapeFormat({ge::FORMAT_ND});\n    this->SetInferShape(ge::InferShape).SetInferDataType(ge::InferDataType);\n    this->AICore().SetTiling(optiling::TilingFunc);\n    this->AICore().AddConfig(\"ascend910_93\");\n  }\n};\nOP_ADD(MatmulCustom);\n}  // namespace ops\n'''\n\nkernel_src = r'''\n#define ASCENDC_CUBE_ONLY\n#include \"kernel_operator.h\"\n#include \"kernel_tiling/kernel_tiling.h\"\n#include \"lib/matmul_intf.h\"\n\nusing namespace AscendC;\n\nextern \"C\" __global__ __aicore__ void matmul_custom(GM_ADDR a, GM_ADDR b, GM_ADDR c,\n                                                    GM_ADDR workspace, GM_ADDR tiling) {\n  GET_TILING_DATA(tilingData, tiling);\n  const TCubeTiling* cubeTiling = &tilingData.cubeTiling;\n\n  if (GetSysWorkSpacePtr() == nullptr) {\n    return;\n  }\n\n  using A_T = MatmulType<TPosition::GM, CubeFormat::ND, half, false>;\n  using B_T = MatmulType<TPosition::GM, CubeFormat::ND, half, false>;\n  using C_T = MatmulType<TPosition::GM, CubeFormat::ND, half, false>;\n  using BIAS_T = MatmulType<TPosition::GM, CubeFormat::ND, float, false>;\n\n  TPipe pipe;\n  Matmul<A_T, B_T, C_T, BIAS_T> mm;\n  REGIST_MATMUL_OBJ(&pipe, GetSysWorkSpacePtr(), mm, const_cast<TCubeTiling*>(cubeTiling));\n\n  GlobalTensor<half> aGm;\n  GlobalTensor<half> bGm;\n  GlobalTensor<half> cGm;\n  aGm.SetGlobalBuffer((__gm__ half*)a);\n  bGm.SetGlobalBuffer((__gm__ half*)b);\n  cGm.SetGlobalBuffer((__gm__ half*)c);\n\n  mm.SetTensorA(aGm, false);\n  mm.SetTensorB(bGm, false);\n  mm.IterateAll(cGm);\n  mm.End();\n}\n'''\n\npython_bind_src = r'''\n#include <torch/extension.h>\n#include \"pytorch_npu_helper.hpp\"\n\nat::Tensor matmul_custom(const at::Tensor& a, const at::Tensor& b) {\n  auto c = at::empty({a.size(0), b.size(1)}, a.options());\n  EXEC_NPU_CMD(aclnnMatmulCustom, a, b, c);\n  return c;\n}\n\nPYBIND11_MODULE(TORCH_EXTENSION_NAME, m) { m.def(\"matmul_custom\", &matmul_custom); }\n'''\n\nmodel_src = '''\nimport torch\nimport custom_ops_lib\n\n\nclass ModelNew(torch.nn.Module):\n    def forward(self, a, b):\n        return custom_ops_lib.matmul_custom(a, b)\n'''\n"
+  }
+}

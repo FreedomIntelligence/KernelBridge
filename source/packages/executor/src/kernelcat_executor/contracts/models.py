@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -42,6 +43,24 @@ def _validate_json(value: Any, depth: int = 0) -> None:
 
 def digest(value: Any) -> str:
     return hashlib.sha256(canonical(value).encode()).hexdigest()
+
+
+def same_json_value(left: Any, right: Any) -> bool:
+    """Compare a wire round trip without rewriting durable bytes or digests.
+
+    JavaScript serializes 0.0 as 0. JSON has one number type; booleans and
+    strings remain distinct, and lossy large-integer rounding is rejected.
+    """
+    if type(left) in (int, float) and type(right) in (int, float):
+        return (not isinstance(left, float) or math.isfinite(left)) and (
+            not isinstance(right, float) or math.isfinite(right)) and left == right
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(same_json_value(left[key], right[key]) for key in left)
+    if isinstance(left, list):
+        return len(left) == len(right) and all(same_json_value(a, b) for a, b in zip(left, right))
+    return type(left) in (str, bool, type(None)) and left == right
 
 
 class Action(Contract):

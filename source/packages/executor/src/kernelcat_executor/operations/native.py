@@ -10,6 +10,7 @@ from typing import cast
 
 from kernelcat_executor.contracts.harness import MCP_PREFIX, PI_READ_TOOLS, PI_WRITE_TOOLS, validate_native_result
 from kernelcat_executor.contracts.models import (
+    same_json_value,
     Action,
     Conflict,
     InDoubt,
@@ -124,7 +125,7 @@ class NativeEffects:
             return
         expected = self.action.tool[len(MCP_PREFIX):]
         if (request["sequence"] != 0 or request["name"] != expected
-                or canonical(request["arguments"]) != canonical(self.action.arguments)):
+                or not same_json_value(request["arguments"], self.action.arguments)):
             raise Conflict("native MCP call differs from its admitted direct invocation")
 
     def settle(self, request: NativeSettleRequest) -> Json:

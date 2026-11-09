@@ -64,7 +64,8 @@ class RuntimeTests(unittest.TestCase):
         knowledge = FunctionTool(ToolSpec(name='knowledge_search', description='Find kernel knowledge.',
             parameters=schema({'query': {'type': 'string'}}, ['query']), credits=1),
             lambda _: Outcome(data={'hits': ['a trusted reference']}))
-        gateway = Gateway(self.store, [*builtin_tools(self.workspace, Skills(())), evaluator, knowledge], self.task.scope,
+        number = FunctionTool(ToolSpec(name='number_probe',description='Return a JSON number.',parameters=schema({'value':{'type':'number'}},['value']),credits=1),lambda a:Outcome(data=a.arguments))
+        gateway = Gateway(self.store, [*builtin_tools(self.workspace, Skills(())), evaluator, knowledge, number], self.task.scope,
             (WorkspaceGuard(self.workspace.root, ('solution.py',)),))
         replay = NativeReplayFiles(self.store, self.base / 'state', self.workspace.root, self.task.id)
         session = ExecutionSession(gateway, {'primary': provider}, [], cwd=self.workspace.root,
@@ -104,6 +105,26 @@ class RuntimeTests(unittest.TestCase):
         resumed = session.run(self.task)
         self.assertEqual(resumed['status'], 'finished')
         self.assertEqual(len(provider.declarations), before)
+
+    def test_numeric_business_and_native_arguments_survive_js_roundtrip(self):
+        session, _, replay = self.session([
+            ('number_probe', {'value': 0.0}),
+            ('number_probe', {'value': 1.0}),
+            ('read', {'path': 'reference/spec.txt', 'limit': 1.0}),
+        ])
+        self.assertEqual(session.run(self.task)['status'], 'finished')
+        rows=[r for r in self.store.snapshot()['actions'].values() if r['action']['tool']=='number_probe']
+        self.assertEqual([r['outcome']['data']['value'] for r in rows],[0.0,1.0])
+        self.assertTrue(all(type(r['action']['arguments']['value']) is float for r in rows))
+        replay._boundary()
+
+    def test_numeric_wire_equivalence_preserves_type_and_exact_value(self):
+        from kernelcat_executor.contracts.models import same_json_value
+        self.assertTrue(same_json_value({'a':[0.0,1.0]}, {'a':[0,1]}))
+        self.assertFalse(same_json_value({'a':False},{'a':0}))
+        self.assertFalse(same_json_value({'a':'0'},{'a':0}))
+        self.assertFalse(same_json_value(2**53+1,float(2**53+1)))
+        self.assertFalse(same_json_value(float('nan'),float('nan')))
 
     def test_legacy_reference_write_is_denied_without_rsi(self):
         session, _, _ = self.session([])

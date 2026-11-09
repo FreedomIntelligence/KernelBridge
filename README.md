@@ -4,6 +4,8 @@ KernelAgent 面向通用算子生成：把算子语义、输入约束、目标�
 
 首次使用按本页完成安装和独立向量加法示例。日常任务、SDK 和恢复见 [KernelCat](kernelcat/README.md)；上下文、知识与只读会话回放见 [KernelBridge](kernelbridge/README.md)。使用本产品无需选择某个 benchmark，也无需提交公开榜单。
 
+真实 CANN 算子从 [Vector / Cube task 示例](examples/cann/README.md) 开始。`task.goal` 直接进入 Pi SDK；选择 Goal 模式时由 LoopX 管理同一个执行会话。两个示例均完成在线生成、NPU 编译、五组输入正确性和独立凭据验收，具体平台与范围见 [验收记录](validation/ACCEPTANCE_RESULTS.md)。
+
 ## 交付内容与环境
 
 ```text
@@ -21,7 +23,7 @@ KernelBridge/
     └── contracts/              协议与配置的权威 schema
 ```
 
-本安装流程使用 Linux/macOS 的 POSIX 路径。准备 Python 3.11 或更新版本、Node.js 22.19.0 或更新版本、npm 和联网环境。安装程序会创建独立 Python 虚拟环境。源码和 Node 完整依赖锁随包交付；Python 主机侧依赖与构建工具的固定版本记录在 `requirements.lock`。完整 Goal 工作流使用 LoopX 1.2.3，需要 Node 22.22.3 或更新版本。普通 `run` 只执行一次；自动跨 Trial 的产品入口为 `pursue --goal`，其绑定文件与 SDK 用法见 [KernelCat](kernelcat/README.md#loopx-自动续接入口)。
+本安装流程使用 Linux/macOS 的 POSIX 路径。准备 Python 3.11 或更新版本、Node.js 22.22.3 LTS 或具备 Zstd API 的更新兼容版本、npm 和联网环境。Node 23.7 缺少依赖所需 API，安装预检会拒绝。安装程序会创建独立 Python 虚拟环境。源码和 Node 完整依赖锁随包交付；Python 主机侧依赖与构建工具的固定版本记录在 `requirements.lock`。完整 Goal 工作流使用 LoopX 1.2.3，需要 Node 22.22.3 或更新版本。普通 `run` 只执行一次；自动跨 Trial 的产品入口为 `pursue --goal`，其绑定文件与 SDK 用法见 [KernelCat](kernelcat/README.md#loopx-自动续接入口)。
 
 首次示例只需要 CPU。运行真实设备算子还需单独准备相应编译器、驱动、运行时和设备访问权限，并配置匹配的独立评估器。主机侧安装不包含 Torch、CANN 或设备环境。交付包不含模型凭证、开发机虚拟环境、历史会话或客户运行数据。
 
@@ -90,13 +92,17 @@ node examples/vector-add/sdk-run.mjs \
 
 ## 数据位置与后续使用
 
-本版锁定 Pi 1.5.0、pi-subagents 0.87.0。原生会话默认暴露 Pi 的 `read`、`write`、`edit`、`bash`、`grep`、`find`、`ls`；只读角色仅获得读取工具。评估器 `evaluate`、Knowledge 和 `read_receipt` 直接作为业务工具提供。基础文件操作使用 Pi 的工具定义、编辑算法和输出格式，KernelBridge 负责权限、原始凭据与任务预算。需要脚本组合时可显式设置 `pi_worker.codemode: true`；它不再是普通文件操作和评测的必经入口。
+本版锁定 Pi 1.5.0、pi-subagents 0.87.0。原生会话默认暴露 Pi 的 `read`、`write`、`edit`、`bash`、`grep`、`find`、`ls`；只读角色仅获得读取工具。普通单会话的 `evaluate`、Knowledge 和 `read_receipt` 直接作为业务工具提供。正式 SDK 托管 Run/Trial 的性能评测通过固定源码摘要的 RSI 适配器接入 `run_experiment`；该入口拒绝没有评测协议绑定的通用 evaluator。两者共享同一套 Pi 会话实现。基础文件操作使用 Pi 的工具定义、编辑算法和输出格式，KernelBridge 负责权限、原始凭据与任务预算。需要脚本组合时可显式设置 `pi_worker.codemode: true`；它不再是普通文件操作和评测的必经入口。
 
 普通任务也可以在配置顶层指定 `writable_paths: ["solution.py"]` 和 `readonly_paths: ["reference"]`。路径必须相对工作区且规范化；`writable_paths` 是精确文件白名单，`readonly_paths` 同时保护目录后代，默认保护 `reference/`。RSI 使用其 `source_paths` 作为白名单。原生和旧版文件工具都经过权限检查；符号链接和控制器保留目录不可通过基础工具读取或写入。
 
 `bash` 在独立工作区副本运行，禁止网络，只回写允许修改的普通文件。macOS 使用系统 Seatbelt；Linux 需要预先安装并允许使用 `bubblewrap`，缺失时不会退回宿主 shell。退出后检查整份差异再回写；超时和取消不回写候选。该 shell 用于源代码处理，NPU 编译、设备运行和性能评估使用已配置的独立 `evaluate`。设备评估器仍须由部署者提供进程和设备隔离。
 
 评测直连沿用评估器自己的超时；Worker 时间预算至少覆盖评估器超时及 30 秒清理余量。可选 MCP 组合沿用 Worker 时间预算。`unknown` 仍表示可能已执行，恢复时必须检查原始回执；Pi 在执行前拒绝的未知工具和无效参数则记录为明确失败，并完成原生会话检查点。
+
+Linux shell 使用 bubblewrap；可以用宿主环境变量 `KERNELCAT_BWRAP` 指定其绝对路径。沙箱使用私有 `/tmp` 和空 `/proc`，不绑定宿主进程目录；依赖 `/proc` 的命令不在该沙箱的支持范围内。隔离后端缺失或启动失败时拒绝执行，不回退到宿主 shell。
+
+Pi 持有模型与工具回合；LoopX 持有 Goal 的调度、暂停和继续。SDK 负责配置与 Run/Trial 接线，Gateway 负责权限、预算、原始凭据及未决效果。正确性或性能判断由固定协议的业务评测工具给出，Pi 的总结不构成验收依据。
 
 升级需要重新安装锁定依赖。旧运行保留原来的版本绑定和账本，不将 Pi 1.0 会话强制改写为新版本。`PIN_MANIFEST.json` 的 `source` 保留导入来源，`derivation` 记录本次修改；当前文件摘要在 `files` 中。
 

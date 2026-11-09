@@ -7,6 +7,7 @@ import type {
 } from "../generated/rsi.ts";
 import { canonicalKey } from "../run/scoring/canonical.ts";
 import { artifactDigest, readDecomposition, removeUnits } from "./artifacts.ts";
+import { discoveryFeedback } from "./feedback.ts";
 import { queryKnowledge } from "./knowledge.ts";
 import { captureMeasuredNodes } from "./lineage.ts";
 import { invalidatedMeasurements, knowledgeMemory } from "./memory.ts";
@@ -360,7 +361,7 @@ class RsiController {
       if (canonicalKey(existing.value.requested ?? existing.value.request) !== canonicalKey(request)) throw new Error("RSI acceptance request changed on replay");
       const adopted = readRsi<AcceptanceRequest>(existing.value.request, "AcceptanceRequest");
       return { experiment_id: request.experiment_id, accepted: adopted.accept,
-        source_digest: artifactDigest(sourceFiles(existing.value.source)) };
+        source_digest: artifactDigest(sourceFiles(existing.value.source)), ...this.feedback(request.experiment_id) };
     }
     const state = this.selectedPlan(request.experiment_id);
     const measurement = this.confirmation(request);
@@ -391,7 +392,16 @@ class RsiController {
     }), "PrivateRecord");
     this.records.checkWrite(result, record);
     this.records.adopt(result);
-    return { experiment_id: request.experiment_id, accepted: adopted.accept, source_digest: artifactDigest(source) };
+    return { experiment_id: request.experiment_id, accepted: adopted.accept, source_digest: artifactDigest(source),
+      ...this.feedback(request.experiment_id) };
+  }
+
+  private feedback(experiment: string): Record<string, unknown> {
+    return {
+      discovery: unitMeasurements(this.records.experiment("measurement", experiment), experiment)
+        .map(sample => discoveryFeedback(sample.measurement, sample.request.unit_id)),
+      feedback_scope: "Discovery only; higher log scores are better. Independent confirmation remains private. Read the current source after rejection; submission receipts do not contain evaluator logs.",
+    };
   }
 }
 

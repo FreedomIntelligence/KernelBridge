@@ -178,7 +178,7 @@ class APIProposer:
                 usage = {key: value for key, value in raw_usage.items()
                          if key in {"input_tokens", "output_tokens", "prompt_tokens",
                                     "completion_tokens", "total_tokens", "cache_read_input_tokens",
-                                    "cache_creation_input_tokens"}
+                                    "cache_creation_input_tokens", "prompt_cache_hit_tokens", "prompt_cache_miss_tokens"}
                          and type(value) is int and value >= 0}
             if native_turns:
                 turn = parse_turn(self.provider, data, usage)

@@ -1,0 +1,12 @@
+{
+  "candidate": "./workspace/solution.py",
+  "reference": "./reference.py",
+  "workspace": "./new-evaluation-job",
+  "operator": "vector_add",
+  "soc": "ai_core-Ascend910_9382",
+  "device": 1,
+  "fast": false,
+  "timeout": 600,
+  "atol": 0.0001,
+  "rtol": 0.0001
+}

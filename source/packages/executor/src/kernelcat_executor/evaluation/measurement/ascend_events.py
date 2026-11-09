@@ -25,8 +25,9 @@ def time_execution_event_template(context, device, synchronize, event_class, eva
     init_inputs = [
         x.to(device=device) if isinstance(x, torch.Tensor) else x for x in init_inputs
     ]
-    with torch.no_grad():
+    with torch.no_grad(), torch.npu.device(device):
         custom_model = ModelNew(*init_inputs).to(device)
+        stream = torch.npu.current_stream(device)
 
         def internel_eval(kernel_fn, elapsed_times):
             logger.info(f"Performance: {num_warmup} warmup + {num_perf_trials} timed trials")
@@ -37,9 +38,9 @@ def time_execution_event_template(context, device, synchronize, event_class, eva
             for trail in range(num_perf_trials):
                 start_event = event_class(enable_timing=True)
                 end_event = event_class(enable_timing=True)
-                start_event.record()
+                start_event.record(stream)
                 kernel_fn(*inputs)
-                end_event.record()
+                end_event.record(stream)
                 # Synchronize to ensure the events have completed
                 synchronize(device=device)
                 # Calculate the elapsed time in milliseconds

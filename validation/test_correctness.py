@@ -56,4 +56,53 @@ class CorrectnessTests(unittest.TestCase):
         self.assertTrue(execute_template(lambda **_:None,'cpu',context,num_correct_trials=2)[0])
 
 
-if __name__=='__main__': unittest.main(verbosity=2)
+class BoundaryCorrectnessTests(unittest.TestCase):
+    def check(self, reference, candidate=None, inputs=None, init=None):
+        context={'Model':reference,'ModelNew':candidate or reference,'get_inputs':inputs or (lambda:[]),'get_init_inputs':init or (lambda:[])}
+        return execute_template(lambda **_:None,'cpu',context,num_correct_trials=2)
+
+    def test_empty_and_all_supported_scalar_dtypes(self):
+        class Identity(torch.nn.Module):
+            def forward(self,x):return x.clone()
+        for dtype in (torch.float16,torch.bfloat16,torch.float32,torch.float64,torch.int64,torch.bool):
+            for size in (0,3):
+                with self.subTest(dtype=dtype,size=size):
+                    self.assertTrue(self.check(Identity,inputs=lambda: [torch.ones(size,dtype=dtype)])[0])
+
+    def test_structured_outputs(self):
+        class Structured(torch.nn.Module):
+            def forward(self,x):return {'outputs':(x.clone(),[x[:0]]),'count':x.numel()}
+        self.assertTrue(self.check(Structured,inputs=lambda:[torch.ones(3)])[0])
+
+    def test_nan_and_infinity_positions(self):
+        class Identity(torch.nn.Module):
+            def forward(self,x):return x.clone()
+        class Wrong(torch.nn.Module):
+            def forward(self,x):return torch.zeros_like(x)
+        inputs=lambda:[torch.tensor([float('nan'),float('inf'),-float('inf'),1.])]
+        self.assertTrue(self.check(Identity,inputs=inputs)[0])
+        self.assertFalse(self.check(Identity,Wrong,inputs)[0])
+
+    def test_integer_outputs_are_exact_even_above_float_precision(self):
+        class Identity(torch.nn.Module):
+            def forward(self,x):return x.clone()
+        class Wrong(torch.nn.Module):
+            def forward(self,x):return x+1
+        self.assertFalse(self.check(Identity,Wrong,lambda:[torch.tensor([2**60])])[0])
+
+    def test_output_dtype_mismatch_is_precision_failure(self):
+        class Identity(torch.nn.Module):
+            def forward(self,x):return x.clone()
+        class Wrong(torch.nn.Module):
+            def forward(self,x):return x.double()
+        self.assertEqual(self.check(Identity,Wrong,lambda:[torch.ones(3)])[2],'precision_error')
+
+    def test_initialization_inputs_are_isolated(self):
+        class Ref(torch.nn.Module):
+            def __init__(self,x):super().__init__();self.x=x.clone();x.zero_()
+            def forward(self):return self.x
+        self.assertTrue(self.check(Ref,init=lambda:[torch.tensor([2.])])[0])
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

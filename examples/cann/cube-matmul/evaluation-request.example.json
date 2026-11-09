@@ -1,0 +1,12 @@
+{
+  "candidate": "./workspace/solution.py",
+  "reference": "./reference.py",
+  "workspace": "./new-evaluation-job",
+  "operator": "matmul",
+  "soc": "ai_core-Ascend910_9382",
+  "device": 1,
+  "fast": false,
+  "timeout": 600,
+  "atol": 0.01,
+  "rtol": 0.01
+}

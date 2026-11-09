@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -23,11 +24,39 @@ _FIELDS = ("project_json_src", "host_tiling_src", "host_operator_src",
            "kernel_src", "python_bind_src")
 
 
+def diagnostic_lines(text: str, limit: int = 8) -> list[str]:
+    """Keep primary compiler diagnostics ahead of cascading make/TBE failures.
+
+    The complete log remains the authority. This bounded view is feedback for
+    the next candidate edit, where the final make exit is usually unhelpful.
+    """
+    lines = text.splitlines()
+    primary = []
+    for index, line in enumerate(lines):
+        # A C++ stack frame such as c10::Error::Error is not a compiler error.
+        if not re.search(r"(?:fatal )?error:(?!:)|static assertion failed", line, re.I):
+            continue
+        if line.rstrip().endswith(('named', 'call to')) and index + 1 < len(lines):
+            line += ' ' + lines[index + 1].strip()
+        primary.append(line)
+    fallback = [line for line in lines if re.search(r"error|failed|undefined|not declared", line, re.I)]
+    return list(dict.fromkeys(primary or fallback or lines))[:limit]
+
+
 def _run(argv: list[str], cwd: Path) -> None:
     logger.info("Native build step: %s", argv[0])
-    result = subprocess.run(argv, cwd=cwd, check=False, capture_output=True, text=True)
+    # Keep full diagnostics even if the outer deadline kills the compiler.
+    with tempfile.NamedTemporaryFile(prefix=".kernelbridge-build-", suffix=".log", dir=cwd,
+                                     delete=False) as output:
+        log_path = Path(output.name)
+        output.write((json.dumps({"argv": argv}) + "\n").encode())
+        output.flush()
+        result = subprocess.run(argv, cwd=cwd, check=False, stdout=output, stderr=subprocess.STDOUT)
     if result.returncode:
-        raise RuntimeError(f"Exit Code: {result.returncode}\n[STDOUT]\n{result.stdout}\n[STDERR]\n{result.stderr}")
+        with log_path.open("rb") as stream:
+            stream.seek(max(0, log_path.stat().st_size - 65536))
+            tail = stream.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Exit Code: {result.returncode}\nBuild log: {log_path}\n{tail}")
 
 
 def _normalize_addconfig(source: str, soc: str) -> str:
@@ -40,12 +69,15 @@ def _inject_kernel_include_paths(target: Path, paths) -> None:
     if not paths or not cmake.is_file():
         return
     text = cmake.read_text()
-    additions = [f"add_ops_compile_options(ALL OPTIONS -I{p})" for p in paths if p]
+    modern = "npu_op_kernel_library(" in text
+    command = "npu_op_kernel_options(ascendc_kernels ALL OPTIONS" if modern else "add_ops_compile_options(ALL OPTIONS"
+    additions = [f'{command} "-I{p}")' for p in paths if p]
     additions = list(dict.fromkeys(line for line in additions if line not in text))
     if not additions:
         return
     extra = "\n".join(additions)
-    text = text.replace("add_kernels_compile()", extra + "\nadd_kernels_compile()", 1) if "add_kernels_compile()" in text else text.rstrip() + "\n" + extra + "\n"
+    marker = "npu_op_kernel_library(" if modern else "add_kernels_compile()"
+    text = text.replace(marker, extra + "\n" + marker, 1) if marker in text else text.rstrip() + "\n" + extra + "\n"
     cmake.write_text(text)
 
 
@@ -64,8 +96,12 @@ def compile_sources(sources: Mapping[str, str], settings: BuildSettings,
     (root / (name + ".json")).write_text(context["project_json_src"])
     _run(["msopgen", "gen", "-i", name + ".json", "-c", settings.soc,
           "-lan", "cpp", "-out", project.name], root)
+    tiling_headers = [project / directory / (name + "_tiling.h") for directory in ("op_host", "op_kernel")]
+    tiling_headers = [path for path in tiling_headers if path.is_file()]
+    if len(tiling_headers) != 1:
+        raise ValueError("expected one generated tiling header in op_host or op_kernel")
     outputs = {
-        project / "op_host" / (name + "_tiling.h"): context["host_tiling_src"],
+        tiling_headers[0]: context["host_tiling_src"],
         project / "op_host" / (name + ".cpp"): _normalize_addconfig(context["host_operator_src"], settings.soc),
         project / "op_kernel" / (name + ".cpp"): context["kernel_src"],
         root / "CppExtension/csrc/op.cpp": context["python_bind_src"],
@@ -79,7 +115,7 @@ def compile_sources(sources: Mapping[str, str], settings: BuildSettings,
     installers = sorted((project / "build_out").glob("custom_opp_*.run"))
     if len(installers) != 1:
         raise ValueError("expected one unambiguous native installer")
-    _run([str(installers[0])], installers[0].parent)
+    _run([str(installers[0]), "--quiet", "--install-path=" + str(root / "opp")], installers[0].parent)
     _run([sys.executable, "setup.py", "build_ext", "--inplace"], root / "CppExtension")
     source_digest = hashlib.sha256(json.dumps(
         {field: sources[field] for field in _FIELDS}, sort_keys=True,

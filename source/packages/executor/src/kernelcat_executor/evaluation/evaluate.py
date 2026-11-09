@@ -56,8 +56,11 @@ def run_job(request: Request) -> dict:
     shutil.copytree(BACKEND_ROOT / "templates" / "CppExtension", build / "CppExtension",
                     ignore=shutil.ignore_patterns("build", "dist", "__pycache__", "*.so", "*.egg-info"))
     env = os.environ.copy()
+    # CANN's set_env.sh supplies Python packages used by msopgen and its compiler.
+    # Keep that provisioned SDK path when prepending the verified product source.
+    python_paths = [str(BACKEND_ROOT.parents[2]), *filter(None, env.get("PYTHONPATH", "").split(os.pathsep))]
     env.update(ASCEND_DEVICE_ID=str(request.device), ASCENDC_DEVICE=request.soc,
-               OP_ENGINEER_DIR=str(build), PYTHONPATH=str(BACKEND_ROOT.parents[2]), PYTHON=sys.executable)
+               OP_ENGINEER_DIR=str(build), PYTHONPATH=os.pathsep.join(dict.fromkeys(python_paths)), PYTHON=sys.executable)
     customize = build / "opp/vendors/customize"
     env["ASCEND_CUSTOM_OPP_PATH"] = str(customize)
     env["LD_LIBRARY_PATH"] = str(customize / "op_api/lib") + os.pathsep + env.get("LD_LIBRARY_PATH", "")
@@ -68,8 +71,23 @@ def run_job(request: Request) -> dict:
             str(request.workspace / "request.json")], request.workspace, env,
             request.workspace / "runner.log", request.timeout)
         native = request.workspace / "native-result.json"
-        if interruption or code != 0 or not native.is_file():
+        if interruption:
             result["data"].update(error=interruption or "runner_did_not_return_authoritative_result", returncode=code)
+        elif code != 0:
+            # The owned runner was reaped: this evaluation has definitively failed.
+            # Preserve its diagnostics so Pi can repair a crashing candidate. A lost
+            # transport or timeout is still UNKNOWN and must never be redispatched.
+            log = request.workspace / "runner.log"
+            with log.open("rb") as stream:
+                stream.seek(0, os.SEEK_END)
+                stream.seek(max(0, stream.tell() - 32768))
+                diagnostic = stream.read().decode("utf-8", errors="replace")
+            result["status"] = "failed"
+            result["data"].update(error="runner_process_failed", failure_stage="runner_error",
+                                  returncode=code, diagnostic=diagnostic,
+                                  log=str(log))
+        elif not native.is_file():
+            result["data"].update(error="runner_did_not_return_authoritative_result", returncode=code)
         else:
             value = json.loads(native.read_text())
             if not isinstance(value, dict) or type(value.get("compiled")) is not bool or type(value.get("correctness")) is not bool:
