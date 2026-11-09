@@ -112,6 +112,8 @@ python3 -B install.py --verify-only
 
 这些离线回归使用确定性的模型响应驱动真实 Pi、Python Gateway、检查点和工具，不调用线上模型；真实 NPU 验收需另行运行配置好的设备评估器，并保留设备身份、源码摘要和原始回执。
 
+完整功能范围、逐项通过标准、五项问题的固定回归及仍待验收的环境，见 [功能测试与验收清单](validation/TEST_PLAN.md)。
+
 `source/` 保存产品实现，客户任务、工作区、journals 与新产物放在独立数据目录。模型配置、可写范围与预算由客户明确指定；自动跨 Trial 必须显式配置 LoopX；单次执行允许独立 KernelCat 会话。Knowledge、RSI 评估与 Replay 按各自功能开关配置，关闭 Replay 不关闭 LoopX 的目标与配额管理。
 
 后续自定义算子可从示例生成的任务与配置出发，更换语义、输入范围、父程序和独立评估器。保留原始账本、回执、模块绑定和未决操作身份；升级源码不能通过清空预留、改写历史摘要或复制旧状态来强行继续。具体命令见 [KernelCat](kernelcat/README.md)，可选能力见 [KernelBridge](kernelbridge/README.md)。
