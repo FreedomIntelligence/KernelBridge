@@ -2,7 +2,7 @@
 import type { ContextSource, JsonObject } from "./context.ts";
 import type { ReplayPluginConfiguration, RsiSourceCommit } from "./rsi.ts";
 import type { ContextCommit } from "./runtime.ts";
-export const SCHEMA_SHA256 = "5019c98d76b59ed054c63dde8bddc57d338c0d3db900371436de452644286044";
+export const SCHEMA_SHA256 = "8044ec283bb4ff239fda049dbaa6c87d05dc6b01857f21035520ede7ec13b63e";
 export const SCHEMA = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kernelcat.local/contracts/execution/v1/harness.schema.json",
@@ -40,7 +40,7 @@ export const SCHEMA = {
           "const": "kernelcat.pi-harness/v1"
         },
         "adapter": {
-          "const": "pi@1.0.0"
+          "const": "pi@1.5.0"
         },
         "system_prompt": {
           "type": "string",
@@ -682,7 +682,7 @@ export interface HarnessTool {
 
 export interface HarnessInput {
   readonly schema_version: "kernelcat.pi-harness/v1";
-  readonly adapter: "pi@1.0.0";
+  readonly adapter: "pi@1.5.0";
   readonly system_prompt: string;
   readonly messages: ReadonlyArray<JsonObject>;
   readonly tools: ReadonlyArray<HarnessTool>;

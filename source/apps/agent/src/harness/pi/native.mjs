@@ -21,10 +21,12 @@ function failedResult(error) {
 }
 
 /** Native discovery/composition retains one Host permit around its actual SDK executor. */
-export function createNativeBridge(sdk, rpc, specifications, directory, sealedCall, fail, receipts) {
+export function createNativeBridge(sdk, rpc, specifications, directory, sealedCall, fail, receipts, options = {}) {
   const scope = new AsyncLocalStorage();
   const leaves = specifications.filter(specification => !['finish', 'delegate'].includes(specification.name));
   const names = new Set(leaves.map(specification => specification.name));
+  const builtins = options.tools ?? [];
+  const builtinNames = new Set(builtins.map(tool => tool.name));
 
   async function invoke(name, arguments_) {
     const invocation = scope.getStore();
@@ -72,16 +74,18 @@ export function createNativeBridge(sdk, rpc, specifications, directory, sealedCa
 
   async function execute(definition, args) {
     const [id, arguments_] = args;
-    if (!WRAPPERS.has(definition.name) &&
+    if (!builtinNames.has(definition.name) && !WRAPPERS.has(definition.name) &&
         !(definition.name.startsWith(PREFIX) && names.has(definition.name.slice(PREFIX.length)))) {
       throw new Error(`Native tool has no permitted binding: ${definition.name}`);
     }
     const call = sealedCall(id, definition.name, arguments_);
+    options.onStarted?.(id);
     const permission = await rpc.call('native_begin', call);
     if (permission.cached) {
-      const result = permission.outcome.data.result;
+      const result = permission.outcome.data.result ?? failedResult(permission.outcome.data.reason ?? 'Tool admission denied');
       receipts?.observeNative({ toolCallId: id, toolName: definition.name, result,
-        response: { action_id: call.id, outcome: permission.outcome } });
+        response: { action_id: permission.action_id ?? call.id, outcome: permission.outcome } });
+      options.onCompleted?.(id);
       return result;
     }
     if (typeof permission.permit !== 'string') throw new Error('Native tool has no Host permit');
@@ -94,10 +98,15 @@ export function createNativeBridge(sdk, rpc, specifications, directory, sealedCa
       result = failedResult(error);
     }
     if (invocation.failure) throw invocation.failure;
+    if (builtinNames.has(definition.name)) {
+      result = { ...result, content: [...result.content,
+        { type: 'text', text: `Execution receipt: ${permission.permit}` }] };
+    }
     const clean = cleanResult(result);
     const response = await rpc.call('native_settle', { permit: invocation.permit,
       status: clean.isError ? 'failed' : 'completed', result: clean });
     receipts?.observeNative({ toolCallId: id, toolName: definition.name, result, response }, invocation.nestedReplies);
+    options.onCompleted?.(id);
     return result;
   }
 
@@ -105,7 +114,7 @@ export function createNativeBridge(sdk, rpc, specifications, directory, sealedCa
     logPath: join(directory, 'mcp.log'),
     loadConfig: () => ({ errors: [], autoEnableCodemode: false, servers: [{
       name: 'kernelcat', source: 'KernelCat explicit finite Gateway binding', scope: 'extension',
-      config: { type: 'stdio', command: 'kernelcat-in-process-gateway', exposure: 'codemode', timeout: 300 },
+      config: { type: 'stdio', command: 'kernelcat-in-process-gateway', exposure: 'codemode', timeout: options.timeout ?? 300 },
     }] }),
     createTransport(entry) {
       if (entry.name !== 'kernelcat') throw new Error('Unknown MCP server binding');
@@ -113,7 +122,8 @@ export function createNativeBridge(sdk, rpc, specifications, directory, sealedCa
     },
   });
   return {
-    factories: [wrap(sdk.createCodemodeExtension({ models: false })), wrap(sdk.createToolSearchExtension()), wrap(mcp)],
+    factories: [wrap(pi => { for (const tool of builtins) pi.registerTool(tool); }),
+      ...(options.codemode === false ? [] : [wrap(sdk.createCodemodeExtension({ models: false })), wrap(sdk.createToolSearchExtension()), wrap(mcp)])],
     isNested: () => scope.getStore() !== undefined,
   };
 }

@@ -35,7 +35,7 @@ export function projectHarness(context: TranscriptContext): HarnessInput {
     parameters: JSON.parse(JSON.stringify(tool.parameters)) as JsonObject,
   }));
   const projection = {
-    schema_version: "kernelcat.pi-harness/v1", adapter: "pi@1.0.0",
+    schema_version: "kernelcat.pi-harness/v1", adapter: "pi@1.5.0",
     system_prompt: getCurrentSystemPrompt(context.messages),
     messages: context.messages.filter((item) => item.role !== "system").map(message),
     tools,

@@ -133,6 +133,21 @@ class Gateway:
         A prepared call rechecks its sealed binding and policy at admission; it
         never bypasses the live ledger or changes replay identity.
         """
+        return self._prepare(action, self._registry.lookup(action.tool))
+
+    def execute_native(self, action: Action, specification: ToolSpec,
+                       function: Callable[[], Outcome]) -> Outcome:
+        """Admit a pinned Pi tool through the same guards, credits and receipts."""
+        from kernelcat_executor.capabilities.workspace_tools import FunctionTool
+
+        if action.tool != specification.name:
+            raise Conflict("native specification differs from its sealed call")
+        tool = FunctionTool(specification, lambda _: function())
+        binding = ToolBinding(canonical(specification), tool.execute, tool)
+        prepared = self._prepare(action, binding)
+        return prepared() if callable(prepared) else prepared
+
+    def _prepare(self, action: Action, binding: ToolBinding | None) -> Outcome | Callable[[], Outcome]:
         action = Action.model_validate_json(canonical(action))
         state = self.store.snapshot()
         task = state["tasks"].get(action.task)
@@ -147,7 +162,6 @@ class Gateway:
             return Outcome.model_validate_json(canonical(prior["outcome"]))
         self.store.requested(action)
         policy = self.store.policy()
-        binding = self._registry.lookup(action.tool)
         if binding:
             binding.verify()
         gate = Action(id=action.id + "/gate/" + digest(policy), task=action.task, tool="__gate__",

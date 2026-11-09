@@ -1,4 +1,4 @@
-import { Type } from '@earendil-works/pi-ai';
+import { Type } from 'typebox';
 
 /** Loaded only as a host-required child extension; no native tools or ambient IO. */
 export default function childTools(pi) {

@@ -7,7 +7,7 @@ from .context import ContextSource, JsonObject
 from .rsi import ReplayPluginConfiguration, RsiSourceCommit
 from .runtime import ContextCommit
 
-SCHEMA_SHA256 = "5019c98d76b59ed054c63dde8bddc57d338c0d3db900371436de452644286044"
+SCHEMA_SHA256 = "8044ec283bb4ff239fda049dbaa6c87d05dc6b01857f21035520ede7ec13b63e"
 SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/draft/2020-12/schema',
  '$id': 'https://kernelcat.local/contracts/execution/v1/harness.schema.json',
  'title': 'Effective Pi input and Host sealed native tool dispatch',
@@ -24,7 +24,7 @@ SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/draft/2020-12/sche
                            'additionalProperties': False},
            'HarnessInput': {'type': 'object',
                             'properties': {'schema_version': {'const': 'kernelcat.pi-harness/v1'},
-                                           'adapter': {'const': 'pi@1.0.0'},
+                                           'adapter': {'const': 'pi@1.5.0'},
                                            'system_prompt': {'type': 'string',
                                                              'minLength': 1,
                                                              'maxLength': 2097152},
@@ -317,7 +317,7 @@ class HarnessTool(TypedDict):
 
 class HarnessInput(TypedDict):
     schema_version: Literal['kernelcat.pi-harness/v1']
-    adapter: Literal['pi@1.0.0']
+    adapter: Literal['pi@1.5.0']
     system_prompt: str
     messages: list[JsonObject]
     tools: list[HarnessTool]

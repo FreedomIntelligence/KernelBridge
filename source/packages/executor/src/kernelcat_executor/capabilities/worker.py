@@ -15,7 +15,7 @@ from kernelcat_executor.contracts.json_decoder import WorkerError as WorkerError
 from kernelcat_executor.contracts.json_decoder import decode_object as decode_object
 
 PROTOCOL = "kernelcat.pi-worker/v3"
-METHODS = frozenset({"hello", "prepare_turn", "model", "tool", "batch", "end_turn", "complete",
+METHODS = frozenset({"hello", "prepare_turn", "model", "tool", "tool_error", "batch", "end_turn", "complete",
                      "plugin_begin", "child_model", "child_tool", "plugin_settle",
                      "native_begin", "native_call", "native_settle",
                      "rsi_status", "rsi_list", "rsi_read", "rsi_record", "rsi_effect", "rsi_boundary", "rsi_rounds",

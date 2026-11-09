@@ -90,6 +90,28 @@ node examples/vector-add/sdk-run.mjs \
 
 ## 数据位置与后续使用
 
+本版锁定 Pi 1.5.0、pi-subagents 0.87.0。原生会话默认暴露 Pi 的 `read`、`write`、`edit`、`bash`、`grep`、`find`、`ls`；只读角色仅获得读取工具。评估器 `evaluate`、Knowledge 和 `read_receipt` 直接作为业务工具提供。基础文件操作使用 Pi 的工具定义、编辑算法和输出格式，KernelBridge 负责权限、原始凭据与任务预算。需要脚本组合时可显式设置 `pi_worker.codemode: true`；它不再是普通文件操作和评测的必经入口。
+
+普通任务也可以在配置顶层指定 `writable_paths: ["solution.py"]` 和 `readonly_paths: ["reference"]`。路径必须相对工作区且规范化；`writable_paths` 是精确文件白名单，`readonly_paths` 同时保护目录后代，默认保护 `reference/`。RSI 使用其 `source_paths` 作为白名单。原生和旧版文件工具都经过权限检查；符号链接和控制器保留目录不可通过基础工具读取或写入。
+
+`bash` 在独立工作区副本运行，禁止网络，只回写允许修改的普通文件。macOS 使用系统 Seatbelt；Linux 需要预先安装并允许使用 `bubblewrap`，缺失时不会退回宿主 shell。退出后检查整份差异再回写；超时和取消不回写候选。该 shell 用于源代码处理，NPU 编译、设备运行和性能评估使用已配置的独立 `evaluate`。设备评估器仍须由部署者提供进程和设备隔离。
+
+评测直连沿用评估器自己的超时；Worker 时间预算至少覆盖评估器超时及 30 秒清理余量。可选 MCP 组合沿用 Worker 时间预算。`unknown` 仍表示可能已执行，恢复时必须检查原始回执；Pi 在执行前拒绝的未知工具和无效参数则记录为明确失败，并完成原生会话检查点。
+
+升级需要重新安装锁定依赖。旧运行保留原来的版本绑定和账本，不将 Pi 1.0 会话强制改写为新版本。`PIN_MANIFEST.json` 的 `source` 保留导入来源，`derivation` 记录本次修改；当前文件摘要在 `files` 中。
+
+开发回归命令（Python 环境需安装主机依赖；正确性单测另外需要 CPU Torch）：
+
+```sh
+npm ci --prefix source/apps/agent --ignore-scripts
+npm run check:types --prefix source/apps/agent
+node --test validation/*.mjs
+python3 -B -m unittest discover -s validation -p 'test_*.py' -v
+python3 -B install.py --verify-only
+```
+
+这些离线回归使用确定性的模型响应驱动真实 Pi、Python Gateway、检查点和工具，不调用线上模型；真实 NPU 验收需另行运行配置好的设备评估器，并保留设备身份、源码摘要和原始回执。
+
 `source/` 保存产品实现，客户任务、工作区、journals 与新产物放在独立数据目录。模型配置、可写范围与预算由客户明确指定；自动跨 Trial 必须显式配置 LoopX；单次执行允许独立 KernelCat 会话。Knowledge、RSI 评估与 Replay 按各自功能开关配置，关闭 Replay 不关闭 LoopX 的目标与配额管理。
 
 后续自定义算子可从示例生成的任务与配置出发，更换语义、输入范围、父程序和独立评估器。保留原始账本、回执、模块绑定和未决操作身份；升级源码不能通过清空预留、改写历史摘要或复制旧状态来强行继续。具体命令见 [KernelCat](kernelcat/README.md)，可选能力见 [KernelBridge](kernelbridge/README.md)。

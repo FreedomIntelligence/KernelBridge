@@ -1,10 +1,37 @@
 import logging
+from copy import deepcopy
 
 
 from kernelcat_executor.evaluation.protocols.six_source.config import NUM_CORRECT_TRIALS, SEED
 
 
 logger = logging.getLogger(__name__)
+
+
+def _snapshot(value):
+    import torch
+    if isinstance(value, torch.Tensor):
+        return value.detach().clone()
+    if isinstance(value, (tuple, list)):
+        return type(value)(_snapshot(item) for item in value)
+    if isinstance(value, dict):
+        return {key: _snapshot(item) for key, item in value.items()}
+    return deepcopy(value)
+
+
+def _same_inputs(expected, actual):
+    import torch
+    if isinstance(expected, torch.Tensor):
+        if not isinstance(actual, torch.Tensor) or expected.shape != actual.shape or expected.dtype != actual.dtype:
+            return False
+        return bool(torch.allclose(expected, actual, atol=0, rtol=0, equal_nan=True))
+    if isinstance(expected, (tuple, list)):
+        return type(expected) is type(actual) and len(expected) == len(actual) and all(
+            _same_inputs(x, y) for x, y in zip(expected, actual))
+    if isinstance(expected, dict):
+        return isinstance(actual, dict) and expected.keys() == actual.keys() and all(
+            _same_inputs(value, actual[key]) for key, value in expected.items())
+    return expected == actual
 
 
 def set_seed(seed: int):
@@ -37,10 +64,10 @@ def execute_template(synchronize, device, context, *, num_correct_trials=NUM_COR
         ]
         with torch.no_grad():
             set_seed(seed_num)  # set seed for reproducible weights
-            original_model = Model(*init_inputs).to(device)
+            original_model = Model(*deepcopy(init_inputs)).to(device)
             synchronize(device=device)
             set_seed(seed_num)
-            custom_model = ModelNew(*init_inputs).to(device)
+            custom_model = ModelNew(*deepcopy(init_inputs)).to(device)
             synchronize(device=device)
         logger.info(f"Correctness: begin {num_correct_trials} trials")
         with torch.no_grad():
@@ -51,10 +78,17 @@ def execute_template(synchronize, device, context, *, num_correct_trials=NUM_COR
                     for x in inputs
                 ]
                 synchronize(device=device)
-                ref_output = original_model(*inputs)
+                # deepcopy preserves shared storage/views within each tensor tree,
+                # while keeping the two implementations' storage independent.
+                reference_inputs, candidate_inputs = deepcopy(inputs), deepcopy(inputs)
+                ref_output = original_model(*reference_inputs)
                 synchronize(device=device)
-                new_output = custom_model(*inputs)
+                ref_output = _snapshot(ref_output)
+                expected_inputs = _snapshot(reference_inputs)
+                new_output = custom_model(*candidate_inputs)
                 synchronize(device=device) # ensure all GPU operations are completed before checking results
+                if not _same_inputs(expected_inputs, candidate_inputs):
+                    return False, '[FAIL] Candidate input mutation differs from the reference', 'input_mutation'
                 if ref_output.shape != new_output.shape:
                     feedback = f"[FAIL] Output shape mismatch: Expected {ref_output.shape}, got {new_output.shape}"
                     logger.error(feedback)

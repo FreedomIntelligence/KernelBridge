@@ -133,9 +133,15 @@ class ExecutionRPC:
                        "execution_mode": self.owner.options.tool_execution}
         if self.owner.external_context and all(
                 isinstance(proposer, HarnessProposer) for proposer in self.owner.proposers.values()):
+            native_tools = ["read", "ls", "find", "grep"]
+            if self.owner.role != "scout":
+                native_tools.extend(["write", "edit", "bash"])
+            if self.owner.workspace_policy.get("codemode"):
+                native_tools.extend(["codemode", "tool_search"])
             hello["native_harness"] = {"schema_version": "kernelcat.pi-harness/v1",
-                "adapter": "pi@1.0.0", "native_tools": ["codemode", "tool_search"],
-                "mcp_server": "kernelcat"}
+                "adapter": "pi@1.5.0", "native_tools": native_tools,
+                "mcp_server": "kernelcat", "timeout": self.owner.worker_timeout,
+                "workspace": self.owner.workspace_policy}
         if self.owner.rsi is not None:
             if "native_harness" not in hello:
                 raise Conflict("RSI requires the native Pi harness and external context")
@@ -275,10 +281,9 @@ class ExecutionRPC:
         self.harness_tools = recorded_harness_tools(self.store, identity)
         if proposal.data.get("schema_version") == TURN_SCHEMA:
             turn = AssistantTurn.model_validate_json(canonical(proposal.data))
-            if self.harness_tools and any(
-                    call.name not in self.harness_tools for call in turn.tool_calls):
-                raise Conflict("model requested a tool absent from its admitted Pi declarations")
-            if len(turn.tool_calls) > 1 and any(c.name == "finish" for c in turn.tool_calls):
+            # Pi turns unknown tools and invalid arguments into finalized tool
+            # errors. Keep the turn open for that receipt and its checkpoint.
+            if not self.harness_tools and len(turn.tool_calls) > 1 and any(c.name == "finish" for c in turn.tool_calls):
                 self.result = {"status": "invalid_turn", "step": self.step,
                                "reason": "finish must be the only tool call in its turn"}
                 self.prepared = False
@@ -290,7 +295,7 @@ class ExecutionRPC:
             self.calls = (Action(id=f"{self.task.id}/step/{self.step}/call", task=self.task.id,
                 tool=proposal.data["tool"], arguments=proposal.data["arguments"], parents=(identity,)),)
             self.text = ""
-        if self.owner.role == "scout" and any(
+        if not self.harness_tools and self.owner.role == "scout" and any(
                 a.tool not in self.allowed and not (
                     a.tool in self.harness_tools and native_name(a.tool, self.native_leaves))
                 for a in self.calls):
@@ -347,6 +352,20 @@ class ExecutionRPC:
             return {"stop": True, "result": self.result}
         self.outcomes.append(batch.outcomes[0])
         return {"action_id": action.id, "outcome": batch.outcomes[0].model_dump(mode="json")}
+
+    def tool_error(self, params: Json) -> Json:
+        """Trusted Pi lifecycle evidence for a call whose executor never started."""
+        if (set(params) != {"call", "reason"} or not isinstance(params["reason"], str)
+                or len(params["reason"]) > 8192 or not self.owner.external_context):
+            raise Conflict("invalid unexecuted tool error")
+        action = self._pending(params["call"])
+        if action.id in self.native_invocations or action.id in self.store.snapshot()["actions"]:
+            raise Conflict("started effects cannot be relabelled as unexecuted")
+        outcome = self.gateway.internal(action, 0, lambda: Outcome(status="failed", data={
+            "error": params["reason"], "unexecuted": True, "promoted": False}))
+        self.owner._observe(action, outcome)
+        self.outcomes.append(outcome)
+        return {"action_id": action.id, "outcome": outcome.model_dump(mode="json")}
 
     def batch(self, params: Json) -> Json:
         if (not self.active or self.plan is None or self.outcomes
@@ -508,7 +527,7 @@ class ExecutionRPC:
             if child.summary is None or params["text"] != child.summary or child.failure is not None:
                 raise Conflict("child output differs from its authoritative model receipt")
             outcome = Outcome(data={"summary": child.summary, "model_receipt": child.receipt,
-                "plugin": "pi-subagents@0.75.0", "advisory": True, "promoted": False,
+                "plugin": "pi-subagents@0.87.0", "advisory": True, "promoted": False,
                 "mode": child.mode, "steps": child.step + 1, "tool_calls": child.tool_count})
         else:
             outcome = Outcome(status="failed", data={"error": "foreground subagent failed",
@@ -559,6 +578,8 @@ class ExecutionRPC:
             return self.model(params)
         if method == "tool":
             return self.tool(params)
+        if method == "tool_error":
+            return self.tool_error(params)
         if method == "batch":
             return self.batch(params)
         if method == "native_begin":

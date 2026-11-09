@@ -59,7 +59,7 @@ class BranchGuard:
         branch = self.records.latest("branch")
         if self.identity != (branch["record_id"] if branch else None):
             return GateDecision(verdict="deny", reason="workspace binding is frozen")
-        if branch is None or action.tool not in {"write_file", "edit_file", "run_experiment"}:
+        if branch is None or action.tool not in {"write_file", "edit_file", "write", "edit", "bash", "run_experiment"}:
             return GateDecision(verdict="abstain")
         if action.id.startswith(action.task + "/seed/"):
             return GateDecision(verdict="abstain")
@@ -68,7 +68,7 @@ class BranchGuard:
         for identity, row in self.records.store.snapshot()["actions"].items():
             entered = entered or identity == self.identity
             original = row["action"]
-            if (entered and original["task"] == self.records.task_id and original["tool"] == "read_file"
+            if (entered and original["task"] == self.records.task_id and original["tool"] in {"read_file", "read"}
                     and row.get("terminal") and row["outcome"]["status"] == "completed"):
                 read.add(original["arguments"]["path"])
         if not self.paths.issubset(read):

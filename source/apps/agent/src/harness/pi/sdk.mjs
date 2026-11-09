@@ -12,8 +12,9 @@ import { createReplayExtension, REPLAY_TOOL } from './replay-extension.ts';
 import { prepareProductReplay, restoreProductSession, snapshotProductSession } from '../../replay/product-session.ts';
 import { workspaceHistoryResources } from './workspace-history.ts';
 import { createReceiptContextBinding } from '../../replay/receipt-context.ts';
+import { workspaceTools } from './workspace-tools.mjs';
 
-const SYSTEM = 'KernelCat receipt-bound worker. TypeScript compiles checked journal projections; Host seals tool requests.';
+const SYSTEM = 'You are a kernel engineering agent. Use Pi file tools to inspect and implement the candidate. Use the configured evaluation, knowledge, and receipt tools for domain work. Treat task references as read-only. Only original evaluation receipts establish correctness or performance. After an error, inspect the returned evidence and revise the candidate.';
 
 function providerDefinition(stream) {
   return { name: 'KernelCat controlled transport', api: 'openai-completions', baseUrl: 'https://invalid.example',
@@ -23,9 +24,10 @@ function providerDefinition(stream) {
 }
 
 function directTools(hello, controller) {
-  return hello.tools.filter(tool => ['finish', 'delegate'].includes(tool.name)).map(tool => ({
+  return hello.tools.filter(tool => !['read_file', 'write_file', 'edit_file', RSI_TOOL, REPLAY_TOOL].includes(tool.name)).map(tool => ({
     name: tool.name, label: tool.name, description: tool.description, parameters: tool.parameters,
     exposure: 'model-only',
+    promptSnippet: tool.description,
     execute: (id, arguments_, signal) => controller.tool(id, tool.name, arguments_, signal),
   }));
 }
@@ -67,7 +69,8 @@ export async function withPreparedAgent(execute) {
   try {
     const dependencies = await withAgentEnvironment(home, async () => {
       const sdk = await import('@earendil-works/pi-coding-agent');
-      const { InMemoryCredentialStore, createAssistantMessageEventStream, Type } = await import('@earendil-works/pi-ai');
+      const { InMemoryCredentialStore, createAssistantMessageEventStream } = await import('@earendil-works/pi-ai');
+      const { Type } = await import('typebox');
       const { createPluginBridge, childContext } = await import('./plugin.mjs');
       return { sdk, InMemoryCredentialStore, createAssistantMessageEventStream, Type, createPluginBridge, childContext };
     });
@@ -94,7 +97,7 @@ async function runtimeServices(options, dependencies, provider, factories, repla
   const resourceLoader = new sdk.DefaultResourceLoader({ ...options, settingsManager,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
     ...(replay ? workspaceHistoryResources(replay.history, settingsManager) : {}),
-    extensionFactories: factories, systemPrompt: SYSTEM });
+    extensionFactories: factories, appendSystemPrompt: [SYSTEM] });
   await resourceLoader.reload();
   if (resourceLoader.getExtensions().errors.length) throw new Error('Required Pi extension failed to load');
   return { cwd: options.cwd, agentDir: options.agentDir, modelRuntime,
@@ -127,14 +130,15 @@ async function runPreparedAgent(client, home, dependencies, options = {}) {
     const rpc = serialRpc(client);
     const hello = await rpc.call('hello', { native_replay: true });
     const native = hello.native_harness?.schema_version === 'kernelcat.pi-harness/v1';
-    if (hello.native_harness !== undefined && (!native || hello.native_harness.adapter !== 'pi@1.0.0' ||
+    if (hello.native_harness !== undefined && (!native || hello.native_harness.adapter !== 'pi@1.5.0' ||
         hello.native_harness.mcp_server !== 'kernelcat' ||
-        JSON.stringify(hello.native_harness.native_tools) !== JSON.stringify(['codemode', 'tool_search']))) {
+        !Array.isArray(hello.native_harness.native_tools) || hello.native_harness.native_tools.some(name =>
+          !['read', 'write', 'edit', 'bash', 'grep', 'find', 'ls', 'codemode', 'tool_search'].includes(name)))) {
       throw new Error('Unsupported native Harness capability');
     }
     const replay = hello.replay === undefined ? undefined : await prepareProductReplay(hello.replay);
     if (replay && !native) throw new Error('Persistent replay requires native Pi');
-    const cwd = replay?.capability.workspace ?? home;
+    const cwd = replay?.capability.workspace ?? hello.native_harness?.workspace?.root ?? home;
     const agentDir = replay?.agentDir ?? join(home, 'agent');
     process.env.PI_CODING_AGENT_DIR = agentDir;
     let bridge;
@@ -181,8 +185,13 @@ async function runPreparedAgent(client, home, dependencies, options = {}) {
       plugin = createPluginBridge(rpc, provider, home);
       const bridgeTools = hello.tools.filter(tool => tool.name !== REPLAY_TOOL && (!rsi || tool.name !== RSI_TOOL));
       if (native) bridge = createNativeBridge(sdk, rpc, bridgeTools, home,
-        (id, name, arguments_) => controller.sealedCall(id, name, arguments_), error => controller.fail(error), receipts);
-      const factories = [continuation.extension, ...plugin.factories, ...(bridge?.factories ?? []), ...(rsi ? [rsi] : []),
+        (id, name, arguments_) => controller.sealedCall(id, name, arguments_), error => controller.fail(error), receipts, {
+          tools: hello.native_harness.workspace ? workspaceTools(sdk,
+            { ...hello.native_harness.workspace, root: cwd, tools: hello.native_harness.native_tools }) : [],
+          codemode: hello.native_harness.native_tools.includes('codemode'), timeout: hello.native_harness.timeout,
+          onStarted: id => controller.started.add(id), onCompleted: id => controller.completed.add(id),
+        });
+      const factories = [continuation.extension, controller.validationExtension(), ...plugin.factories, ...(bridge?.factories ?? []), ...(rsi ? [rsi] : []),
         ...(replayPlugin ? [replayPlugin.factory] : []),
         createReplayContextExtension({ rpc, fail: error => controller.fail(error), receipts,
           replayOnCompaction, isStopped: () => controller.stopped })];
@@ -203,7 +212,7 @@ async function runPreparedAgent(client, home, dependencies, options = {}) {
       unsubscribe?.();
       unsubscribe = current.subscribe(event => options.onEvent?.(structuredClone(event)));
       await current.bindExtensions({ onError: event => controller.fail(new Error(event.error ?? String(event))) });
-      if (native) current.setActiveToolsByName(['codemode', 'tool_search', ...tools.map(tool => tool.name),
+      if (native) current.setActiveToolsByName([...hello.native_harness.native_tools, ...tools.map(tool => tool.name),
         ...(rsi ? [RSI_TOOL] : []), ...(replayPlugin ? [REPLAY_TOOL] : [])]);
     }
     nativeRuntime.setRebindSession(bind);

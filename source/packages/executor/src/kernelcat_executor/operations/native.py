@@ -8,13 +8,14 @@ from concurrent.futures import Future
 from threading import Event, Thread
 from typing import cast
 
-from kernelcat_executor.contracts.harness import MCP_PREFIX, validate_native_result
+from kernelcat_executor.contracts.harness import MCP_PREFIX, PI_READ_TOOLS, PI_WRITE_TOOLS, validate_native_result
 from kernelcat_executor.contracts.models import (
     Action,
     Conflict,
     InDoubt,
     Json,
     Outcome,
+    ToolSpec,
     canonical,
     digest,
 )
@@ -37,6 +38,7 @@ class NativeEffects:
         self.execute, self.observe, self.cancelled = execute, observe, cancelled
         self.clock, self.deadline = clock, clock() + timeout
         self.declaration_digest = digest(declarations[action.tool])
+        self.declaration = dict(declarations[action.tool])
         self.calls: list[tuple[str, Json]] = []
         self.resolution: Future[Outcome] = Future()
         self.finished: Future[Outcome] = Future()
@@ -51,7 +53,11 @@ class NativeEffects:
 
     def _dispatch(self) -> None:
         try:
-            result = self.gateway.internal(self.action, 0, self._await_result)
+            if self.action.tool in PI_READ_TOOLS | PI_WRITE_TOOLS:
+                result = self.gateway.execute_native(self.action,
+                    ToolSpec(**self.declaration, credits=1), self._await_result)
+            else:
+                result = self.gateway.internal(self.action, 0, self._await_result)
             self.finished.set_result(result)
         except BaseException as error:
             self.finished.set_exception(error)
@@ -66,7 +72,7 @@ class NativeEffects:
                 self.thread.join()
                 if outcome.status == "unknown":
                     raise InDoubt(self.action.id)
-                return {"cached": True, "outcome": outcome.model_dump(mode="json")}
+                return {"cached": True, "action_id": self.action.id, "outcome": outcome.model_dump(mode="json")}
             if self.cancelled():
                 self.close()
                 raise Conflict("native invocation cancelled before its permit was delivered")
@@ -133,7 +139,7 @@ class NativeEffects:
         outcome = Outcome(status=request["status"], data={
             "result": request["result"], "native_declaration_digest": self.declaration_digest,
             "nested_effects": [receipt["action_id"] for _, receipt in self.calls],
-            "adapter": "pi@1.0.0", "promoted": False,
+            "adapter": "pi@1.5.0", "promoted": False,
         })
         self.settlement = encoded
         self.resolution.set_result(outcome)
@@ -153,7 +159,7 @@ class NativeEffects:
             return
         if not self.resolution.done() and not self.finished.done():
             self.resolution.set_result(Outcome(status="unknown", data={
-                "reason": "Pi native invocation interrupted", "adapter": "pi@1.0.0",
+                "reason": "Pi native invocation interrupted", "adapter": "pi@1.5.0",
                 "nested_effects": [receipt["action_id"] for _, receipt in self.calls],
             }))
         self.closed = True

@@ -64,13 +64,16 @@ class ExecutionSession:
                  timeout: float = 300.0, max_frame_bytes: int = 1048576,
                  role: str = "coder", child_proposers: dict[str, Proposer] | None = None,
                  external_context: bool = False, rsi: RsiSession | None = None,
-                 replay: NativeReplay | None = None) -> None:
+                 replay: NativeReplay | None = None, workspace_policy: Json | None = None) -> None:
         if role not in {"coder", "scout"}:
             raise ValueError("unknown Pi worker role")
         node = os.environ.get("KERNELCAT_NODE") or shutil.which("node") or ""
         worker = Path(default_pi_root())
         self.worker_argv = argv if argv is not None else (node, str(worker / "src/harness/pi/worker.mjs"))
         self.worker_cwd = (cwd or Path.cwd()).resolve()
+        self.workspace_policy = workspace_policy or {
+            "root": str(self.worker_cwd), "writable_paths": None,
+            "readonly_paths": ["reference"], "codemode": False}
         self.worker_timeout, self.worker_frame_bytes = timeout, max_frame_bytes
         self.role, self.child_proposers = role, dict(child_proposers or {})
         self.external_context = external_context

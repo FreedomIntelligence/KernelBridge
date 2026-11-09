@@ -13,6 +13,8 @@ export class RunController {
     this.stopped = false;
     this.failure = null;
     this.batchResult = null;
+    this.started = new Set();
+    this.completed = new Set();
   }
 
   fail(error) { this.failure ??= error instanceof Error ? error : new Error(String(error)); }
@@ -26,6 +28,8 @@ export class RunController {
       return { text: 'Invocation stopped by host.', calls: [] };
     }
     this.active = reply;
+    this.started.clear();
+    this.completed.clear();
     this.batchResult = null;
     return reply;
   }
@@ -39,11 +43,43 @@ export class RunController {
     return call;
   }
 
+  validationExtension() {
+    if (!this.native) return () => {};
+    return pi => {
+      pi.on('tool_call', event => {
+        if (event.parentToolCallId || this.isNested()) return;
+        if (this.active?.calls.length > 1 && this.active.calls.some(call => call.name === 'finish')) {
+          return { block: true, reason: 'finish must be the only tool call in its turn' };
+        }
+        // Pi may coerce arguments. Record a known, unexecuted error instead of
+        // dispatching bytes different from the original model receipt.
+        try { this.sealedCall(event.toolCallId, event.toolName, event.input); }
+        catch (error) { return { block: true, reason: String(error) }; }
+      });
+      pi.on('tool_execution_end', async event => {
+        if (!this.active || this.stopped || this.completed.has(event.toolCallId)
+            || this.started.has(event.toolCallId) || event.parentToolCallId) return;
+        const call = this.active.calls.find(item => item.id === event.toolCallId);
+        if (!call) return;
+        try {
+          const result = event.result;
+          const reason = (result?.content ?? []).filter(block => block.type === 'text')
+            .map(block => block.text).join('\n').slice(0, 8192);
+          const response = await this.rpc.call('tool_error', { call, reason: reason || 'Pi rejected this tool before execution' });
+          this.receipts?.observeDirect({ toolCallId: call.id, toolName: call.name,
+            result: { content: result.content, isError: true }, response });
+          this.completed.add(call.id);
+        } catch (error) { this.fail(error); throw error; }
+      });
+    };
+  }
+
   async tool(id, name, arguments_, signal) {
     if (this.stopped) return this.stoppedResult();
     if (this.isNested()) throw new Error('Native scripts must use the Gateway MCP leaf binding');
     try {
       const call = this.sealedCall(id, name, arguments_);
+      this.started.add(id);
       let response;
       if (this.active.parallel) {
         this.batchResult ??= this.rpc.call('batch', { proposal_id: this.active.proposal_id });
@@ -57,11 +93,12 @@ export class RunController {
         this.active = null;
         return this.stoppedResult();
       }
-      const result = { content: [{ type: 'text', text: canonicalKey(response.outcome) }],
+      const result = { content: [{ type: 'text', text: canonicalKey(response) }],
         details: response, isError: response.outcome?.status !== 'completed' };
       // Delegation's public settlement lacks the leaf receipt identity; retain
       // that output without fabricating cleanup provenance from wrapper success.
       if (name !== 'delegate') this.receipts?.observeDirect({ toolCallId: id, toolName: name, result, response });
+      this.completed.add(id);
       return result;
     } catch (error) {
       this.fail(error);

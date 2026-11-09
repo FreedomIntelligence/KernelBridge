@@ -8,6 +8,7 @@ from typing import Literal
 
 import yaml
 from kernelcat_executor.capabilities.pi import default_pi_root
+from kernelcat_executor.capabilities.workspace_policy import validate_paths
 from kernelcat_executor.contracts.agent import AgentOptions
 from kernelcat_executor.contracts.base import Contract
 from kernelcat_executor.contracts.models import Json, Policy, canonical
@@ -58,12 +59,15 @@ class PiWorkerConfig(Contract):
     role: Literal["coder", "scout"] = "coder"
     timeout: float = Field(gt=0, le=86400, default=300.0)
     max_frame_bytes: int = Field(ge=4096, le=16777216, default=1048576)
+    codemode: bool = False
 
 
 class Config(Contract):
     python_modules: Json
     state_dir: str = ".state"
     workspace: str = "workspace"
+    writable_paths: tuple[str, ...] | None = None
+    readonly_paths: tuple[str, ...] = ("reference",)
     knowledge_root: str | None = Field(default=None, min_length=1)
     skill_roots: tuple[str, ...] = ()
     credits: int = Field(gt=0, default=200)
@@ -75,6 +79,11 @@ class Config(Contract):
     agent_profile: AgentProfile = Field(default_factory=AgentProfile)
     self_evolution: EvolutionConfig | None = None
     pi_worker: PiWorkerConfig = Field(default_factory=PiWorkerConfig)
+
+    @field_validator("writable_paths", "readonly_paths")
+    @classmethod
+    def validate_workspace_paths(cls, value):
+        return validate_paths(value)
 
     @field_validator("python_modules")
     @classmethod

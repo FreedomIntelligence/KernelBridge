@@ -22,6 +22,8 @@ from kernelcat_executor.generated.harness import (
     NativeSettleRequest,
 )
 
+PI_READ_TOOLS = frozenset({"read", "ls", "find", "grep"})
+PI_WRITE_TOOLS = frozenset({"write", "edit", "bash"})
 NATIVE_TOOLS = frozenset({"codemode", "tool_search"})
 MCP_PREFIX = "mcp__kernelcat__"
 CONTEXT_PREFIX = "KERNELCAT_CONTEXT_V1\n"
@@ -63,7 +65,9 @@ class NativeReplay(Protocol):
 
 
 def native_name(name: str, allowed: frozenset[str]) -> bool:
-    return name in NATIVE_TOOLS or (
+    return (name in NATIVE_TOOLS
+            or (name in PI_READ_TOOLS and "read_file" in allowed)
+            or (name in PI_WRITE_TOOLS and "write_file" in allowed)) or (
         name.startswith(MCP_PREFIX) and name[len(MCP_PREFIX):] in allowed)
 
 

@@ -947,6 +947,8 @@ class RawReader:
         for path in self._files(roots, include_tests, glob):
             scanned += 1
             try:
+                if not path.resolve(strict=True).is_relative_to(self.raw_root.resolve()):
+                    continue
                 raw = path.read_bytes()
             except OSError:
                 continue

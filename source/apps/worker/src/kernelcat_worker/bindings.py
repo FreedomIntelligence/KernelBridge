@@ -16,6 +16,7 @@ from kernelcat_executor.capabilities.process import CommandEvaluator
 from kernelcat_executor.capabilities.runtime_artifacts import RuntimeArtifacts
 from kernelcat_executor.capabilities.skills import Skills
 from kernelcat_executor.capabilities.workspace_tools import builtin_tools
+from kernelcat_executor.capabilities.workspace_policy import WorkspaceGuard
 from kernelcat_executor.contracts.models import Conflict, Json, Task, digest
 from kernelcat_executor.contracts.ports import Proposer, Tool
 from kernelcat_executor.contracts.providers import validate_endpoint
@@ -79,12 +80,12 @@ def _pi_files(worker: PiWorkerConfig, base: Path, writable: Path) -> tuple[Path,
     if root.is_relative_to(writable) or writable.is_relative_to(root):
         raise ValueError("Pi worker source and writable workspace must be disjoint")
     expected = {
-        "@earendil-works/pi-agent-core": "1.0.0",
-        "@earendil-works/pi-ai": "1.0.0",
-        "@earendil-works/pi-coding-agent": "1.0.0",
-        "@earendil-works/pi-tui": "1.0.0",
+        "@earendil-works/pi-agent-core": "1.5.0",
+        "@earendil-works/pi-ai": "1.5.0",
+        "@earendil-works/pi-coding-agent": "1.5.0",
+        "@earendil-works/pi-tui": "1.5.0",
         "ajv": "8.17.1",
-        "pi-subagents": "0.75.0",
+        "pi-subagents": "0.87.0",
         "pi-workspace-history": "0.5.2",
         "typebox": "1.3.27",
     }
@@ -266,6 +267,9 @@ def build(config: Config, base: Path, task: Task, *,
         tools.extend(knowledge_tools(build_application(
             knowledge_root, expected_modules=startup.knowledge_expected)))
     workspace = Workspace(workspace_path)
+    writable_paths = (tuple(config.rsi["source_paths"]) if config.rsi is not None
+                      else config.writable_paths)
+    guards = (*guards, WorkspaceGuard(workspace.root, writable_paths, config.readonly_paths))
     store = AgentJournal(state_dir / "events.jsonl")
     store.initialize(config.credits, config.policy)
     artifacts = RuntimeArtifacts(state_dir / "runtime-artifacts")
@@ -313,7 +317,10 @@ def build(config: Config, base: Path, task: Task, *,
     worker = config.pi_worker
     script = (base / worker.root).resolve() / "src/harness/pi/worker.mjs"
     return ExecutionSession(gateway, providers, skills.catalog(), argv=(worker.node, str(script)),
-        cwd=workspace_path, timeout=worker.timeout, max_frame_bytes=worker.max_frame_bytes,
+        cwd=workspace_path, timeout=max(worker.timeout, config.evaluator.timeout + 30 if config.evaluator else 0),
+        max_frame_bytes=worker.max_frame_bytes,
+        workspace_policy={"root": str(workspace.root), "writable_paths": writable_paths,
+                          "readonly_paths": config.readonly_paths, "codemode": worker.codemode},
         role=worker.role, child_proposers=child_providers, profile=config.agent_profile,
         observers=tuple(observers), task_identity=digest(task), options=config.agent_options,
         external_context=external_context, rsi=rsi,
