@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kernelcat.local/contracts/execution/v1/python_module_observation.schema.json",
+  "title": "Python module observations retained by the existing Journal",
+  "$ref": "#/$defs/PythonModuleObservationRecord",
+  "$defs": {
+    "ObservationIdentifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[^\\uD800-\\uDFFF]*$"
+    },
+    "FingerprintObservationBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "fingerprint"
+        },
+        "runtime_fingerprint": {
+          "$ref": "#/$defs/ObservationIdentifier"
+        }
+      },
+      "required": [
+        "kind",
+        "runtime_fingerprint"
+      ]
+    },
+    "StructuredObservationBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "structured"
+        },
+        "runtime_fingerprint": {
+          "$ref": "#/$defs/ObservationIdentifier"
+        },
+        "original_version_lock_digest": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/python_modules.schema.json#/$defs/Digest"
+        },
+        "runtime_inputs_digest": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/python_modules.schema.json#/$defs/Digest"
+        }
+      },
+      "required": [
+        "kind",
+        "runtime_fingerprint",
+        "original_version_lock_digest",
+        "runtime_inputs_digest"
+      ]
+    },
+    "ManagedObservationBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "managed"
+        },
+        "account_authority_digest": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/python_modules.schema.json#/$defs/Digest"
+        },
+        "run_id": {
+          "$ref": "#/$defs/ObservationIdentifier"
+        },
+        "preparation_intent_id": {
+          "$ref": "#/$defs/ObservationIdentifier"
+        },
+        "original_version_lock_digest": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/python_modules.schema.json#/$defs/Digest"
+        },
+        "runtime_inputs_digest": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/python_modules.schema.json#/$defs/Digest"
+        }
+      },
+      "required": [
+        "kind",
+        "account_authority_digest",
+        "run_id",
+        "preparation_intent_id",
+        "original_version_lock_digest",
+        "runtime_inputs_digest"
+      ]
+    },
+    "AccountObservationBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "account"
+        },
+        "account_authority_digest": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/python_modules.schema.json#/$defs/Digest"
+        }
+      },
+      "required": [
+        "kind",
+        "account_authority_digest"
+      ]
+    },
+    "PythonModuleObservationBinding": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/FingerprintObservationBinding"
+        },
+        {
+          "$ref": "#/$defs/StructuredObservationBinding"
+        },
+        {
+          "$ref": "#/$defs/ManagedObservationBinding"
+        },
+        {
+          "$ref": "#/$defs/AccountObservationBinding"
+        }
+      ]
+    },
+    "PythonModuleObservationRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "kernelcat.python-module-observation/v1"
+        },
+        "observation_id": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/python_modules.schema.json#/$defs/Digest"
+        },
+        "binding": {
+          "$ref": "#/$defs/PythonModuleObservationBinding"
+        },
+        "expected": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/python_modules.schema.json#/$defs/ExpectedPythonModules"
+        },
+        "report": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/python_modules.schema.json#/$defs/PythonModuleReport"
+        }
+      },
+      "required": [
+        "schema_version",
+        "observation_id",
+        "binding",
+        "expected",
+        "report"
+      ]
+    },
+    "PythonModuleObservationReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "kernelcat.python-module-observation-receipt/v1"
+        },
+        "event_sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "observation": {
+          "$ref": "#/$defs/PythonModuleObservationRecord"
+        }
+      },
+      "required": [
+        "schema_version",
+        "event_sequence",
+        "observation"
+      ]
+    }
+  }
+}

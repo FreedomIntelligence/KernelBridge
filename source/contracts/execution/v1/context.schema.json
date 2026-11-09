@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kernelcat.local/contracts/execution/v1/context.schema.json",
+  "title": "Bounded parent context wire for finite worker requests",
+  "$ref": "#/$defs/ContextSource",
+  "$defs": {
+    "JsonValue": {
+      "description": "Lossless Node context values. Integer-valued numbers must fit the safe integer range; larger identifiers use strings.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "number",
+          "not": {
+            "type": "integer"
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          }
+        }
+      ]
+    },
+    "JsonObject": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      }
+    },
+    "Projection": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "history_omitted": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "authority": {
+          "const": "journal"
+        },
+        "context_byte_limit": {
+          "type": "integer",
+          "minimum": 4096,
+          "maximum": 2097152
+        },
+        "latest_action_id": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "latest_model_action_id": {
+          "type": "string"
+        },
+        "turns_omitted": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "version",
+        "history_omitted",
+        "authority",
+        "context_byte_limit",
+        "latest_action_id"
+      ],
+      "additionalProperties": false
+    },
+    "ContextBudget": {
+      "$ref": "https://kernelcat.local/contracts/execution/v1/runtime_control.schema.json#/$defs/CreditBudget"
+    },
+    "ContextSource": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/JsonObject"
+          }
+        },
+        "policy": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "budget": {
+          "$ref": "#/$defs/ContextBudget"
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/JsonObject"
+          }
+        },
+        "projection": {
+          "$ref": "#/$defs/Projection"
+        },
+        "turns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/JsonObject"
+          }
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/JsonObject"
+          }
+        },
+        "agent": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "runtime": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/runtime_control.schema.json#/$defs/ExecutionStamp"
+        },
+        "knowledge": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/TrialKnowledgeBinding"
+        },
+        "rsi": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/execution/v1/rsi.schema.json#/$defs/KnowledgeContextItem"
+          }
+        }
+      },
+      "required": [
+        "task",
+        "skills",
+        "policy",
+        "budget",
+        "history",
+        "projection"
+      ],
+      "additionalProperties": false
+    },
+    "ModelContextRequest": {
+      "type": "object",
+      "properties": {
+        "route": {
+          "type": "string",
+          "minLength": 1
+        },
+        "context": {
+          "$ref": "#/$defs/ContextSource"
+        },
+        "commit": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/runtime.schema.json#/$defs/ContextCommit"
+        }
+      },
+      "required": [
+        "route",
+        "context"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

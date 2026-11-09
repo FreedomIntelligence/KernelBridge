@@ -1,0 +1,45 @@
+{
+  "deepseek": {
+    "provider": "openai",
+    "base_url": "https://api.deepseek.com/v1",
+    "model": "deepseek-flash",
+    "api_key_env": "DEEPSEEK_API_KEY",
+    "max_tokens": 2048,
+    "timeout": 60,
+    "wire_options": {
+      "native_turns": true,
+      "token_parameter": "max_tokens",
+      "include_parallel_tool_calls": false,
+      "tool_choice": "auto",
+      "thinking": "disabled"
+    }
+  },
+  "openai": {
+    "provider": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "model": "gpt-4o-mini",
+    "api_key_env": "OPENAI_API_KEY",
+    "max_tokens": 2048,
+    "timeout": 60,
+    "wire_options": {
+      "native_turns": true,
+      "token_parameter": "max_tokens",
+      "include_parallel_tool_calls": false,
+      "tool_choice": "auto"
+    }
+  },
+  "anthropic": {
+    "provider": "anthropic",
+    "base_url": "https://api.anthropic.com/v1",
+    "model": "REPLACE_WITH_AVAILABLE_MODEL_ID",
+    "api_key_env": "ANTHROPIC_API_KEY",
+    "max_tokens": 2048,
+    "timeout": 60,
+    "wire_options": {
+      "native_turns": true,
+      "token_parameter": "max_tokens",
+      "include_parallel_tool_calls": false,
+      "tool_choice": "auto"
+    }
+  }
+}

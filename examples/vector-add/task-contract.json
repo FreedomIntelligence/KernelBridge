@@ -1,0 +1,483 @@
+{
+  "schema_version": "kernelcat.task-contract/v1",
+  "contract_id": "customer-cpu-vector-add-v1",
+  "revision": 1,
+  "purpose": "research",
+  "provenance": {
+    "kind": "frozen_inputs",
+    "source": "Authored standalone CPU teaching contract; seed root 17, finite Float32 inputs and pinned adapter.mjs. No benchmark acquisition, device qualification or measured result is asserted.",
+    "source_digest": "sha256:4ce68e77956cf866b4aceaed3daf0b74214611f7b052b8c8454ca7f61808e165"
+  },
+  "operator": {
+    "name": "vector_add",
+    "definition": "Equal-length finite Float32Array inputs a,b in [-1000,1000]; return a new Float32Array with sum[i] = Math.fround(a[i] + b[i]); preserve both inputs. Zero length and irregular tails are included. Standard Float32Array and Math operations only. No imports, files, network, process, timers or hardcoded outputs.",
+    "reference_digest": "sha256:caa7d834c2a1262c9ae899348013d518140cfe652e23429db8137baf2d1d2f28"
+  },
+  "target": {
+    "vendor": "host",
+    "architecture": "cpu",
+    "requirements": {
+      "runtime": "Node >=22.19; synchronous JavaScript Float32Array on host CPU",
+      "inputs": "Seed root 17; xorshift32 finite generator; per-sample seeds from SHA256(namespace:index), first uint32 LE or 1",
+      "qualification": "Declared TaskContract only; actual RSI receipts retain independent measured evidence"
+    }
+  },
+  "input_domain": {
+    "casepack_digest": "sha256:c41c26abc8406311f9672ff2c62e39769030346c0a30ed97d93f765d2aaba4dd",
+    "cases": {
+      "n0": {
+        "weight": 1,
+        "inputs": {
+          "a": {
+            "shape": [
+              0
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          },
+          "b": {
+            "shape": [
+              0
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "sum": {
+            "shape": [
+              0
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "n1": {
+        "weight": 1,
+        "inputs": {
+          "a": {
+            "shape": [
+              1
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          },
+          "b": {
+            "shape": [
+              1
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "sum": {
+            "shape": [
+              1
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "n3": {
+        "weight": 1,
+        "inputs": {
+          "a": {
+            "shape": [
+              3
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          },
+          "b": {
+            "shape": [
+              3
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "sum": {
+            "shape": [
+              3
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "n17": {
+        "weight": 1,
+        "inputs": {
+          "a": {
+            "shape": [
+              17
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          },
+          "b": {
+            "shape": [
+              17
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "sum": {
+            "shape": [
+              17
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "n257": {
+        "weight": 1,
+        "inputs": {
+          "a": {
+            "shape": [
+              257
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          },
+          "b": {
+            "shape": [
+              257
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "sum": {
+            "shape": [
+              257
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "n1024": {
+        "weight": 1,
+        "inputs": {
+          "a": {
+            "shape": [
+              1024
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          },
+          "b": {
+            "shape": [
+              1024
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "sum": {
+            "shape": [
+              1024
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "n2048": {
+        "weight": 1,
+        "inputs": {
+          "a": {
+            "shape": [
+              2048
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          },
+          "b": {
+            "shape": [
+              2048
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "sum": {
+            "shape": [
+              2048
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "n8192": {
+        "weight": 1,
+        "inputs": {
+          "a": {
+            "shape": [
+              8192
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          },
+          "b": {
+            "shape": [
+              8192
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "sum": {
+            "shape": [
+              8192
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "n16384": {
+        "weight": 1,
+        "inputs": {
+          "a": {
+            "shape": [
+              16384
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          },
+          "b": {
+            "shape": [
+              16384
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "sum": {
+            "shape": [
+              16384
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "n65536": {
+        "weight": 1,
+        "inputs": {
+          "a": {
+            "shape": [
+              65536
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          },
+          "b": {
+            "shape": [
+              65536
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "sum": {
+            "shape": [
+              65536
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "n131072": {
+        "weight": 1,
+        "inputs": {
+          "a": {
+            "shape": [
+              131072
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          },
+          "b": {
+            "shape": [
+              131072
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "sum": {
+            "shape": [
+              131072
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        }
+      }
+    }
+  },
+  "tolerances": {
+    "float32": {
+      "kind": "floating",
+      "atol": 0,
+      "rtol": 0,
+      "nan": "reject",
+      "inf": "reject",
+      "comparison": "elementwise_abs_rel"
+    }
+  },
+  "specialization_policy": {
+    "allowed": [],
+    "outside_domain": "reject"
+  },
+  "aliasing": {
+    "output_aliases": {},
+    "in_place": false
+  },
+  "allowed_calls": [
+    "Float32Array",
+    "Math"
+  ],
+  "baseline": {
+    "program_id": "vector-add-baseline",
+    "artifact_digest": "sha256:444133490b8b16537795d812b6d21f0136d1ef4dd392391f60ef255cb8b2ae88"
+  },
+  "scoring": {
+    "kind": "weighted_mean_latency",
+    "direction": "minimize"
+  },
+  "measurement_protocol": {
+    "rule_id": "cpu-vector-add-f32-paired-ns-v1",
+    "levels": {
+      "smoke": {
+        "timing": false,
+        "correctness_case_ids": [
+          "n0",
+          "n1",
+          "n3",
+          "n17",
+          "n257",
+          "n1024",
+          "n2048",
+          "n8192",
+          "n16384",
+          "n65536",
+          "n131072"
+        ]
+      },
+      "quick": {
+        "timing": true,
+        "correctness_case_ids": [
+          "n0",
+          "n1",
+          "n3",
+          "n17",
+          "n257",
+          "n1024",
+          "n2048",
+          "n8192",
+          "n16384",
+          "n65536",
+          "n131072"
+        ],
+        "warmup_iterations": 1,
+        "blocks": 12,
+        "samples_per_arm": 12,
+        "pairing": "alternating",
+        "case_reducer": "mean",
+        "minimum_effect": 0.01,
+        "confidence_level": 0.97,
+        "bootstrap_resamples": 1000
+      },
+      "full": {
+        "timing": true,
+        "correctness_case_ids": [
+          "n0",
+          "n1",
+          "n3",
+          "n17",
+          "n257",
+          "n1024",
+          "n2048",
+          "n8192",
+          "n16384",
+          "n65536",
+          "n131072"
+        ],
+        "warmup_iterations": 1,
+        "blocks": 12,
+        "samples_per_arm": 12,
+        "pairing": "alternating",
+        "case_reducer": "mean",
+        "minimum_effect": 0.01,
+        "confidence_level": 0.97,
+        "bootstrap_resamples": 1000
+      }
+    }
+  },
+  "timing": {
+    "scope": "end_to_end",
+    "clock": "host_monotonic",
+    "cache": {
+      "mode": "natural",
+      "rule_id": "one-warmup-no-eviction"
+    },
+    "synchronization": {
+      "before_interval": "Synchronous CPU JavaScript; prepare inputs outside interval, one fixed warmup; time eight invocations including Node VM invocation overhead.",
+      "completion": "all_streams_in_interval"
+    },
+    "input_preparation": "outside_interval",
+    "profiling": "excluded"
+  },
+  "budgets": {
+    "max_build_seconds": 0,
+    "max_evaluation_seconds": 45,
+    "max_total_seconds": 450,
+    "max_device_memory_bytes": 0,
+    "max_scratch_bytes": 67108864
+  },
+  "quality_policy": {
+    "rule_id": "vector-add-source-v1",
+    "hard_limits": {},
+    "forbidden_patterns": [
+      "imports",
+      "network",
+      "host or process access",
+      "files",
+      "timers",
+      "hardcoded outputs"
+    ],
+    "tie_break": {
+      "relative_score_tolerance": 0,
+      "metrics": [
+        "logical_loc_growth_ratio"
+      ],
+      "final": "program_id_ascending"
+    },
+    "cleanup_triggers": {
+      "logical_loc_growth_ratio": 2,
+      "complexity_growth_ratio": 2,
+      "fork_count": 2,
+      "before_final_delivery": true
+    }
+  }
+}

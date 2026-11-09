@@ -1,0 +1,2 @@
+# Optional outer CLI; never installed implicitly by KernelCat. Requires Node >=22.22.3.
+loopx @ https://github.com/loopx-project/loopx/releases/download/v1.2.3/loopx-1.2.3-py3-none-any.whl --hash=sha256:da8d883886a355b0af0da2f7895702f8a7eed58bd9f4a0a5cf6aaf4b992d3b87

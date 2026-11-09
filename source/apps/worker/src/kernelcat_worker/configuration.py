@@ -1,0 +1,97 @@
+"""Closed operator configuration. No providers, process launches or state writes."""
+from __future__ import annotations
+
+import os
+import shutil
+from pathlib import Path
+from typing import Literal
+
+import yaml
+from kernelcat_executor.capabilities.pi import default_pi_root
+from kernelcat_executor.contracts.agent import AgentOptions
+from kernelcat_executor.contracts.base import Contract
+from kernelcat_executor.contracts.models import Json, Policy, canonical
+from kernelcat_executor.contracts.profiles import AgentProfile
+from kernelcat_executor.contracts.providers import WireOptions
+from kernelcat_executor.contracts.python_modules import validate_expected_python_modules
+from kernelcat_executor.contracts.rsi import validate_policy, validate_rsi
+from pydantic import Field, field_validator
+
+
+class ProviderConfig(Contract):
+    provider: Literal["openai", "anthropic"] = "openai"
+    base_url: str = "https://api.openai.com/v1"
+    model: str
+    api_key_env: str = "OPENAI_API_KEY"
+    allow_insecure_http: bool = False
+    wire_options: WireOptions = Field(default_factory=WireOptions)
+    max_response_bytes: int = Field(ge=4096, le=16777216, default=1048576)
+    max_tokens: int = Field(gt=0, default=8192)
+    timeout: float = Field(gt=0, default=120.0)
+
+
+class EvaluatorConfig(Contract):
+    argv: tuple[str, ...]
+    parameters: Json
+    credits: int = Field(gt=0, default=10)
+    timeout: float = Field(gt=0, default=120.0)
+    env_allowlist: tuple[str, ...] = ()
+
+
+class ValidatorConfig(Contract):
+    argv: tuple[str, ...] = Field(min_length=1)
+    credits: int = Field(gt=0, default=10)
+    timeout: float = Field(gt=0, default=120.0)
+    env_allowlist: tuple[str, ...] = ()
+
+
+class EvolutionConfig(Contract):
+    # Missing validator deliberately means proposal-only mode, never auto-approval.
+    validator: ValidatorConfig | None = None
+    evidence_tools: tuple[str, ...] = Field(default=("evaluate",), min_length=1)
+
+
+class PiWorkerConfig(Contract):
+    """Required Pi SDK process configuration; no Python fallback."""
+    node: str = Field(default_factory=lambda: os.environ.get("KERNELCAT_NODE") or shutil.which("node") or "")
+    root: str = Field(default_factory=default_pi_root)
+    role: Literal["coder", "scout"] = "coder"
+    timeout: float = Field(gt=0, le=86400, default=300.0)
+    max_frame_bytes: int = Field(ge=4096, le=16777216, default=1048576)
+
+
+class Config(Contract):
+    python_modules: Json
+    state_dir: str = ".state"
+    workspace: str = "workspace"
+    knowledge_root: str | None = Field(default=None, min_length=1)
+    skill_roots: tuple[str, ...] = ()
+    credits: int = Field(gt=0, default=200)
+    policy: Policy = Field(default_factory=Policy)
+    agent_options: AgentOptions = Field(default_factory=AgentOptions)
+    providers: dict[str, ProviderConfig] = Field(default_factory=dict)
+    evaluator: EvaluatorConfig | None = None
+    rsi: Json | None = None
+    agent_profile: AgentProfile = Field(default_factory=AgentProfile)
+    self_evolution: EvolutionConfig | None = None
+    pi_worker: PiWorkerConfig = Field(default_factory=PiWorkerConfig)
+
+    @field_validator("python_modules")
+    @classmethod
+    def validate_python_modules(cls, value: Json) -> Json:
+        return dict(validate_expected_python_modules(value))
+
+    @field_validator("rsi")
+    @classmethod
+    def validate_rsi_configuration(cls, value: Json | None) -> Json | None:
+        if value is not None:
+            value = validate_rsi(value, "RsiConfiguration")
+            validate_policy(value["policy"])
+        return value
+
+
+def load_config(path: Path) -> Config:
+    try:
+        return Config.model_validate_json(canonical(yaml.safe_load(path.read_text())))
+    except yaml.YAMLError:
+        raise ValueError("invalid YAML configuration") from None

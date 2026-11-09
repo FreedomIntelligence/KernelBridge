@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kernelcat.dev/schemas/profiler-route-observation.schema.json",
+  "title": "KernelCat runtime route observation",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "run_id",
+    "case_id",
+    "arm",
+    "action_cell",
+    "route_hit",
+    "observed_route",
+    "capability_predicate"
+  ],
+  "properties": {
+    "schema_version": {"const": "kernelcat.route-observation/v1"},
+    "run_id": {"type": "string", "minLength": 1},
+    "case_id": {"type": "integer", "minimum": 0},
+    "arm": {"type": "string", "minLength": 1},
+    "action_cell": {"type": "string", "minLength": 1},
+    "route_hit": {"const": true},
+    "observed_route": {"type": "string", "minLength": 1},
+    "tiling_key": {},
+    "route_key": {},
+    "capability_predicate": {"type": "string", "minLength": 1},
+    "build_identity": {
+      "oneOf": [
+        {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+        {"type": "object"}
+      ]
+    }
+  },
+  "anyOf": [
+    {"required": ["tiling_key"]},
+    {"required": ["route_key"]}
+  ]
+}

@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kernelcat.local/schemas/ascend-profiler-diagnosis-v1.json",
+  "title": "KernelCat Ascend Profiler Diagnosis v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "status",
+    "authority_contract",
+    "summary",
+    "diagnoses",
+    "blind_spots"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "ascend-profiler-diagnosis/v1"
+    },
+    "source_schema_version": {
+      "type": ["string", "null"]
+    },
+    "status": {
+      "enum": ["ok", "partial", "rejected"]
+    },
+    "authority_contract": {
+      "$ref": "#/$defs/authority"
+    },
+    "query": {
+      "type": "object"
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "diagnoses",
+        "highest_attribution_level",
+        "proven_policies",
+        "rejected_pairs",
+        "route_verified_pairs",
+        "code_attributed_pairs"
+      ],
+      "properties": {
+        "diagnoses": {"type": "integer", "minimum": 0},
+        "highest_attribution_level": {"enum": ["L0", "L1", "L2", "L3"]},
+        "proven_policies": {"type": "integer", "minimum": 0},
+        "rejected_pairs": {"type": "integer", "minimum": 0},
+        "route_verified_pairs": {"type": "integer", "minimum": 0},
+        "code_attributed_pairs": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": true
+    },
+    "diagnoses": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/diagnosis"
+      }
+    },
+    "blind_spots": {
+      "type": "array",
+      "items": {"type": "string"}
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "authority": {
+      "type": "object",
+      "required": [
+        "latency_reward",
+        "pmu_role",
+        "profiler_duration_is_reward",
+        "promotion_rule",
+        "code_attribution_rule"
+      ],
+      "properties": {
+        "latency_reward": {"const": "profiler-off NPU Event"},
+        "pmu_role": {"const": "mechanism attribution only"},
+        "profiler_duration_is_reward": {"const": false},
+        "promotion_rule": {"type": "string"},
+        "code_attribution_rule": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "diagnosis": {
+      "type": "object",
+      "required": [
+        "diagnosis_id",
+        "identity",
+        "attribution",
+        "gates",
+        "observations",
+        "bottlenecks"
+      ],
+      "properties": {
+        "diagnosis_id": {"type": "string", "minLength": 1},
+        "identity": {
+          "type": "object",
+          "required": [
+            "run_id",
+            "operator",
+            "case_id",
+            "base_arm",
+            "candidate_arm",
+            "timing_pair_ref",
+            "action_cell"
+          ],
+          "properties": {
+            "run_id": {"type": "string"},
+            "operator": {"type": ["string", "null"]},
+            "case_id": {"type": "integer"},
+            "base_arm": {"type": ["string", "null"]},
+            "candidate_arm": {"type": "string"},
+            "timing_pair_ref": {"type": "string"},
+            "action_cell": {"type": "string"}
+          },
+          "additionalProperties": true
+        },
+        "attribution": {
+          "type": "object",
+          "required": ["level", "label", "knowledge_status", "proof_blockers"],
+          "properties": {
+            "level": {"enum": ["L0", "L1", "L2", "L3"]},
+            "label": {
+              "enum": [
+                "L0_observation",
+                "L1_hardware_mechanism",
+                "L2_code_attribution",
+                "L3_causal_proof"
+              ]
+            },
+            "knowledge_status": {
+              "enum": [
+                "observation",
+                "hardware_hypothesis",
+                "code_attributed",
+                "proven_policy",
+                "rejected"
+              ]
+            },
+            "proof_blockers": {
+              "type": "array",
+              "items": {"type": "string"}
+            }
+          },
+          "additionalProperties": true
+        },
+        "gates": {
+          "type": "object",
+          "required": [
+            "event",
+            "correctness",
+            "provenance",
+            "route",
+            "code_attribution",
+            "mechanism"
+          ],
+          "properties": {
+            "event": {"$ref": "#/$defs/gate"},
+            "correctness": {"$ref": "#/$defs/gate"},
+            "provenance": {"$ref": "#/$defs/gate"},
+            "route": {"$ref": "#/$defs/gate"},
+            "code_attribution": {"$ref": "#/$defs/gate"},
+            "mechanism": {"$ref": "#/$defs/gate"}
+          },
+          "additionalProperties": true
+        },
+        "observations": {
+          "type": "object"
+        },
+        "bottlenecks": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/bottleneck"}
+        }
+      },
+      "additionalProperties": true
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "bottleneck": {
+      "type": "object",
+      "required": [
+        "bottleneck_id",
+        "title",
+        "mapping_confidence",
+        "signature",
+        "suspect_code",
+        "candidate_policies",
+        "expected_pmu_delta",
+        "event_gate",
+        "disambiguation_checks",
+        "blind_spots"
+      ],
+      "properties": {
+        "bottleneck_id": {"type": "string", "minLength": 1},
+        "title": {"type": "string"},
+        "mapping_confidence": {
+          "enum": ["low", "medium", "high", "very_high"]
+        },
+        "score": {"type": ["number", "integer", "null"], "minimum": 0, "maximum": 1},
+        "signature": {
+          "type": "object",
+          "required": ["matched_fields", "derived", "interpretation"],
+          "properties": {
+            "matched_fields": {"type": "array", "items": {"type": "object"}},
+            "derived": {"type": "object"},
+            "interpretation": {"type": "string"}
+          },
+          "additionalProperties": true
+        },
+        "suspect_code": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "candidate_policies": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/policy"}
+        },
+        "expected_pmu_delta": {
+          "type": "array",
+          "items": {"type": "object"}
+        },
+        "event_gate": {"type": "object"},
+        "disambiguation_checks": {
+          "type": "array",
+          "items": {"type": "object"}
+        },
+        "blind_spots": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      },
+      "additionalProperties": true
+    },
+    "policy": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "automatic",
+        "preconditions",
+        "code_search",
+        "expected_effect",
+        "event_gate",
+        "fallback"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "title": {"type": "string"},
+        "automatic": {"const": false},
+        "preconditions": {"type": "array", "items": {"type": "string"}},
+        "code_search": {"type": "array", "items": {"type": "string"}},
+        "expected_effect": {"type": "array", "items": {"type": "string"}},
+        "event_gate": {"type": "object"},
+        "fallback": {"type": "string"}
+      },
+      "additionalProperties": true
+    }
+  }
+}

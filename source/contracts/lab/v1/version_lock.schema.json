@@ -1,0 +1,616 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kernelcat.local/contracts/lab/v1/version_lock.schema.json",
+  "title": "KernelCat observed version lock v1",
+  "$ref": "#/$defs/VersionLock",
+  "$defs": {
+    "IdentityEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "runtime",
+            "installed_metadata",
+            "executable",
+            "configuration",
+            "source",
+            "owner_receipt"
+          ]
+        },
+        "digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "locator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      },
+      "required": [
+        "kind",
+        "digest"
+      ]
+    },
+    "KnownIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "const": "known"
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "evidence": {
+          "$ref": "#/$defs/IdentityEvidence"
+        }
+      },
+      "required": [
+        "state",
+        "value",
+        "evidence"
+      ]
+    },
+    "UnknownIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "const": "unknown"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "state",
+        "reason"
+      ]
+    },
+    "IdentityObservation": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/KnownIdentity"
+        },
+        {
+          "$ref": "#/$defs/UnknownIdentity"
+        }
+      ]
+    },
+    "PackageIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "declared_constraint": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "installed": {
+          "$ref": "#/$defs/IdentityObservation",
+          "if": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "const": "known"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "evidence": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "installed_metadata"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "declared_constraint",
+        "installed"
+      ]
+    },
+    "VersionProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "argv": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "minItems": 1,
+          "maxItems": 16
+        },
+        "admitted_files": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+          },
+          "minProperties": 1,
+          "maxProperties": 16,
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "environment_policy": {
+          "const": "minimal-environment/v1"
+        },
+        "cwd_policy": {
+          "const": "empty-temporary-directory/v1"
+        },
+        "timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 60
+        },
+        "output_limit_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "spawn_error",
+            "timeout",
+            "output_limit",
+            "nonzero_exit",
+            "invalid_output"
+          ]
+        },
+        "returncode": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "stdout_digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "stderr_digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "stdout_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "stderr_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        }
+      },
+      "required": [
+        "argv",
+        "admitted_files",
+        "environment_policy",
+        "cwd_policy",
+        "timeout_seconds",
+        "output_limit_bytes",
+        "status",
+        "stdout_digest",
+        "stderr_digest",
+        "stdout_bytes",
+        "stderr_bytes"
+      ]
+    },
+    "ExecutableIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "identity": {
+          "$ref": "#/$defs/IdentityObservation",
+          "if": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "const": "known"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "evidence": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "executable"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "probe": {
+          "$ref": "#/$defs/VersionProbe"
+        }
+      },
+      "required": [
+        "identity"
+      ],
+      "if": {
+        "type": "object",
+        "properties": {
+          "identity": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "const": "known"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          }
+        },
+        "required": [
+          "identity"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "required": [
+          "probe"
+        ],
+        "properties": {
+          "probe": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "const": "ok"
+              },
+              "returncode": {
+                "const": 0
+              }
+            },
+            "required": [
+              "returncode"
+            ]
+          }
+        }
+      }
+    },
+    "ExecutableVersions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "$ref": "#/$defs/ExecutableIdentity"
+        },
+        "pi": {
+          "$ref": "#/$defs/ExecutableIdentity"
+        },
+        "loopx": {
+          "$ref": "#/$defs/ExecutableIdentity"
+        }
+      },
+      "required": [
+        "node",
+        "pi",
+        "loopx"
+      ]
+    },
+    "ModelIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requested_provider": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "requested_model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "parameters_digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "reported_model": {
+          "$ref": "#/$defs/IdentityObservation",
+          "if": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "const": "known"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "evidence": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "owner_receipt"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "resolved_revision": {
+          "$ref": "#/$defs/IdentityObservation",
+          "if": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "const": "known"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "evidence": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "owner_receipt"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "requested_provider",
+        "requested_model",
+        "parameters_digest",
+        "reported_model",
+        "resolved_revision"
+      ]
+    },
+    "RuleVersions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "controller": {
+          "$ref": "#/$defs/IdentityObservation"
+        },
+        "context_compiler": {
+          "$ref": "#/$defs/IdentityObservation"
+        },
+        "prune_policy": {
+          "$ref": "#/$defs/IdentityObservation"
+        },
+        "replay_rules": {
+          "$ref": "#/$defs/IdentityObservation"
+        }
+      },
+      "required": [
+        "controller",
+        "context_compiler",
+        "prune_policy",
+        "replay_rules"
+      ]
+    },
+    "NativeVersions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "compiler": {
+          "$ref": "#/$defs/IdentityObservation"
+        },
+        "driver": {
+          "$ref": "#/$defs/IdentityObservation"
+        },
+        "evaluation_image": {
+          "$ref": "#/$defs/IdentityObservation"
+        }
+      },
+      "required": [
+        "compiler",
+        "driver",
+        "evaluation_image"
+      ]
+    },
+    "KnownSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "const": "known"
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}(?![\\s\\S])"
+        },
+        "tree": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}(?![\\s\\S])"
+        },
+        "worktree_state": {
+          "enum": [
+            "clean",
+            "dirty"
+          ]
+        },
+        "admitted_content_digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "commit_permalink": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^https://[^\\s]+/commit/[0-9a-f]{40}(?![\\s\\S])"
+        },
+        "permalink_unavailable_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "state",
+        "commit",
+        "tree",
+        "worktree_state",
+        "admitted_content_digest"
+      ],
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "commit_permalink": {}
+          },
+          "required": [
+            "commit_permalink"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "permalink_unavailable_reason": {}
+          },
+          "required": [
+            "permalink_unavailable_reason"
+          ]
+        }
+      ]
+    },
+    "SourceIdentity": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/KnownSource"
+        },
+        {
+          "$ref": "#/$defs/UnknownIdentity"
+        }
+      ]
+    },
+    "VersionLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "kernelcat.version-lock/v1"
+        },
+        "runtime_inputs_digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "configuration_digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "resource_manifest_digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceIdentity"
+        },
+        "host_runtime": {
+          "$ref": "#/$defs/IdentityObservation",
+          "if": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "const": "known"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "evidence": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "runtime"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "packages": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/PackageIdentity"
+          },
+          "minProperties": 1
+        },
+        "executables": {
+          "$ref": "#/$defs/ExecutableVersions"
+        },
+        "models": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/ModelIdentity"
+          },
+          "minProperties": 1
+        },
+        "rules": {
+          "$ref": "#/$defs/RuleVersions"
+        },
+        "kb_snapshot": {
+          "$ref": "#/$defs/IdentityObservation"
+        },
+        "tool_schema": {
+          "$ref": "#/$defs/IdentityObservation"
+        },
+        "native_environment": {
+          "$ref": "#/$defs/NativeVersions"
+        }
+      },
+      "required": [
+        "schema_version",
+        "runtime_inputs_digest",
+        "configuration_digest",
+        "resource_manifest_digest",
+        "source",
+        "host_runtime",
+        "packages",
+        "executables",
+        "models",
+        "rules",
+        "kb_snapshot",
+        "tool_schema",
+        "native_environment"
+      ]
+    }
+  }
+}

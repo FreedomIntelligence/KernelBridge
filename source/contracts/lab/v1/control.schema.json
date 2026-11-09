@@ -1,0 +1,1884 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kernelcat.local/contracts/lab/v1/control.schema.json",
+  "title": "KernelAgent acceptance proposals and explicit transition metadata",
+  "$ref": "#/$defs/ControlMessage",
+  "$defs": {
+    "ControlActor": {
+      "enum": [
+        "controller",
+        "harness",
+        "scheduler",
+        "budget_ledger",
+        "reconciler",
+        "evaluator"
+      ]
+    },
+    "ContextState": {
+      "enum": [
+        "PROPOSED",
+        "ACTIVE",
+        "INVALIDATED",
+        "CANCELLED"
+      ]
+    },
+    "ExternalCallState": {
+      "enum": [
+        "INTENT_RECORDED",
+        "DISPATCHED",
+        "SUCCEEDED",
+        "FAILED",
+        "UNKNOWN_OUTCOME",
+        "CANCELLED"
+      ]
+    },
+    "ConditionObservation": {
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/UnknownObservation"
+        }
+      ]
+    },
+    "ConditionObservations": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/ConditionObservation"
+      },
+      "maxProperties": 128
+    },
+    "TransitionRejectionCode": {
+      "enum": [
+        "table_version_mismatch",
+        "revision_conflict",
+        "unknown_event",
+        "illegal_transition",
+        "wrong_actor",
+        "missing_condition",
+        "unknown_condition",
+        "unsatisfied_condition"
+      ]
+    },
+    "BranchExpectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "branch_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "expected_revision": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/RevisionNumber"
+        },
+        "expected_parent": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Baseline"
+        },
+        "lease_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "expected_lease_epoch": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/RevisionNumber"
+        }
+      },
+      "required": [
+        "branch_id",
+        "expected_revision",
+        "expected_parent",
+        "lease_id",
+        "expected_lease_epoch"
+      ]
+    },
+    "AbsentIncumbent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "absent"
+        }
+      },
+      "required": [
+        "status"
+      ]
+    },
+    "KnownIncumbent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "known"
+        },
+        "program": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Baseline"
+        },
+        "decision_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "status",
+        "program",
+        "decision_id"
+      ]
+    },
+    "IncumbentObservation": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/AbsentIncumbent"
+        },
+        {
+          "$ref": "#/$defs/KnownIncumbent"
+        },
+        {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/UnknownObservation"
+        }
+      ]
+    },
+    "IncumbentExpectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "expected_run_revision": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/EventCursor"
+        },
+        "incumbent": {
+          "$ref": "#/$defs/IncumbentObservation"
+        }
+      },
+      "required": [
+        "expected_run_revision",
+        "incumbent"
+      ]
+    },
+    "ValidationEligibleResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "eligible"
+        },
+        "reason": {
+          "enum": [
+            "contract_satisfied"
+          ]
+        },
+        "detail": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Text"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "detail"
+      ]
+    },
+    "ValidationRejectedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "rejected"
+        },
+        "reason": {
+          "enum": [
+            "correctness_failed",
+            "contract_mismatch",
+            "quality_hard_limit_exceeded",
+            "prohibited_pattern",
+            "incomparable_result",
+            "evidence_revoked"
+          ]
+        },
+        "detail": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Text"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "detail"
+      ]
+    },
+    "ValidationDeferredResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "deferred"
+        },
+        "reason": {
+          "enum": [
+            "missing_evidence",
+            "unknown_evidence",
+            "unqualified_evidence",
+            "missing_quality"
+          ]
+        },
+        "detail": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Text"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "detail"
+      ]
+    },
+    "ValidationResult": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ValidationEligibleResult"
+        },
+        {
+          "$ref": "#/$defs/ValidationRejectedResult"
+        },
+        {
+          "$ref": "#/$defs/ValidationDeferredResult"
+        }
+      ]
+    },
+    "ValidationProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": "kernelcat.lab-control/v1"
+        },
+        "kind": {
+          "const": "acceptance_proposal"
+        },
+        "decision": {
+          "const": "validation"
+        },
+        "decision_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "candidate": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Baseline"
+        },
+        "task_contract_hash": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/ReceiptReference"
+          },
+          "minItems": 0,
+          "maxItems": 1024
+        },
+        "result": {
+          "$ref": "#/$defs/ValidationResult"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "kind",
+        "decision",
+        "decision_id",
+        "run_id",
+        "candidate",
+        "task_contract_hash",
+        "evidence",
+        "result"
+      ],
+      "$comment": "A supplied Controller proposal. Shape/reasons do not authenticate evidence, apply policy or commit state.",
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "eligible",
+                      "admit",
+                      "advance",
+                      "update"
+                    ]
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              }
+            },
+            "required": [
+              "result"
+            ]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "evidence": {
+                "type": "array",
+                "minItems": 1
+              }
+            },
+            "required": [
+              "evidence"
+            ]
+          }
+        }
+      ]
+    },
+    "ArchiveAdmitResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "admit"
+        },
+        "reason": {
+          "enum": [
+            "new_structure",
+            "performance_qualified",
+            "diversity_policy"
+          ]
+        },
+        "detail": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Text"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "detail"
+      ]
+    },
+    "ArchiveRejectResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "reject"
+        },
+        "reason": {
+          "enum": [
+            "invalid_candidate",
+            "archive_policy_rejected",
+            "evidence_revoked"
+          ]
+        },
+        "detail": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Text"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "detail"
+      ]
+    },
+    "ArchiveDeferResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "defer"
+        },
+        "reason": {
+          "enum": [
+            "validation_required",
+            "archive_policy_unknown"
+          ]
+        },
+        "detail": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Text"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "detail"
+      ]
+    },
+    "ArchiveResult": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ArchiveAdmitResult"
+        },
+        {
+          "$ref": "#/$defs/ArchiveRejectResult"
+        },
+        {
+          "$ref": "#/$defs/ArchiveDeferResult"
+        }
+      ]
+    },
+    "ArchiveProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": "kernelcat.lab-control/v1"
+        },
+        "kind": {
+          "const": "acceptance_proposal"
+        },
+        "decision": {
+          "const": "archive_admission"
+        },
+        "decision_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "candidate": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Baseline"
+        },
+        "task_contract_hash": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/ReceiptReference"
+          },
+          "minItems": 0,
+          "maxItems": 1024
+        },
+        "result": {
+          "$ref": "#/$defs/ArchiveResult"
+        },
+        "validation_decision_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "kind",
+        "decision",
+        "decision_id",
+        "run_id",
+        "candidate",
+        "task_contract_hash",
+        "evidence",
+        "result",
+        "validation_decision_id"
+      ],
+      "$comment": "A supplied Controller proposal. Shape/reasons do not authenticate evidence, apply policy or commit state.",
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "eligible",
+                      "admit",
+                      "advance",
+                      "update"
+                    ]
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              }
+            },
+            "required": [
+              "result"
+            ]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "evidence": {
+                "type": "array",
+                "minItems": 1
+              }
+            },
+            "required": [
+              "evidence"
+            ]
+          }
+        }
+      ]
+    },
+    "LocalAdvanceAdvanceResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "advance"
+        },
+        "reason": {
+          "enum": [
+            "local_policy_satisfied",
+            "cleanup_equivalent"
+          ]
+        },
+        "detail": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Text"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "detail"
+      ]
+    },
+    "LocalAdvanceStayResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "stay"
+        },
+        "reason": {
+          "enum": [
+            "no_local_benefit",
+            "invalid_candidate",
+            "evidence_revoked"
+          ]
+        },
+        "detail": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Text"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "detail"
+      ]
+    },
+    "LocalAdvanceConflictResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "conflict"
+        },
+        "reason": {
+          "enum": [
+            "parent_changed",
+            "branch_revision_changed",
+            "lease_epoch_changed"
+          ]
+        },
+        "detail": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Text"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "detail"
+      ]
+    },
+    "LocalAdvanceDeferResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "defer"
+        },
+        "reason": {
+          "enum": [
+            "validation_required",
+            "local_comparison_required"
+          ]
+        },
+        "detail": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Text"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "detail"
+      ]
+    },
+    "LocalAdvanceResult": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/LocalAdvanceAdvanceResult"
+        },
+        {
+          "$ref": "#/$defs/LocalAdvanceStayResult"
+        },
+        {
+          "$ref": "#/$defs/LocalAdvanceConflictResult"
+        },
+        {
+          "$ref": "#/$defs/LocalAdvanceDeferResult"
+        }
+      ]
+    },
+    "LocalAdvanceProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": "kernelcat.lab-control/v1"
+        },
+        "kind": {
+          "const": "acceptance_proposal"
+        },
+        "decision": {
+          "const": "local_advance"
+        },
+        "decision_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "candidate": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Baseline"
+        },
+        "task_contract_hash": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/ReceiptReference"
+          },
+          "minItems": 0,
+          "maxItems": 1024
+        },
+        "result": {
+          "$ref": "#/$defs/LocalAdvanceResult"
+        },
+        "validation_decision_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "expectation": {
+          "$ref": "#/$defs/BranchExpectation"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "kind",
+        "decision",
+        "decision_id",
+        "run_id",
+        "candidate",
+        "task_contract_hash",
+        "evidence",
+        "result",
+        "validation_decision_id",
+        "expectation"
+      ],
+      "$comment": "A supplied Controller proposal. Shape/reasons do not authenticate evidence, apply policy or commit state.",
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "eligible",
+                      "admit",
+                      "advance",
+                      "update"
+                    ]
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              }
+            },
+            "required": [
+              "result"
+            ]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "evidence": {
+                "type": "array",
+                "minItems": 1
+              }
+            },
+            "required": [
+              "evidence"
+            ]
+          }
+        }
+      ]
+    },
+    "IncumbentUpdateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "update"
+        },
+        "reason": {
+          "enum": [
+            "confirmed_improvement",
+            "quality_tie_break"
+          ]
+        },
+        "detail": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Text"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "detail"
+      ]
+    },
+    "IncumbentKeepResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "keep"
+        },
+        "reason": {
+          "enum": [
+            "not_better",
+            "invalid_candidate",
+            "evidence_revoked"
+          ]
+        },
+        "detail": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Text"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "detail"
+      ]
+    },
+    "IncumbentConflictResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "conflict"
+        },
+        "reason": {
+          "enum": [
+            "incumbent_changed",
+            "task_revision_changed"
+          ]
+        },
+        "detail": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Text"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "detail"
+      ]
+    },
+    "IncumbentDeferResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "defer"
+        },
+        "reason": {
+          "enum": [
+            "confirmation_required",
+            "comparison_required",
+            "quality_unknown",
+            "validation_required"
+          ]
+        },
+        "detail": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Text"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "detail"
+      ]
+    },
+    "IncumbentResult": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/IncumbentUpdateResult"
+        },
+        {
+          "$ref": "#/$defs/IncumbentKeepResult"
+        },
+        {
+          "$ref": "#/$defs/IncumbentConflictResult"
+        },
+        {
+          "$ref": "#/$defs/IncumbentDeferResult"
+        }
+      ]
+    },
+    "IncumbentProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": "kernelcat.lab-control/v1"
+        },
+        "kind": {
+          "const": "acceptance_proposal"
+        },
+        "decision": {
+          "const": "incumbent_update"
+        },
+        "decision_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "candidate": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Baseline"
+        },
+        "task_contract_hash": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/ReceiptReference"
+          },
+          "minItems": 0,
+          "maxItems": 1024
+        },
+        "result": {
+          "$ref": "#/$defs/IncumbentResult"
+        },
+        "validation_decision_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "expectation": {
+          "$ref": "#/$defs/IncumbentExpectation"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "kind",
+        "decision",
+        "decision_id",
+        "run_id",
+        "candidate",
+        "task_contract_hash",
+        "evidence",
+        "result",
+        "validation_decision_id",
+        "expectation"
+      ],
+      "$comment": "A supplied Controller proposal. Shape/reasons do not authenticate evidence, apply policy or commit state.",
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "eligible",
+                      "admit",
+                      "advance",
+                      "update"
+                    ]
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              }
+            },
+            "required": [
+              "result"
+            ]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "evidence": {
+                "type": "array",
+                "minItems": 1
+              }
+            },
+            "required": [
+              "evidence"
+            ]
+          }
+        }
+      ]
+    },
+    "AcceptanceProposal": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ValidationProposal"
+        },
+        {
+          "$ref": "#/$defs/ArchiveProposal"
+        },
+        {
+          "$ref": "#/$defs/LocalAdvanceProposal"
+        },
+        {
+          "$ref": "#/$defs/IncumbentProposal"
+        }
+      ]
+    },
+    "BranchTransitionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": "kernelcat.lab-control/v1"
+        },
+        "kind": {
+          "const": "transition_request"
+        },
+        "table_version": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "machine": {
+          "const": "branch"
+        },
+        "object_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "state": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/BranchState"
+        },
+        "revision": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/RevisionNumber"
+        },
+        "expected_revision": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/RevisionNumber"
+        },
+        "event": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "event_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "actor": {
+          "$ref": "#/$defs/ControlActor"
+        },
+        "conditions": {
+          "$ref": "#/$defs/ConditionObservations"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "kind",
+        "table_version",
+        "machine",
+        "object_id",
+        "run_id",
+        "state",
+        "revision",
+        "expected_revision",
+        "event",
+        "event_id",
+        "actor",
+        "conditions"
+      ],
+      "$comment": "The state/revision/condition values are supplied observations, not an adopted current state or proof of authorization."
+    },
+    "BranchTransitionRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": "kernelcat.lab-control/v1"
+        },
+        "kind": {
+          "const": "transition_rule"
+        },
+        "table_version": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "rule_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "machine": {
+          "const": "branch"
+        },
+        "from_states": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/BranchState"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "event": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "actor": {
+          "$ref": "#/$defs/ControlActor"
+        },
+        "to_state": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/BranchState"
+        },
+        "required_conditions": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "idempotency_domain": {
+          "const": "branch_event"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "kind",
+        "table_version",
+        "rule_id",
+        "machine",
+        "from_states",
+        "event",
+        "actor",
+        "to_state",
+        "required_conditions",
+        "idempotency_domain"
+      ]
+    },
+    "SessionTransitionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": "kernelcat.lab-control/v1"
+        },
+        "kind": {
+          "const": "transition_request"
+        },
+        "table_version": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "machine": {
+          "const": "session"
+        },
+        "object_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "state": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/SessionState"
+        },
+        "revision": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/RevisionNumber"
+        },
+        "expected_revision": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/RevisionNumber"
+        },
+        "event": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "event_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "actor": {
+          "$ref": "#/$defs/ControlActor"
+        },
+        "conditions": {
+          "$ref": "#/$defs/ConditionObservations"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "kind",
+        "table_version",
+        "machine",
+        "object_id",
+        "run_id",
+        "state",
+        "revision",
+        "expected_revision",
+        "event",
+        "event_id",
+        "actor",
+        "conditions"
+      ],
+      "$comment": "The state/revision/condition values are supplied observations, not an adopted current state or proof of authorization."
+    },
+    "SessionTransitionRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": "kernelcat.lab-control/v1"
+        },
+        "kind": {
+          "const": "transition_rule"
+        },
+        "table_version": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "rule_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "machine": {
+          "const": "session"
+        },
+        "from_states": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/SessionState"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "event": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "actor": {
+          "$ref": "#/$defs/ControlActor"
+        },
+        "to_state": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/SessionState"
+        },
+        "required_conditions": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "idempotency_domain": {
+          "const": "session_event"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "kind",
+        "table_version",
+        "rule_id",
+        "machine",
+        "from_states",
+        "event",
+        "actor",
+        "to_state",
+        "required_conditions",
+        "idempotency_domain"
+      ]
+    },
+    "TrialTransitionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": "kernelcat.lab-control/v1"
+        },
+        "kind": {
+          "const": "transition_request"
+        },
+        "table_version": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "machine": {
+          "const": "trial"
+        },
+        "object_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "state": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/TrialState"
+        },
+        "revision": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/RevisionNumber"
+        },
+        "expected_revision": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/RevisionNumber"
+        },
+        "event": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "event_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "actor": {
+          "$ref": "#/$defs/ControlActor"
+        },
+        "conditions": {
+          "$ref": "#/$defs/ConditionObservations"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "kind",
+        "table_version",
+        "machine",
+        "object_id",
+        "run_id",
+        "state",
+        "revision",
+        "expected_revision",
+        "event",
+        "event_id",
+        "actor",
+        "conditions"
+      ],
+      "$comment": "The state/revision/condition values are supplied observations, not an adopted current state or proof of authorization."
+    },
+    "TrialTransitionRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": "kernelcat.lab-control/v1"
+        },
+        "kind": {
+          "const": "transition_rule"
+        },
+        "table_version": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "rule_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "machine": {
+          "const": "trial"
+        },
+        "from_states": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/TrialState"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "event": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "actor": {
+          "$ref": "#/$defs/ControlActor"
+        },
+        "to_state": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/TrialState"
+        },
+        "required_conditions": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "idempotency_domain": {
+          "const": "trial_event"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "kind",
+        "table_version",
+        "rule_id",
+        "machine",
+        "from_states",
+        "event",
+        "actor",
+        "to_state",
+        "required_conditions",
+        "idempotency_domain"
+      ]
+    },
+    "EvaluationTransitionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": "kernelcat.lab-control/v1"
+        },
+        "kind": {
+          "const": "transition_request"
+        },
+        "table_version": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "machine": {
+          "const": "evaluation"
+        },
+        "object_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "state": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/EvaluationState"
+        },
+        "revision": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/RevisionNumber"
+        },
+        "expected_revision": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/RevisionNumber"
+        },
+        "event": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "event_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "actor": {
+          "$ref": "#/$defs/ControlActor"
+        },
+        "conditions": {
+          "$ref": "#/$defs/ConditionObservations"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "kind",
+        "table_version",
+        "machine",
+        "object_id",
+        "run_id",
+        "state",
+        "revision",
+        "expected_revision",
+        "event",
+        "event_id",
+        "actor",
+        "conditions"
+      ],
+      "$comment": "The state/revision/condition values are supplied observations, not an adopted current state or proof of authorization."
+    },
+    "EvaluationTransitionRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": "kernelcat.lab-control/v1"
+        },
+        "kind": {
+          "const": "transition_rule"
+        },
+        "table_version": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "rule_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "machine": {
+          "const": "evaluation"
+        },
+        "from_states": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/EvaluationState"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "event": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "actor": {
+          "$ref": "#/$defs/ControlActor"
+        },
+        "to_state": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/EvaluationState"
+        },
+        "required_conditions": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "idempotency_domain": {
+          "const": "evaluation_event"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "kind",
+        "table_version",
+        "rule_id",
+        "machine",
+        "from_states",
+        "event",
+        "actor",
+        "to_state",
+        "required_conditions",
+        "idempotency_domain"
+      ]
+    },
+    "SettlementTransitionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": "kernelcat.lab-control/v1"
+        },
+        "kind": {
+          "const": "transition_request"
+        },
+        "table_version": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "machine": {
+          "const": "settlement"
+        },
+        "object_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "state": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/SettlementState"
+        },
+        "revision": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/RevisionNumber"
+        },
+        "expected_revision": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/RevisionNumber"
+        },
+        "event": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "event_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "actor": {
+          "$ref": "#/$defs/ControlActor"
+        },
+        "conditions": {
+          "$ref": "#/$defs/ConditionObservations"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "kind",
+        "table_version",
+        "machine",
+        "object_id",
+        "run_id",
+        "state",
+        "revision",
+        "expected_revision",
+        "event",
+        "event_id",
+        "actor",
+        "conditions"
+      ],
+      "$comment": "The state/revision/condition values are supplied observations, not an adopted current state or proof of authorization."
+    },
+    "SettlementTransitionRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": "kernelcat.lab-control/v1"
+        },
+        "kind": {
+          "const": "transition_rule"
+        },
+        "table_version": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "rule_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "machine": {
+          "const": "settlement"
+        },
+        "from_states": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/SettlementState"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "event": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "actor": {
+          "$ref": "#/$defs/ControlActor"
+        },
+        "to_state": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/SettlementState"
+        },
+        "required_conditions": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "idempotency_domain": {
+          "const": "settlement_revision"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "kind",
+        "table_version",
+        "rule_id",
+        "machine",
+        "from_states",
+        "event",
+        "actor",
+        "to_state",
+        "required_conditions",
+        "idempotency_domain"
+      ]
+    },
+    "ContextTransitionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": "kernelcat.lab-control/v1"
+        },
+        "kind": {
+          "const": "transition_request"
+        },
+        "table_version": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "machine": {
+          "const": "context"
+        },
+        "object_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "state": {
+          "$ref": "#/$defs/ContextState"
+        },
+        "revision": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/RevisionNumber"
+        },
+        "expected_revision": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/RevisionNumber"
+        },
+        "event": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "event_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "actor": {
+          "$ref": "#/$defs/ControlActor"
+        },
+        "conditions": {
+          "$ref": "#/$defs/ConditionObservations"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "kind",
+        "table_version",
+        "machine",
+        "object_id",
+        "run_id",
+        "state",
+        "revision",
+        "expected_revision",
+        "event",
+        "event_id",
+        "actor",
+        "conditions"
+      ],
+      "$comment": "The state/revision/condition values are supplied observations, not an adopted current state or proof of authorization."
+    },
+    "ContextTransitionRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": "kernelcat.lab-control/v1"
+        },
+        "kind": {
+          "const": "transition_rule"
+        },
+        "table_version": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "rule_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "machine": {
+          "const": "context"
+        },
+        "from_states": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ContextState"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "event": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "actor": {
+          "$ref": "#/$defs/ControlActor"
+        },
+        "to_state": {
+          "$ref": "#/$defs/ContextState"
+        },
+        "required_conditions": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "idempotency_domain": {
+          "const": "context_event"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "kind",
+        "table_version",
+        "rule_id",
+        "machine",
+        "from_states",
+        "event",
+        "actor",
+        "to_state",
+        "required_conditions",
+        "idempotency_domain"
+      ]
+    },
+    "ExternalCallTransitionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": "kernelcat.lab-control/v1"
+        },
+        "kind": {
+          "const": "transition_request"
+        },
+        "table_version": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "machine": {
+          "const": "external_call"
+        },
+        "object_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "state": {
+          "$ref": "#/$defs/ExternalCallState"
+        },
+        "revision": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/RevisionNumber"
+        },
+        "expected_revision": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/RevisionNumber"
+        },
+        "event": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "event_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "actor": {
+          "$ref": "#/$defs/ControlActor"
+        },
+        "conditions": {
+          "$ref": "#/$defs/ConditionObservations"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "kind",
+        "table_version",
+        "machine",
+        "object_id",
+        "run_id",
+        "state",
+        "revision",
+        "expected_revision",
+        "event",
+        "event_id",
+        "actor",
+        "conditions"
+      ],
+      "$comment": "The state/revision/condition values are supplied observations, not an adopted current state or proof of authorization."
+    },
+    "ExternalCallTransitionRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": "kernelcat.lab-control/v1"
+        },
+        "kind": {
+          "const": "transition_rule"
+        },
+        "table_version": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "rule_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "machine": {
+          "const": "external_call"
+        },
+        "from_states": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExternalCallState"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "event": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "actor": {
+          "$ref": "#/$defs/ControlActor"
+        },
+        "to_state": {
+          "$ref": "#/$defs/ExternalCallState"
+        },
+        "required_conditions": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "idempotency_domain": {
+          "const": "operation_event"
+        }
+      },
+      "required": [
+        "protocol_version",
+        "kind",
+        "table_version",
+        "rule_id",
+        "machine",
+        "from_states",
+        "event",
+        "actor",
+        "to_state",
+        "required_conditions",
+        "idempotency_domain"
+      ]
+    },
+    "TransitionRequest": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/BranchTransitionRequest"
+        },
+        {
+          "$ref": "#/$defs/SessionTransitionRequest"
+        },
+        {
+          "$ref": "#/$defs/TrialTransitionRequest"
+        },
+        {
+          "$ref": "#/$defs/EvaluationTransitionRequest"
+        },
+        {
+          "$ref": "#/$defs/SettlementTransitionRequest"
+        },
+        {
+          "$ref": "#/$defs/ContextTransitionRequest"
+        },
+        {
+          "$ref": "#/$defs/ExternalCallTransitionRequest"
+        }
+      ]
+    },
+    "TransitionRule": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/BranchTransitionRule"
+        },
+        {
+          "$ref": "#/$defs/SessionTransitionRule"
+        },
+        {
+          "$ref": "#/$defs/TrialTransitionRule"
+        },
+        {
+          "$ref": "#/$defs/EvaluationTransitionRule"
+        },
+        {
+          "$ref": "#/$defs/SettlementTransitionRule"
+        },
+        {
+          "$ref": "#/$defs/ContextTransitionRule"
+        },
+        {
+          "$ref": "#/$defs/ExternalCallTransitionRule"
+        }
+      ]
+    },
+    "ControlMessage": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/AcceptanceProposal"
+        },
+        {
+          "$ref": "#/$defs/TransitionRequest"
+        },
+        {
+          "$ref": "#/$defs/TransitionRule"
+        }
+      ]
+    }
+  },
+  "$comment": "G0 finite protocol. Policy is TS owned; persistence, atomic admission and actual evidence/authorization remain at their existing owners."
+}

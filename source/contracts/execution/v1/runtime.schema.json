@@ -1,0 +1,1353 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kernelcat.local/contracts/execution/v1/runtime.schema.json",
+  "$ref": "#/$defs/RunLaunchManifest",
+  "$defs": {
+    "ProgramPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "ProgramFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/ProgramPath"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 8388608
+        }
+      },
+      "required": [
+        "path",
+        "text"
+      ]
+    },
+    "ProgramBundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "kernelcat.program-bundle/v1"
+        },
+        "entrypoint": {
+          "$ref": "#/$defs/ProgramPath"
+        },
+        "configuration_source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1048576
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProgramFile"
+          },
+          "minItems": 1,
+          "maxItems": 2048
+        }
+      },
+      "required": [
+        "schema_version",
+        "entrypoint",
+        "configuration_source",
+        "files"
+      ],
+      "$comment": "Normalize relative POSIX paths: reject absolute paths, backslashes, NUL and non-UTF-8 strings; collapse empty/dot components and non-escaping parent steps, rejecting a parent step above root and empty/dot results. Reject duplicate normalized paths, require normalized entrypoint membership, sort files by UTF-8 path bytes. Canonical JSON recursively sorts fixed ASCII object keys and uses UTF-8 without ASCII escaping. There are no JSON number values in this bundle. SHA256 of these bytes is artifact_digest; configuration_digest hashes exact configuration_source UTF-8 bytes. Canonical bundle bytes are limited to 8 MiB."
+    },
+    "InitialProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "proposal_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "conditions": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "operation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "expected_outcome": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "stop_conditions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          },
+          "minItems": 1,
+          "maxItems": 64
+        },
+        "parameter_source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1048576
+        }
+      },
+      "required": [
+        "proposal_id",
+        "conditions",
+        "operation",
+        "expected_outcome",
+        "stop_conditions",
+        "parameter_source"
+      ]
+    },
+    "RunLaunchManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "kernelcat.run-launch/v1"
+        },
+        "account_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "intent_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "trial_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "branch_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "session_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "goal": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "contract_source_text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2097152
+        },
+        "program": {
+          "$ref": "#/$defs/ProgramBundle"
+        },
+        "proposal": {
+          "$ref": "#/$defs/InitialProposal"
+        },
+        "model_route": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "run_credit_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "trial_credit_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "schema_version",
+        "account_id",
+        "intent_id",
+        "run_id",
+        "trial_id",
+        "branch_id",
+        "session_id",
+        "seed",
+        "goal",
+        "contract_source_text",
+        "program",
+        "proposal",
+        "model_route",
+        "run_credit_limit",
+        "trial_credit_limit"
+      ],
+      "$comment": "Trusted product launch input. TaskContract is the existing exact source, not a second TaskInstance. Program bytes are canonicalized under ProgramBundle rules before baseline comparison. Preparing/freezing never invokes a model or device."
+    },
+    "AccountCreateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "kernelcat.runtime-account-create/v1"
+        },
+        "intent_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "credits": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "knowledge_authority_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest",
+          "description": "Explicit pinned Knowledge authority. Without multi_trial selects fresh v2; multi_trial true selects fresh v3. No migration or additional funding."
+        },
+        "multi_trial": {
+          "const": true,
+          "description": "Explicit fresh v3 account selection. Absence preserves the existing v1/v2 format; no migration or renewed funding."
+        }
+      },
+      "required": [
+        "schema_version",
+        "intent_id",
+        "credits"
+      ]
+    },
+    "AccountReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "kernelcat.runtime-account/v1"
+        },
+        "account_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "authority_digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "intent_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "credit_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "knowledge_authority_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest",
+          "description": "Pinned Knowledge authority on an explicitly fresh v2 or v3 account; not a view or effect grant."
+        },
+        "multi_trial": {
+          "const": true,
+          "description": "Explicit fresh v3 account selection. Absence preserves the existing v1/v2 format; no migration or renewed funding."
+        }
+      },
+      "required": [
+        "schema_version",
+        "account_id",
+        "authority_digest",
+        "intent_id",
+        "credit_limit"
+      ]
+    },
+    "AccountObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account": {
+          "$ref": "#/$defs/AccountReceipt"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "budget": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/runtime_control.schema.json#/$defs/CreditBudget"
+        }
+      },
+      "required": [
+        "account",
+        "revision",
+        "budget"
+      ]
+    },
+    "PrepareRunRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "manifest": {
+          "$ref": "#/$defs/RunLaunchManifest"
+        },
+        "manifest_digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        }
+      },
+      "required": [
+        "manifest",
+        "manifest_digest"
+      ]
+    },
+    "PreparedRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "kernelcat.prepared-run/v1"
+        },
+        "intent_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "manifest_digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "account": {
+          "$ref": "#/$defs/AccountObservation"
+        },
+        "host_task_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "version_lock": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/VersionLockEntry"
+        },
+        "policy_digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "parent_program": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/Program"
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/OwnerReference"
+          },
+          "minItems": 0,
+          "maxItems": 4096
+        },
+        "retained_objects": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/LabObject"
+          },
+          "minItems": 0,
+          "maxItems": 16384
+        },
+        "retained_sources": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/TaskContractSource"
+          },
+          "minItems": 0,
+          "maxItems": 128
+        },
+        "retained_version_locks": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/VersionLockEntry"
+          },
+          "minItems": 0,
+          "maxItems": 128
+        },
+        "memory": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/TaskMemoryRevision"
+        },
+        "harness_version": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/version_lock.schema.json#/$defs/IdentityObservation"
+        },
+        "kb_version": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/version_lock.schema.json#/$defs/IdentityObservation"
+        },
+        "environment_version": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/version_lock.schema.json#/$defs/IdentityObservation"
+        },
+        "compiler_version": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/version_lock.schema.json#/$defs/IdentityObservation"
+        },
+        "workspace_resource_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "workspace_lease_deadline": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "prepare_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "existing_state": {
+          "$ref": "#/$defs/RuntimeState"
+        },
+        "parameter_ref_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "branch_resource_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "branch_lease_deadline": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "required_ref_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+          },
+          "minItems": 0,
+          "maxItems": 1024,
+          "uniqueItems": true
+        },
+        "knowledge": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/TrialKnowledgeBinding"
+        }
+      },
+      "required": [
+        "schema_version",
+        "intent_id",
+        "manifest_digest",
+        "account",
+        "host_task_id",
+        "version_lock",
+        "policy_digest",
+        "parent_program",
+        "references",
+        "retained_objects",
+        "retained_sources",
+        "retained_version_locks",
+        "memory",
+        "harness_version",
+        "kb_version",
+        "environment_version",
+        "compiler_version",
+        "workspace_resource_id",
+        "workspace_lease_deadline",
+        "prepare_revision",
+        "parameter_ref_id",
+        "branch_resource_id",
+        "branch_lease_deadline"
+      ],
+      "$comment": "Real finite-owner observations after admitted local preparation. No proposed lease, budget, profile or capability is authoritative until freeze. Retained graph rows are exact historical snapshots, not current ledger totals."
+    },
+    "FreezeRunRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "intent_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "manifest_digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "expected_account_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "graph": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/ObjectGraph"
+        }
+      },
+      "required": [
+        "intent_id",
+        "manifest_digest",
+        "expected_account_revision",
+        "graph"
+      ],
+      "$comment": "Finite Controller proposal. Executor validates exact prepared references, initial states, identities, versions, limits and the trusted connection before one durable freeze; no arbitrary database patch."
+    },
+    "RuntimeState": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "kernelcat.runtime-state/v1"
+        },
+        "manifest_digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "stamp": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/runtime_control.schema.json#/$defs/ExecutionStamp"
+        },
+        "run": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/TaskRun"
+        },
+        "trial": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/Trial"
+        },
+        "branch": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/Branch"
+        },
+        "session": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/AgentSession"
+        },
+        "parent_program": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/Program"
+        },
+        "compiler_version": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/version_lock.schema.json#/$defs/IdentityObservation"
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/OwnerReference"
+          },
+          "minItems": 0,
+          "maxItems": 4096
+        },
+        "graph": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/ObjectGraph"
+        },
+        "account_budget": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/runtime_control.schema.json#/$defs/CreditBudget"
+        },
+        "run_budget": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/runtime_control.schema.json#/$defs/CreditBudget"
+        },
+        "trial_budget": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/runtime_control.schema.json#/$defs/CreditBudget"
+        },
+        "pending_effect_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+          },
+          "minItems": 0,
+          "maxItems": 16384
+        },
+        "capsule": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/Capsule"
+        },
+        "context": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/ContextManifest"
+        },
+        "last_control_intent_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "last_control_request": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ReplaceSessionRequest"
+            },
+            {
+              "$ref": "#/$defs/StopRunRequest"
+            }
+          ]
+        },
+        "materialization": {
+          "$ref": "#/$defs/MaterializationState"
+        },
+        "last_candidate_adoption": {
+          "$ref": "#/$defs/AdoptCandidateRequest"
+        },
+        "knowledge_invalidated": {
+          "const": true,
+          "description": "Present only on a permanent Knowledge registration fence for this Run/Trial. Absence does not establish Knowledge eligibility."
+        },
+        "required_ref_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+          },
+          "minItems": 0,
+          "maxItems": 1024,
+          "uniqueItems": true
+        },
+        "pending_trial_intent_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "freeze_replayed": {
+          "const": true,
+          "description": "Only a known exact fresh-v3 freeze_run/freeze_trial response: original Journal decides replay atomically. Do not bind a new Actor or start Pi from this reply. Ordinary state reads omit it; v1/v2 responses stay unchanged. Not persisted graph data or an effect grant."
+        }
+      },
+      "required": [
+        "schema_version",
+        "manifest_digest",
+        "stamp",
+        "run",
+        "trial",
+        "branch",
+        "session",
+        "parent_program",
+        "compiler_version",
+        "references",
+        "graph",
+        "account_budget",
+        "run_budget",
+        "trial_budget",
+        "pending_effect_ids"
+      ],
+      "$comment": "Bounded supplied snapshot projection plus current authoritative counters. graph is a closed selected graph, not a copy of every ledger event. Pi exit/candidate materialization does not imply independent validation or optimization success."
+    },
+    "ContextCommit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "expected": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/runtime_control.schema.json#/$defs/ExecutionStamp"
+        },
+        "input_json": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2097152,
+          "description": "Exact selected input bytes, UTF-8. With HarnessModelRequest this is JSON of the checked HarnessInput, including effective prompt/messages/tools; otherwise it is JSON of the submitted ContextSource. The owner compares parsed duplicate-free finite/safe values and preserves the original bytes, rather than requiring Python reserialization equality."
+        },
+        "manifest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/ContextManifest"
+        },
+        "turn": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/TurnContext"
+        },
+        "capsule": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/Capsule"
+        }
+      },
+      "required": [
+        "expected",
+        "input_json",
+        "manifest",
+        "turn"
+      ],
+      "$comment": "TS input proposal. In the same transaction as a new model intent/credit reservation, the owner validates current identity/revisions/control/lease, exact input bytes and manifest references, then adopts context. Actual accepted input bytes and final prepared provider request are separately retained. Completed receipt replay never creates another physical observation or charge."
+    },
+    "RuntimeStateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "trial_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "run_id",
+        "trial_id"
+      ]
+    },
+    "ReplaceSessionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "intent_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "expected": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/runtime_control.schema.json#/$defs/ExecutionStamp"
+        },
+        "session_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "intent_id",
+        "expected",
+        "session_id"
+      ],
+      "$comment": "Conditionally replaces the active assignment. Never treats lease expiry as remote completion. Unstarted admissions may be cancelled atomically; started/UNKNOWN operations retain original reservations and block resource reuse/new effects until reconciled."
+    },
+    "StopRunRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "intent_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "expected_control_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        }
+      },
+      "required": [
+        "intent_id",
+        "run_id",
+        "expected_control_revision",
+        "reason"
+      ]
+    },
+    "SnapshotProgramRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "intent_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "expected": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/runtime_control.schema.json#/$defs/ExecutionStamp"
+        },
+        "program_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "intent_id",
+        "expected",
+        "program_id"
+      ],
+      "$comment": "Finite Controller-authorized workspace materialization. Admit and record intent first, read/store bytes outside the journal transaction, then settle the original identity. No model/device action."
+    },
+    "SnapshotProgramResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "program_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "artifact_digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "configuration_digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "manifest_ref": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/OwnerReference"
+        },
+        "provenance_ref": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/OwnerReference"
+        }
+      },
+      "required": [
+        "operation_id",
+        "program_id",
+        "artifact_digest",
+        "configuration_digest",
+        "manifest_ref",
+        "provenance_ref"
+      ]
+    },
+    "AdoptCandidateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "intent_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "expected": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/runtime_control.schema.json#/$defs/ExecutionStamp"
+        },
+        "program": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/Program"
+        },
+        "snapshot_operation_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "intent_id",
+        "expected",
+        "program",
+        "snapshot_operation_id"
+      ],
+      "$comment": "Adopts only a byte-verified program from the original completed materialization operation. It can establish CANDIDATES_READY, never correctness/timing qualification, incumbent promotion or reward."
+    },
+    "MaterializationState": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request": {
+          "$ref": "#/$defs/SnapshotProgramRequest"
+        },
+        "operation_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "status": {
+          "enum": [
+            "admitted",
+            "started",
+            "unknown",
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "result": {
+          "$ref": "#/$defs/SnapshotProgramResult"
+        }
+      },
+      "required": [
+        "request",
+        "operation_id",
+        "status"
+      ],
+      "$comment": "Original per-Trial materialization intent and observed outcome for reconciliation after ACK loss. Completed requires its original result at the owner boundary; pending/UNKNOWN is never permission to redispatch. This is a read projection, not an effect capability."
+    },
+    "BindFinalizationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "expected": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/runtime_control.schema.json#/$defs/ExecutionStamp"
+        }
+      },
+      "required": [
+        "expected"
+      ],
+      "$comment": "Bind only finite finalization on an unbound connection with verified original manifest/config and current expected stamp. Requires generation_stopped, current active leases, no unresolved effects and same local task lock. No new generation/lease, Pi handler, seed write or model/native permission; this local connection binding does not itself grant a business effect."
+    },
+    "PrepareKnowledgeCaptureRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "preparation_intent_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "expected_account_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "capture_request": {
+          "$ref": "https://kernelcat.local/contracts/knowledge/v1/knowledge_runtime.schema.json#/$defs/KnowledgeCaptureRequest"
+        }
+      },
+      "required": [
+        "preparation_intent_id",
+        "expected_account_revision",
+        "capture_request"
+      ],
+      "$comment": "Internal trusted finite composition only, not an RPC/model tool. Durable original request precedes the external capture; known full-body replay precedes fresh CAS."
+    },
+    "InstallKnowledgeCaptureRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "preparation_intent_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "capture_request_digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "registration": {
+          "$ref": "https://kernelcat.local/contracts/knowledge/v1/knowledge_runtime.schema.json#/$defs/KnowledgeRegistration"
+        },
+        "view": {
+          "$ref": "https://kernelcat.local/contracts/knowledge/v1/knowledge_runtime.schema.json#/$defs/KnowledgeViewReference"
+        },
+        "capture_receipt_ref": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/OwnerReference"
+        }
+      },
+      "required": [
+        "preparation_intent_id",
+        "capture_request_digest",
+        "registration",
+        "view",
+        "capture_receipt_ref"
+      ],
+      "$comment": "Original owner verifies immutable full capture receipt outside its short commit; exact replay is historical and does not renew validity."
+    },
+    "PrepareTrialRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "kernelcat.prepare-trial/v1"
+        },
+        "intent_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "manifest_digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "expected": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/runtime_control.schema.json#/$defs/ExecutionStamp"
+        },
+        "trial_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "branch_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "session_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "parent_program_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "proposal": {
+          "$ref": "#/$defs/InitialProposal"
+        },
+        "trial_credit_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "supersedes_intent_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "schema_version",
+        "intent_id",
+        "manifest_digest",
+        "expected",
+        "trial_id",
+        "branch_id",
+        "session_id",
+        "parent_program_id",
+        "proposal",
+        "trial_credit_limit"
+      ],
+      "$comment": "Explicit fresh-v3 same-Run transition. Original Run/account/root/contract/seed/route/policy/version/cap remain. Expected current stamp and no pending Run effects are checked in the original Journal; preparation fences prior assignment before external work."
+    },
+    "PreparedTrial": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "kernelcat.prepared-trial/v1"
+        },
+        "request": {
+          "$ref": "#/$defs/PrepareTrialRequest"
+        },
+        "request_digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "account": {
+          "$ref": "#/$defs/AccountObservation"
+        },
+        "transition_stamp": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/runtime_control.schema.json#/$defs/ExecutionStamp"
+        },
+        "host_task_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "parent_program": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/Program"
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/OwnerReference"
+          },
+          "minItems": 0,
+          "maxItems": 4096
+        },
+        "parameter_ref_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "memory": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/TaskMemoryRevision"
+        },
+        "required_ref_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+          },
+          "minItems": 0,
+          "maxItems": 1024,
+          "uniqueItems": true
+        },
+        "workspace_resource_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "workspace_lease_deadline": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "branch_resource_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "branch_lease_deadline": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "prepare_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "knowledge": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/TrialKnowledgeBinding"
+        },
+        "existing_state": {
+          "$ref": "#/$defs/RuntimeState"
+        }
+      },
+      "required": [
+        "schema_version",
+        "request",
+        "request_digest",
+        "account",
+        "transition_stamp",
+        "host_task_id",
+        "parent_program",
+        "references",
+        "parameter_ref_id",
+        "memory",
+        "required_ref_ids",
+        "workspace_resource_id",
+        "workspace_lease_deadline",
+        "branch_resource_id",
+        "branch_lease_deadline",
+        "prepare_revision"
+      ],
+      "$comment": "Finite owner preparation for one new Trial. Deadlines and original request are immutable; observations refresh only on reads. Existing state is historical replay, not an Actor bind or SDK-start grant."
+    },
+    "FreezeTrialRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "kernelcat.freeze-trial/v1"
+        },
+        "intent_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "request_digest": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Digest"
+        },
+        "expected": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/runtime_control.schema.json#/$defs/ExecutionStamp"
+        },
+        "expected_account_revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "graph": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/ObjectGraph"
+        }
+      },
+      "required": [
+        "schema_version",
+        "intent_id",
+        "request_digest",
+        "expected",
+        "expected_account_revision",
+        "graph"
+      ],
+      "$comment": "Node proposes the closed graph; original Journal checks the current preparation, stamp/account CAS, retained history/Run, no pending effects/global stop/fence, verified refs and unexpired fresh leases. Duplicate replay cannot reacquire a superseded assignment."
+    },
+    "KnowledgeSyncRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "trial_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "run_id",
+        "trial_id"
+      ],
+      "$comment": "Finite trusted administration only. Select the Journal's recorded original capture request, never a caller-supplied registration/path. Invalidated remains terminal even at own pending=0."
+    },
+    "ManagedInputRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "intent_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "expected": {
+          "$ref": "https://kernelcat.local/contracts/execution/v1/runtime_control.schema.json#/$defs/ExecutionStamp"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "prompt",
+            "steer",
+            "follow_up"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        }
+      },
+      "required": [
+        "intent_id",
+        "expected",
+        "kind",
+        "text"
+      ],
+      "$comment": "Finite input admission on the trusted managed connection. Original Gateway/Journal atomically validates current Actor, lease and exact execution stamp. Repeated intent with identical body replays its receipt; conflicting content fails. Acceptance is queued input, never effect approval or evidence of model consumption."
+    },
+    "ManagedInputReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "run_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "trial_id": {
+          "$ref": "https://kernelcat.local/contracts/lab/v1/task_contract.schema.json#/$defs/Identifier"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "prompt",
+            "steer",
+            "follow_up"
+          ]
+        }
+      },
+      "required": [
+        "input_id",
+        "run_id",
+        "trial_id",
+        "kind"
+      ]
+    },
+    "GoalPursuitBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "kernelcat.goal-pursuit/v1"
+        },
+        "worker": {
+          "$ref": "#/$defs/GoalPursuitWorker"
+        },
+        "session": {
+          "$ref": "#/$defs/GoalPursuitSession"
+        },
+        "loopx": {
+          "$ref": "#/$defs/GoalPursuitLoopx"
+        },
+        "goal": {
+          "$ref": "#/$defs/GoalPursuitGoal"
+        },
+        "pursuit": {
+          "$ref": "#/$defs/GoalPursuitPursuit"
+        }
+      },
+      "required": [
+        "schema_version",
+        "worker",
+        "session",
+        "loopx",
+        "goal",
+        "pursuit"
+      ]
+    },
+    "GoalPursuitWorker": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "python": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^/"
+        },
+        "config": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^/"
+        },
+        "expected_python_modules": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^/"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600000
+        },
+        "max_frame_bytes": {
+          "type": "integer",
+          "minimum": 4096,
+          "maximum": 16777216
+        },
+        "max_payload_bytes": {
+          "type": "integer",
+          "minimum": 4096,
+          "maximum": 67108864
+        }
+      },
+      "required": [
+        "python",
+        "config",
+        "expected_python_modules"
+      ]
+    },
+    "GoalPursuitSession": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "manifest": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^/"
+        },
+        "application_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "required": [
+        "manifest"
+      ]
+    },
+    "GoalPursuitLoopx": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cli": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^/"
+        },
+        "node": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^/"
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^/"
+        },
+        "registry": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^/"
+        },
+        "runtime_root": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^/"
+        },
+        "home": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^/"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600000
+        },
+        "max_output_bytes": {
+          "type": "integer",
+          "minimum": 4096,
+          "maximum": 16777216
+        }
+      },
+      "required": [
+        "cli",
+        "node",
+        "project",
+        "registry",
+        "runtime_root",
+        "home"
+      ]
+    },
+    "GoalPursuitGoal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "goal_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "agent_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "todo_id": {
+          "type": "string",
+          "pattern": "^todo_[A-Za-z0-9_-]{1,128}$"
+        },
+        "validator_argv": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "minItems": 1,
+          "maxItems": 128
+        },
+        "validator_timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 120
+        }
+      },
+      "required": [
+        "goal_id",
+        "agent_id",
+        "todo_id",
+        "validator_argv",
+        "validator_timeout_seconds"
+      ]
+    },
+    "GoalPursuitPursuit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "intent_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "max_turns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "trial_credit_limit": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "resume": {
+          "$ref": "#/$defs/ReplaceSessionRequest"
+        },
+        "next_trial": {
+          "$ref": "#/$defs/PrepareTrialRequest"
+        }
+      },
+      "required": [
+        "intent_id",
+        "max_turns",
+        "trial_credit_limit"
+      ]
+    }
+  }
+}

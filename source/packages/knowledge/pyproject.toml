@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kernelcat-knowledge"
+version = "0.1.0"
+readme = "README.md"
+description = "CLI-first, evidence-first knowledge compiler for KernelCat"
+requires-python = ">=3.11"
+dependencies = ["PyYAML>=6.0"]
+
+[project.optional-dependencies]
+mcp = ["fastmcp>=0.2.0"]
+
+[project.scripts]
+kcwiki = "kernelcat_knowledge.api.cli:main"
+kcwiki-mcp = "kernelcat_knowledge.api.mcp.server:main"
+kcwiki-validate-contracts = "kernelcat_knowledge.api.tools.validate_contracts:main"
+kcwiki-validate-cards = "kernelcat_knowledge.api.tools.validate_cards:main"
+kcwiki-validate-trust = "kernelcat_knowledge.api.tools.validate_trust:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["kernelcat_knowledge*"]
+
+[tool.setuptools.package-data]
+kernelcat_knowledge = ["py.typed"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --import-mode=importlib"
+pythonpath = ["src", "tests"]
+testpaths = ["tests"]

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kernelcat.dev/schemas/profiler-agent-diagnosis.schema.json",
+  "title": "KernelCat diagnosis-first profiler Agent projection",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "status",
+    "decision",
+    "authority",
+    "summary",
+    "diagnosis",
+    "entrypoints",
+    "extraction"
+  ],
+  "properties": {
+    "schema_version": {"const": "ascend-profiler-agent-diagnosis/v1"},
+    "decision": {
+      "type": "object",
+      "required": ["promotion_eligible", "recommendation", "reward_authority", "pmu_role"],
+      "properties": {
+        "promotion_eligible": {"type": "boolean"},
+        "reward_authority": {"const": "profiler-off NPU Event"},
+        "pmu_role": {"const": "mechanism_only"}
+      }
+    },
+    "extraction": {
+      "type": "object",
+      "required": ["token_budget", "tokens", "budget_satisfied"],
+      "properties": {
+        "token_budget": {"type": "integer", "minimum": 128},
+        "tokens": {"type": "integer", "minimum": 0},
+        "budget_satisfied": {"const": true}
+      }
+    }
+  }
+}

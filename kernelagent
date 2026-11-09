@@ -1,0 +1,35 @@
+#!/bin/sh
+set -eu
+BUNDLE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+RUNTIME=${KERNELCAT_RUNTIME:-"$BUNDLE/runtime"}
+NODE=${KERNELCAT_NODE:-node}
+BOOTSTRAP=${KERNELCAT_BOOTSTRAP_PYTHON:-python3}
+if [ -f "$BUNDLE/.installation/ready" ]; then
+    IFS= read -r SELECTED_NODE < "$BUNDLE/.installation/node"
+    IFS= read -r SELECTED_RUNTIME < "$BUNDLE/.installation/runtime"
+    NODE=${KERNELCAT_NODE:-"$SELECTED_NODE"}
+    RUNTIME=${KERNELCAT_RUNTIME:-"$SELECTED_RUNTIME"}
+    BOOTSTRAP=${KERNELCAT_BOOTSTRAP_PYTHON:-"$RUNTIME/venv/bin/python"}
+fi
+"$BOOTSTRAP" -I -B "$BUNDLE/install.py" --verify-only >/dev/null
+if [ "${1:-}" = session-replay ]; then
+    shift
+    exec "$NODE" "$BUNDLE/source/apps/agent/scripts/session-replay.ts" "$@"
+fi
+if [ "$#" -eq 0 ]; then
+    exec "$NODE" "$BUNDLE/source/apps/agent/src/main.ts"
+fi
+for argument in "$@"; do
+    if [ "$argument" = --help ] || [ "$argument" = -h ]; then
+        exec "$NODE" "$BUNDLE/source/apps/agent/src/main.ts" "$@"
+    fi
+done
+[ -f "$BUNDLE/.installation/ready" ] && [ -x "$RUNTIME/venv/bin/python" ] && [ -f "$RUNTIME/expected.json" ] || {
+    echo "Run the explicit install.py step from README.md first." >&2
+    exit 2
+}
+if [ "${1:-}" = pursue ]; then
+    exec "$NODE" "$BUNDLE/source/apps/agent/src/main.ts" "$@"
+fi
+exec "$NODE" "$BUNDLE/source/apps/agent/src/main.ts" "$@" \
+    --python "$RUNTIME/venv/bin/python" --expected-python-modules "$RUNTIME/expected.json"
