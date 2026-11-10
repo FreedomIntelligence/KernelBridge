@@ -11,6 +11,7 @@
 | 三组 RSI 配置的摘要与权限边界 | 原 check_configuration 通过 |
 | 三组实际 RSI 分解入口 | 通过，生成一个源码变更单元 |
 | 三个算子的独立原生文件与 six-source wrapper | 六字段逐字一致 |
+| 原始会话 one-shot 恢复 | 四组全部通过；Pi session ID、leaf ID、完整上下文一致 |
 | 日志导出 | 四组完整会话，原生 Pi HTML，逐文件 SHA256 |
 | 旧 CANN 验收条件 | 最终源码绑定、五种输入、NPU 计时与未决效果回归通过 |
 

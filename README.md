@@ -127,3 +127,5 @@ python3 -B install.py --verify-only
 `source/` 保存产品实现，客户任务、工作区、journals 与新产物放在独立数据目录。模型配置、可写范围与预算由客户明确指定；自动跨 Trial 必须显式配置 LoopX；单次执行允许独立 KernelCat 会话。Knowledge、RSI 评估与 Replay 按各自功能开关配置，关闭 Replay 不关闭 LoopX 的目标与配额管理。
 
 后续自定义算子可从示例生成的任务与配置出发，更换语义、输入范围、父程序和独立评估器。保留原始账本、回执、模块绑定和未决操作身份；升级源码不能通过清空预留、改写历史摘要或复制旧状态来强行继续。具体命令见 [KernelCat](kernelcat/README.md)，可选能力见 [KernelBridge](kernelbridge/README.md)。
+
+历史会话支持 [一条命令恢复](examples/cann/README.md#一条命令恢复原会话)：校验归档后，以 Pi SessionManager 还原原 session ID、当前分支与完整上下文，输出 `session.html`、`session.jsonl` 和原生 Pi 打开命令。Sigmoid 的重新实验命令与历史会话恢复命令分别列在 [复现指南](examples/cann/sigmoid-optimization/README.md)。

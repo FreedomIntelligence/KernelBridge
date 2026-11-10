@@ -23,3 +23,13 @@ node examples/cann/sigmoid-optimization/reproduce.mjs \
 ## 日志与复查
 
 完整交付包 `runs/` 保留可直接打开的 Pi session HTML、原生 JSONL、SDK 事件、KernelBridge 账本和 LoopX 状态。`logs/` 提供包括失败修复在内的全部原始日志与远端编译/计时归档。文件 SHA256 由各层 manifest 索引。复查按 task、候选源码摘要、编译凭据、测量样本与 Goal validator 结果关联。
+
+## 恢复之前的 session
+
+```sh
+node examples/cann/restore-session.mjs \
+  --run /absolute/KernelBridge-delivery-20261109/runs/sdk-goal-sigmoid-optimization2-40turn \
+  --output /absolute/restored/sigmoid-session
+```
+
+恢复命令验证全部文件哈希，并通过 Pi SessionManager 还原原会话 ID、当前分支与完整模型上下文。`session.html` 用于阅读，`session.jsonl` 用于 Pi 原生 session 打开，`restore.json` 保存核对结果与精确打开命令。四组交付会话均已完成这个恢复检查。

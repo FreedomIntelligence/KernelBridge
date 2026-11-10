@@ -10,7 +10,7 @@ index 0000000..6e68e63
 +__pycache__/
 +*.pyc
 diff --git a/README.md b/README.md
-index b8f0c78..a48eee7 100644
+index b8f0c78..53ec1c0 100644
 --- a/README.md
 +++ b/README.md
 @@ -1,9 +1,15 @@
@@ -41,7 +41,7 @@ index b8f0c78..a48eee7 100644
  
  ## 在线安装
  
-@@ -90,6 +96,34 @@ node examples/vector-add/sdk-run.mjs \
+@@ -90,6 +96,36 @@ node examples/vector-add/sdk-run.mjs \
  
  ## 数据位置与后续使用
  
@@ -76,12 +76,14 @@ index b8f0c78..a48eee7 100644
  `source/` 保存产品实现，客户任务、工作区、journals 与新产物放在独立数据目录。模型配置、可写范围与预算由客户明确指定；自动跨 Trial 必须显式配置 LoopX；单次执行允许独立 KernelCat 会话。Knowledge、RSI 评估与 Replay 按各自功能开关配置，关闭 Replay 不关闭 LoopX 的目标与配额管理。
  
  后续自定义算子可从示例生成的任务与配置出发，更换语义、输入范围、父程序和独立评估器。保留原始账本、回执、模块绑定和未决操作身份；升级源码不能通过清空预留、改写历史摘要或复制旧状态来强行继续。具体命令见 [KernelCat](kernelcat/README.md)，可选能力见 [KernelBridge](kernelbridge/README.md)。
++
++历史会话支持 [一条命令恢复](examples/cann/README.md#一条命令恢复原会话)：校验归档后，以 Pi SessionManager 还原原 session ID、当前分支与完整上下文，输出 `session.html`、`session.jsonl` 和原生 Pi 打开命令。Sigmoid 的重新实验命令与历史会话恢复命令分别列在 [复现指南](examples/cann/sigmoid-optimization/README.md)。
 diff --git a/examples/cann/README.md b/examples/cann/README.md
 new file mode 100644
-index 0000000..741ffb6
+index 0000000..d59b830
 --- /dev/null
 +++ b/examples/cann/README.md
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,102 @@
 +# CANN 算子：可编辑任务、原生 C++ 与 Pi SDK + LoopX Goal
 +
 +默认流程是 **task → LoopX Goal → Pi SDK 会话 → NPU 评测与修复 → 验收和日志归档**。提供两个可修改的初始化算子：**Vector Add FP32 `[128]`**、**Cube Matmul FP16 `[128,128]`（FP32 累加）**。此前已在 Ascend910_9382、逻辑 NPU 1、CANN 9.1、torch_npu 2.10 上完成真实编译、五个随机种子的正确性和在线 Pi SDK 生成。另有 [Sigmoid 优化结果](sigmoid-optimization/README.md)。证据范围见 [验收报告](../../validation/ACCEPTANCE_RESULTS.md)。
@@ -172,6 +174,18 @@ index 0000000..741ffb6
 +导出拒绝符号链接、重复输出目录及凭据形态内容；使用已锁定 Pi 自带导出器生成原生 session HTML，不重新调用模型或 NPU。原始绝对 locator 保留用于溯源；移动后的阅读通过 manifest 相对路径进行，不声称跨机器直接恢复旧状态。
 +
 +完整交付包顶层 `runs/` 包含 Vector、Cube、Cube 修复与 Sigmoid 40-turn 四组可直接阅读的完整会话；`logs/` 额外保留全部成功/失败尝试及远端编译、正确性和计时日志压缩包。设备二进制留在原设备，交付的是二进制哈希和构建凭据。只有独立 `acceptance.accepted=true` 或原始 LoopX validator passed 才表示相应验收通过。
++
++## 一条命令恢复原会话
++
++安装后执行下面命令，恢复完整 run、Pi 原生 session 和 checkpoint，并由 Pi SessionManager 核对会话 ID、当前分支、全部条目和模型上下文：
++
++```sh
++node examples/cann/restore-session.mjs \
++  --run /absolute/KernelBridge-delivery-20261109/runs/sdk-goal-sigmoid-optimization2-40turn \
++  --output /absolute/restored/sigmoid-session
++```
++
++打开输出目录的 `session.html` 阅读完整对话；`session.jsonl` 是原始 Pi 会话，`restore.json` 包含恢复校验及 `pi_open_argv`。该 argv 使用 Pi 原生 `--session` 参数打开同一会话，操作方式对应按 session 恢复历史对话。原始 NPU 评测凭据、KernelBridge journal 与 LoopX 状态同时保留在恢复目录。重新执行实验使用 Sigmoid 的 `reproduce.mjs`。
 diff --git a/examples/cann/cube-matmul/README.md b/examples/cann/cube-matmul/README.md
 new file mode 100644
 index 0000000..2b75129
@@ -2728,6 +2742,65 @@ index 0000000..de364e3
 +  },
 +  "loopx": "{bundle}/runtime/venv/bin/loopx"
 +}
+diff --git a/examples/cann/restore-session.mjs b/examples/cann/restore-session.mjs
+new file mode 100644
+index 0000000..232e639
+--- /dev/null
++++ b/examples/cann/restore-session.mjs
+@@ -0,0 +1,53 @@
++/** Restore an archived Pi session and its complete run evidence into a new directory. */
++import { readFile, writeFile, mkdir, copyFile, realpath } from 'node:fs/promises';
++import { createHash } from 'node:crypto';
++import { dirname, join, resolve, isAbsolute } from 'node:path';
++import { fileURLToPath } from 'node:url';
++import { SessionManager } from '../../source/apps/agent/node_modules/@earendil-works/pi-coding-agent/dist/index.js';
++const hash = value => createHash('sha256').update(value).digest('hex');
++
++export async function restoreSession(input, output) {
++  input = await realpath(input); output = resolve(output);
++  const manifest = JSON.parse(await readFile(join(input, 'manifest.json'), 'utf8'));
++  if (manifest.schema_version !== 'kernelbridge.run-archive/v1') throw new Error('Expected a run archive manifest');
++  for (const row of manifest.files) {
++    if (isAbsolute(row.path) || row.path.split('/').includes('..')) throw new Error('Invalid archive path');
++    const path = join(input, row.path);
++    if (await realpath(path) !== path) throw new Error('Archive entry traverses a symlink');
++    const data = await readFile(path);
++    if (data.length !== row.bytes || hash(data) !== row.sha256) throw new Error('Archive hash mismatch: ' + row.path);
++  }
++  const sessions = manifest.indices.pi_sessions;
++  if (!sessions.length || sessions.some(name => !manifest.files.some(row => row.path === name))) throw new Error('Missing indexed Pi session');
++  await mkdir(output, { mode: 0o700 });
++  for (const name of [...manifest.files.map(row => row.path), 'manifest.json']) {
++    await mkdir(dirname(join(output, name)), { recursive: true });
++    await copyFile(join(input, name), join(output, name));
++  }
++  const checks = [];
++  for (const name of sessions) {
++    const original = SessionManager.open(join(input, name));
++    const restored = SessionManager.open(join(output, name));
++    const before = original.buildSessionContext(); const after = restored.buildSessionContext();
++    if (original.getSessionId() !== restored.getSessionId() || original.getLeafId() !== restored.getLeafId()
++        || JSON.stringify(before) !== JSON.stringify(after)) throw new Error('Pi restored context differs');
++    checks.push({ session: name, session_id: restored.getSessionId(), leaf_id: restored.getLeafId(),
++      entries: restored.getEntries().length, messages: after.messages.length, context_sha256: hash(JSON.stringify(after)), verified: true });
++  }
++  const primary = join(output, sessions[0]);
++  await copyFile(primary, join(output, 'session.jsonl'));
++  if (manifest.files.some(row => row.path === sessions[0] + '.html')) await copyFile(primary + '.html', join(output, 'session.html'));
++  const report = { restored: true, files_verified: manifest.files.length, sessions: checks,
++    primary_session: primary, pi_open_argv: [process.execPath, fileURLToPath(new URL('../../source/apps/agent/node_modules/@earendil-works/pi-coding-agent/dist/cli.js', import.meta.url)), '--session', primary],
++    execution: 'Pi SessionManager restored the original conversation and active branch; no new model turn was started' };
++  await writeFile(join(output, 'restore.json'), JSON.stringify(report, null, 2) + '\n');
++  return report;
++}
++
++if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
++  try {
++    const args = process.argv.slice(2);
++    if (args.length !== 4 || args[0] !== '--run' || args[2] !== '--output' || !isAbsolute(args[1]) || !isAbsolute(args[3])) throw new Error('node restore-session.mjs --run ABS_ARCHIVED_RUN --output NEW_ABS');
++    console.log(JSON.stringify(await restoreSession(args[1], args[3])));
++  } catch (error) { console.error(error.message); process.exitCode = 1; }
++}
 diff --git a/examples/cann/rsi_local.py b/examples/cann/rsi_local.py
 new file mode 100644
 index 0000000..28d832e
@@ -2910,10 +2983,10 @@ index 0000000..4b0f0d4
 +}
 diff --git a/examples/cann/sigmoid-optimization/README.md b/examples/cann/sigmoid-optimization/README.md
 new file mode 100644
-index 0000000..8fa7a55
+index 0000000..382d3b0
 --- /dev/null
 +++ b/examples/cann/sigmoid-optimization/README.md
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,35 @@
 +# Sigmoid：40-turn Goal 优化与一键复现
 +
 +原实验从 `baseline.py` 的保守单核实现开始，由 DeepSeek Flash 经 Pi SDK + LoopX 执行 40 个父模型回合。最终 `solution.py` 使用 40 核、2048 元素分块和双缓冲；独立 Ascend C 文件位于 [native/](native/)，来源与哈希见 `provenance.json` 和 `native/sources.json`。
@@ -2939,6 +3012,16 @@ index 0000000..8fa7a55
 +## 日志与复查
 +
 +完整交付包 `runs/` 保留可直接打开的 Pi session HTML、原生 JSONL、SDK 事件、KernelBridge 账本和 LoopX 状态。`logs/` 提供包括失败修复在内的全部原始日志与远端编译/计时归档。文件 SHA256 由各层 manifest 索引。复查按 task、候选源码摘要、编译凭据、测量样本与 Goal validator 结果关联。
++
++## 恢复之前的 session
++
++```sh
++node examples/cann/restore-session.mjs \
++  --run /absolute/KernelBridge-delivery-20261109/runs/sdk-goal-sigmoid-optimization2-40turn \
++  --output /absolute/restored/sigmoid-session
++```
++
++恢复命令验证全部文件哈希，并通过 Pi SessionManager 还原原会话 ID、当前分支与完整模型上下文。`session.html` 用于阅读，`session.jsonl` 用于 Pi 原生 session 打开，`restore.json` 保存核对结果与精确打开命令。四组交付会话均已完成这个恢复检查。
 diff --git a/examples/cann/sigmoid-optimization/baseline.py b/examples/cann/sigmoid-optimization/baseline.py
 new file mode 100644
 index 0000000..2e74f95
@@ -6366,7 +6449,7 @@ diff --git a/kernelagent b/kernelagent
 old mode 100644
 new mode 100755
 diff --git a/kernelbridge/README.md b/kernelbridge/README.md
-index 18ccee1..b2a38cc 100644
+index 18ccee1..831f143 100644
 --- a/kernelbridge/README.md
 +++ b/kernelbridge/README.md
 @@ -1,5 +1,7 @@
@@ -6377,8 +6460,14 @@ index 18ccee1..b2a38cc 100644
  KernelBridge 为 KernelAgent 提供三项能力：**Context 组织本次模型输入，Search 检索知识与原始证据，Replay 回放分析历史执行过程。** 用于诊断算子、形成实验假设、核对结果和复盘失败原因。
  
  V1 通过 KernelCat 的配置、CLI 和 TypeScript SDK 接入，复用 KernelCat 会话执行与 Worker。安装及首次运行统一见 [根目录 README](../README.md)，任务输入、模型配置和 SDK 用法见 [KernelCat README](../kernelcat/README.md)。
+@@ -386,3 +388,5 @@ CLI 同时打印摘要与计数，完整报告写入指定 JSON。该命令只
+ | 报告发现未决操作 | 通过原始状态与回执对账，沿用原意图；不能通过回放报告判断其已完成 |
+ 
+ 所有功能配置应在任务与运行输入被冻结前确定；继续已有任务时保留其原始身份、配置绑定和未决操作记录。
++
++历史会话支持 [一条命令恢复](../examples/cann/README.md#一条命令恢复原会话)：校验归档后，以 Pi SessionManager 还原原 session ID、当前分支与完整上下文，输出 `session.html`、`session.jsonl` 和原生 Pi 打开命令。Sigmoid 的重新实验命令与历史会话恢复命令分别列在 [复现指南](../examples/cann/sigmoid-optimization/README.md)。
 diff --git a/kernelcat/README.md b/kernelcat/README.md
-index c620235..56b756d 100644
+index c620235..7f03e52 100644
 --- a/kernelcat/README.md
 +++ b/kernelcat/README.md
 @@ -1,5 +1,7 @@
@@ -6398,6 +6487,12 @@ index c620235..56b756d 100644
  
  ### 独立任务 JSON
  
+@@ -333,3 +335,5 @@ console.log(result);
+ 需要自己产生下一 Trial 的 SDK 调用方仍可传 `LoopXGoal.pursue({ first, maxTurns, next })`；`next` 返回明确的 `GoalTurnRequest`，或 `{ stop: { reason } }`／`undefined` 表示不再提议。所有准入仍由 LoopX 执行，调用方不能以自写循环绕开 Goal，也不能把未观测的条件当作已满足。
+ 
+ 暂停调用 `goal.pause((await goal.read()).stateFingerprint, reason)`；恢复先用新的 `read()` fingerprint 调用 `goal.resume(fingerprint, reason)`，再显式提交新的 pursuit 意图及第一步请求。未解决未知时间观测时，默认 planner 仍会等待。`clear(fingerprint)` 停止并解除应用附着，保留原始证据与用量。生命周期冲突或结果不明时先读回原 owner 状态，不盲目重试，不删除 claim 或释放预留。
++
++历史会话支持 [一条命令恢复](../examples/cann/README.md#一条命令恢复原会话)：校验归档后，以 Pi SessionManager 还原原 session ID、当前分支与完整上下文，输出 `session.html`、`session.jsonl` 和原生 Pi 打开命令。Sigmoid 的重新实验命令与历史会话恢复命令分别列在 [复现指南](../examples/cann/sigmoid-optimization/README.md)。
 diff --git a/source/apps/agent/package-lock.json b/source/apps/agent/package-lock.json
 index 3420ea6..55ee5de 100644
 --- a/source/apps/agent/package-lock.json
@@ -11359,10 +11454,10 @@ index 0000000..64467ad
 +完整逐例均值、原始样本的定位信息、三组成对源码及 measurement ID 保存在 `performance-summary.json` 和 `sigmoid-final-comparison/`。`campaign-summary.json` 从原账本统计所有主要成功和失败运行；`task-input-equivalence.json` 证明 Vector/Cube 运行输入的全部字段与交付示例一致（JSON 排版经 runner 重新序列化）。
 diff --git a/validation/CANN_DELIVERY.md b/validation/CANN_DELIVERY.md
 new file mode 100644
-index 0000000..64c66ee
+index 0000000..ac70445
 --- /dev/null
 +++ b/validation/CANN_DELIVERY.md
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,18 @@
 +# CANN task / Goal 交付检查
 +
 +本次交付将 task 准备接到原有 managed SDK + LoopX：默认冻结 baseline、测试、TaskContract 和配对评测配置，建立 Goal，由同一 Pi 会话执行工具循环。`--mode generate` 进入普通 `KernelCat.runTask()`。
@@ -11376,6 +11471,7 @@ index 0000000..64c66ee
 +| 三组 RSI 配置的摘要与权限边界 | 原 check_configuration 通过 |
 +| 三组实际 RSI 分解入口 | 通过，生成一个源码变更单元 |
 +| 三个算子的独立原生文件与 six-source wrapper | 六字段逐字一致 |
++| 原始会话 one-shot 恢复 | 四组全部通过；Pi session ID、leaf ID、完整上下文一致 |
 +| 日志导出 | 四组完整会话，原生 Pi HTML，逐文件 SHA256 |
 +| 旧 CANN 验收条件 | 最终源码绑定、五种输入、NPU 计时与未决效果回归通过 |
 +

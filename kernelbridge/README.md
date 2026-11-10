@@ -388,3 +388,5 @@ CLI 同时打印摘要与计数，完整报告写入指定 JSON。该命令只�
 | 报告发现未决操作 | 通过原始状态与回执对账，沿用原意图；不能通过回放报告判断其已完成 |
 
 所有功能配置应在任务与运行输入被冻结前确定；继续已有任务时保留其原始身份、配置绑定和未决操作记录。
+
+历史会话支持 [一条命令恢复](../examples/cann/README.md#一条命令恢复原会话)：校验归档后，以 Pi SessionManager 还原原 session ID、当前分支与完整上下文，输出 `session.html`、`session.jsonl` 和原生 Pi 打开命令。Sigmoid 的重新实验命令与历史会话恢复命令分别列在 [复现指南](../examples/cann/sigmoid-optimization/README.md)。

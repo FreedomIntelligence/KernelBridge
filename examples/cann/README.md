@@ -88,3 +88,15 @@ node examples/cann/export.mjs \
 导出拒绝符号链接、重复输出目录及凭据形态内容；使用已锁定 Pi 自带导出器生成原生 session HTML，不重新调用模型或 NPU。原始绝对 locator 保留用于溯源；移动后的阅读通过 manifest 相对路径进行，不声称跨机器直接恢复旧状态。
 
 完整交付包顶层 `runs/` 包含 Vector、Cube、Cube 修复与 Sigmoid 40-turn 四组可直接阅读的完整会话；`logs/` 额外保留全部成功/失败尝试及远端编译、正确性和计时日志压缩包。设备二进制留在原设备，交付的是二进制哈希和构建凭据。只有独立 `acceptance.accepted=true` 或原始 LoopX validator passed 才表示相应验收通过。
+
+## 一条命令恢复原会话
+
+安装后执行下面命令，恢复完整 run、Pi 原生 session 和 checkpoint，并由 Pi SessionManager 核对会话 ID、当前分支、全部条目和模型上下文：
+
+```sh
+node examples/cann/restore-session.mjs \
+  --run /absolute/KernelBridge-delivery-20261109/runs/sdk-goal-sigmoid-optimization2-40turn \
+  --output /absolute/restored/sigmoid-session
+```
+
+打开输出目录的 `session.html` 阅读完整对话；`session.jsonl` 是原始 Pi 会话，`restore.json` 包含恢复校验及 `pi_open_argv`。该 argv 使用 Pi 原生 `--session` 参数打开同一会话，操作方式对应按 session 恢复历史对话。原始 NPU 评测凭据、KernelBridge journal 与 LoopX 状态同时保留在恢复目录。重新执行实验使用 Sigmoid 的 `reproduce.mjs`。

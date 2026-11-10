@@ -335,3 +335,5 @@ console.log(result);
 需要自己产生下一 Trial 的 SDK 调用方仍可传 `LoopXGoal.pursue({ first, maxTurns, next })`；`next` 返回明确的 `GoalTurnRequest`，或 `{ stop: { reason } }`／`undefined` 表示不再提议。所有准入仍由 LoopX 执行，调用方不能以自写循环绕开 Goal，也不能把未观测的条件当作已满足。
 
 暂停调用 `goal.pause((await goal.read()).stateFingerprint, reason)`；恢复先用新的 `read()` fingerprint 调用 `goal.resume(fingerprint, reason)`，再显式提交新的 pursuit 意图及第一步请求。未解决未知时间观测时，默认 planner 仍会等待。`clear(fingerprint)` 停止并解除应用附着，保留原始证据与用量。生命周期冲突或结果不明时先读回原 owner 状态，不盲目重试，不删除 claim 或释放预留。
+
+历史会话支持 [一条命令恢复](../examples/cann/README.md#一条命令恢复原会话)：校验归档后，以 Pi SessionManager 还原原 session ID、当前分支与完整上下文，输出 `session.html`、`session.jsonl` 和原生 Pi 打开命令。Sigmoid 的重新实验命令与历史会话恢复命令分别列在 [复现指南](../examples/cann/sigmoid-optimization/README.md)。
