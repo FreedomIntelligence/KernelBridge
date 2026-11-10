@@ -430,8 +430,8 @@
       "sha256": "ecee6d09c08c107d38b653b5971b289e0d8740e9d74446051399b3844338f9c3"
     },
     "README.md": {
-      "bytes": 4469,
-      "sha256": "1683d026def3b423f0cee76bf63bd1b7deefdb502e1f242dea0549b5be43eaa0"
+      "bytes": 4415,
+      "sha256": "874ba1fbf6031aca439ab6c3237ad27159291213b67219cd7792405965174854"
     },
     "examples/cann/README.md": {
       "bytes": 10939,
@@ -850,8 +850,8 @@
       "sha256": "01528ed71043e131d7bb627eb219d3b009e3d68dbea3ba95fed6194b6201d0cf"
     },
     "githubgist.diff": {
-      "bytes": 1040977,
-      "sha256": "9ff1ea6b617c1e75a4983179d7b826c7a33f5984171c7c43e0fa5970671f5a1d"
+      "bytes": 1044013,
+      "sha256": "9d520dc5f3913003756852735f10e85b2516c02e95d96c15a19b6493ebde6e05"
     },
     "install.py": {
       "bytes": 11308,
@@ -3370,8 +3370,8 @@
       "sha256": "34e5f758efd3f678109c4154e2c5fd723da4eda2488fbac076347c271436f19a"
     },
     "validation/DELIVERY_GUIDE.md": {
-      "bytes": 2163,
-      "sha256": "582c72047a0085674caf3f1030d03c14892fa45ecd43918dd1328b20feae7961"
+      "bytes": 5183,
+      "sha256": "29ce7756f4c34834b8bff4e158ea944f3cff4a38fe586a7b487fdbe277588d77"
     },
     "validation/PERFORMANCE_EXAMPLES.md": {
       "bytes": 1547,

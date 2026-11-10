@@ -12,7 +12,6 @@ source/             Agent、Worker、Executor、Knowledge、Ingestion
 validation/         验收要求、使用指南与自检工具
 restore.sh          环境配置与会话还原入口
 install.py          锁定依赖安装与源码校验
-githubgist.diff     相对初始版本的源码补丁
 PIN_MANIFEST.json   交付源码文件清单与 SHA256
 ```
 
