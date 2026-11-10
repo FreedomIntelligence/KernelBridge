@@ -85,18 +85,34 @@ node examples/cann/export.mjs \
   --output /absolute/archive/new-export
 ```
 
-导出拒绝符号链接、重复输出目录及凭据形态内容；使用已锁定 Pi 自带导出器生成原生 session HTML，不重新调用模型或 NPU。原始绝对 locator 保留用于溯源；移动后的阅读通过 manifest 相对路径进行，不声称跨机器直接恢复旧状态。
+导出拒绝符号链接、重复输出目录及凭据形态内容；使用已锁定 Pi 自带导出器生成原生 session HTML，不重新调用模型或 NPU。原始绝对 locator 保留用于溯源；移动后的阅读通过 manifest 相对路径进行，新环境通过根目录 restore.sh 重新绑定本机运行依赖。
 
 完整交付包顶层 `runs/` 包含 Vector、Cube、Cube 修复与 Sigmoid 40-turn 四组可直接阅读的完整会话；`logs/` 额外保留全部成功/失败尝试及远端编译、正确性和计时日志压缩包。设备二进制留在原设备，交付的是二进制哈希和构建凭据。只有独立 `acceptance.accepted=true` 或原始 LoopX validator passed 才表示相应验收通过。
 
 ## 一条命令恢复原会话
 
-安装后执行下面命令，恢复完整 run、Pi 原生 session 和 checkpoint，并由 Pi SessionManager 核对会话 ID、当前分支、全部条目和模型上下文：
+在 Linux/macOS 上运行根目录脚本。脚本校验源码、配置 Node、安装锁定 Python/Pi/LoopX 依赖，然后校验归档并恢复完整对话：
 
 ```sh
-node examples/cann/restore-session.mjs \
-  --run /absolute/KernelBridge-delivery-20261109/runs/sdk-goal-sigmoid-optimization2-40turn \
-  --output /absolute/restored/sigmoid-session
+bash restore.sh --run /absolute/delivery/runs/sdk-durable-final-vector-add \
+  --output /absolute/restored/vector
 ```
 
-打开输出目录的 `session.html` 阅读完整对话；`session.jsonl` 是原始 Pi 会话，`restore.json` 包含恢复校验及 `pi_open_argv`。该 argv 使用 Pi 原生 `--session` 参数打开同一会话，操作方式对应按 session 恢复历史对话。原始 NPU 评测凭据、KernelBridge journal 与 LoopX 状态同时保留在恢复目录。重新执行实验使用 Sigmoid 的 `reproduce.mjs`。
+恢复目录保留原始 JSONL、checkpoint、SDK 事件、执行账本、评测凭据和 HTML。`restore.json` 记录 session ID、leaf、上下文摘要及归档身份。
+
+在目标设备继续生成、评测和修复：
+
+```sh
+bash restore.sh --run /absolute/delivery/runs/sdk-durable-final-vector-add \
+  --output /absolute/restored/vector-next \
+  --profile /absolute/profiles/npu.json --npu-python /absolute/npu-venv/bin/python \
+  --continue --goal "继续优化完整算子延迟，保持任务精度与输入覆盖"
+```
+
+`--prepare-only` 生成续跑输入供检查。续跑以已验收的最终候选为起点，保留原 Pi 会话历史，并创建新的 KernelBridge 执行身份、预算和 LoopX Goal；`lineage.json` 关联原会话与新运行。新的会话副本更新 cwd，原归档保持原始字节。
+
+## AGENTS 与可选诊断工具
+
+Pi `DefaultResourceLoader` 通过 `agentsFilesOverride` 加载任务中的 `AGENTS.md` 和 `AGENTS.task.md`，随后由 Pi 构建 system prompt 的 `project_context`。通用文件来自 [算子优化规则](instructions/AGENTS.md)，任务附录包含当前 goal 和工具用法；准备器冻结文本、记录 SHA256，并纳入只读路径。
+
+profile 的 `diagnostics: true` 暴露采集、解析、展示工具，见[通用工具说明](tools/README.md)。其他平台通过 `config.business_tools` 提供自己的命令和参数合同。`npu_python` 选择已有 Torch/torch_npu 的解释器，`npu_environment` 显式补充 CANN 的 PATH、库路径和 Python 路径。采集和评测从冻结配置恢复这些变量。

@@ -28,7 +28,7 @@ REPO = HERE.parent.parent
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(HERE))
 
-from school_sdk.ssh import ssh as school_ssh, ssh_exec
+from kernelcat_executor.backends.ascend.transport.direct_ssh import ssh as school_ssh, ssh_exec
 from kernel_c_score import CASE_PERF, s_of
 
 TEMPLATE = HERE.parent / "cann_submit" / "template"

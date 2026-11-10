@@ -148,7 +148,9 @@ def _version_inputs(config: Config, base: Path, skills: Skills) -> Json:
         raise ValueError("Pi runtime files cannot resolve inside the writable workspace")
     validator = config.self_evolution.validator if config.self_evolution else None
     return runtime_inputs(config, skills.fingerprint(),
-        evaluator_files=_file_hashes(config.evaluator.argv) if config.evaluator else {},
+        evaluator_files={**(_file_hashes(config.evaluator.argv) if config.evaluator else {}),
+            **{path: value for tool in config.business_tools for path, value in
+               _file_hashes((*tool.argv, *(item.path for item in tool.files))).items()}},
         validator_files=_file_hashes(validator.argv) if validator else {},
         worker_files=_file_hashes((config.pi_worker.node, *map(str, admitted))))
 
@@ -278,6 +280,8 @@ def build(config: Config, base: Path, task: Task, *,
     inputs = _version_inputs(config, base, skills)
     validator_hashes = inputs["validator_files"]
     tools.extend([*builtin_tools(workspace, skills), SubagentEffect()])
+    from kernelcat_worker.business_tools import configured_tools
+    tools.extend(configured_tools(config.business_tools, workspace, state_dir))
     if config.rsi is not None:
         tools.append(ExperimentTool(store, workspace, artifacts, config.rsi))
         if replay_plugin(config.rsi) is not None:
@@ -317,7 +321,8 @@ def build(config: Config, base: Path, task: Task, *,
     worker = config.pi_worker
     script = (base / worker.root).resolve() / "src/harness/pi/worker.mjs"
     return ExecutionSession(gateway, providers, skills.catalog(), argv=(worker.node, str(script)),
-        cwd=workspace_path, timeout=max(worker.timeout, config.evaluator.timeout + 30 if config.evaluator else 0),
+        cwd=workspace_path, timeout=max(worker.timeout, config.evaluator.timeout + 30 if config.evaluator else 0,
+            *(tool.timeout + 30 for tool in config.business_tools)),
         max_frame_bytes=worker.max_frame_bytes,
         workspace_policy={"root": str(workspace.root), "writable_paths": writable_paths,
                           "readonly_paths": config.readonly_paths, "codemode": worker.codemode},
@@ -327,7 +332,9 @@ def build(config: Config, base: Path, task: Task, *,
         should_stop_after_turn=(lambda _state: pending_request(records) is not None)
             if replay_plugin(config.rsi) is not None else None,
         replay=NativeReplayFiles(store, state_dir, workspace.root, task.id,
-            plugin=replay_plugin(config.rsi)) if external_context else None)
+            plugin=replay_plugin(config.rsi),
+            seed=config.native_session_seed.model_dump(mode="json") if config.native_session_seed else None)
+            if external_context else None)
 
 
 def digest_task(task: Task) -> str:

@@ -1,5 +1,6 @@
 {
   "schema_version": "kernelbridge.cann-profile/v1",
+  "diagnostics": true,
   "python": "{bundle}/runtime/venv/bin/python",
   "node": "/absolute/node",
   "expected_python_modules": "{bundle}/runtime/expected.json",

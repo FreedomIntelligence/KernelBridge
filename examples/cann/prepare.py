@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import uuid
 from urllib.parse import unquote, urlparse
 from task_bundle import load_bundle
 from goal_inputs import task_contract, local_rsi
@@ -30,7 +31,7 @@ def expand(value, variables):
     return value
 
 
-def prepare(task_path, profile_path, output, mode):
+def prepare(task_path, profile_path, output, mode, session_seed=None):
     output = Path(output).absolute()
     if output.resolve() != output:
         raise ValueError('output must not traverse symlinks')
@@ -51,8 +52,14 @@ def prepare(task_path, profile_path, output, mode):
                   'inputs': {name: {'sha256': hashlib.sha256((Path(task_path).parent / name).read_bytes()).hexdigest()} for name in names}}
     else:
         compiled, reference, request, inputs = load_bundle(task_path, mode)
+    instruction = (BUNDLE / 'examples/cann/instructions/AGENTS.md').read_text()
+    appendix = ('# Current operator task\n\n' + compiled['goal'] + '\n\n'
+                + 'The frozen contract and reference files define inputs, precision and acceptance.\n'
+                + 'Select diagnostics and evidence tools from the active tool registry supplied by this deployment.\n'
+                + 'Use run_experiment for paired validation and unprofiled performance measurements.\n')
+    compiled['seed_files'].update({'AGENTS.md': instruction, 'AGENTS.task.md': appendix})
     profile = json.loads(Path(profile_path).read_text())
-    allowed = {'schema_version', 'python', 'node', 'expected_python_modules', 'config', 'loopx', 'task_contract_file'}
+    allowed = {'schema_version', 'python', 'node', 'expected_python_modules', 'config', 'loopx', 'task_contract_file', 'npu_environment', 'npu_python', 'diagnostics'}
     if set(profile) - allowed or profile.get('schema_version') != 'kernelbridge.cann-profile/v1':
         raise ValueError('unsupported or unknown CANN profile field')
     profile = expand(profile, {'bundle': str(BUNDLE), 'run': str(output)})
@@ -67,11 +74,23 @@ def prepare(task_path, profile_path, output, mode):
     python_path = roots.pop()
     config = profile['config']
     config.update(python_modules=bindings, workspace=str(output / 'workspace'),
-                  state_dir=str(output / 'state'), writable_paths=['solution.py'], readonly_paths=['reference'])
+                  state_dir=str(output / 'state'), writable_paths=['solution.py'], readonly_paths=['reference', 'AGENTS.md', 'AGENTS.task.md'])
+    if session_seed is not None:
+        session_seed = Path(session_seed).resolve()
+        config['native_session_seed'] = {'path': str(session_seed), 'sha256': hashlib.sha256(session_seed.read_bytes()).hexdigest()}
+        compiled['id'] = 'continued-' + uuid.uuid4().hex
     config.setdefault('pi_worker', {}).update(node=profile['node'], root=str(BUNDLE / 'source/apps/agent'))
     request.update(reference=str(output / 'inputs/reference.py'), jobs=str(output / 'evaluations'))
     request.pop('workspace', None); request.pop('candidate', None)
     contract = None
+    diagnostic_text = None
+    if profile.get('diagnostics', False):
+        from diagnostic_tools import tools as diagnostic_tools
+        diagnostic_config, diagnostic_text = local_rsi({**profile, '_reference': reference, '_python_path': python_path,
+            '_config_name': 'diagnostics.json'}, output, request)
+        pins = diagnostic_config['adapter_files']
+        config['business_tools'] = [*config.get('business_tools', []), *diagnostic_tools(
+            [*diagnostic_config['adapter_argv'], '--diagnostics'], pins)]
     if mode == 'generate':
         if config.get('rsi'):
             raise ValueError('generate requires an ordinary evaluator; use optimize for RSI')
@@ -83,7 +102,7 @@ def prepare(task_path, profile_path, output, mode):
         if config.get('evaluator') or not profile.get('loopx') or not Path(profile['loopx']).is_file():
             raise ValueError('Goal mode needs the installed loopx executable and a paired RSI evaluator')
         if not config.get('rsi'):
-            config['rsi'], rsi_text = local_rsi({**profile, '_reference': reference}, output, request, 'sigmoid' if sigmoid else 'native')
+            config['rsi'], rsi_text = local_rsi({**profile, '_reference': reference, '_python_path': python_path}, output, request, 'sigmoid' if sigmoid else 'native')
         else:
             rsi_text = None
         if profile.get('task_contract_file'):
@@ -103,14 +122,18 @@ def prepare(task_path, profile_path, output, mode):
         raise ValueError('installed worker rejected frozen config/task: ' + check.stderr[-3000:])
     output.mkdir(mode=0o700)
     (output / 'inputs').mkdir()
+    (output / 'inputs/source').mkdir()
     def save(name, value):
         with (output / name).open('x') as stream:
             json.dump(value, stream, ensure_ascii=False, indent=2); stream.write('\n')
     save('task.json', compiled); save('config.json', config); save('config.redacted.json', config)
     save('input-manifest.json', inputs); save('inputs/evaluation.json', request)
+    save('instruction-manifest.json', {'loader': 'Pi DefaultResourceLoader.agentsFilesOverride',
+        'files': {name: {'sha256': hashlib.sha256(text.encode()).hexdigest(), 'bytes': len(text.encode())}
+                  for name, text in [('AGENTS.md', instruction), ('AGENTS.task.md', appendix)]}})
     (output / 'inputs/reference.py').write_text(reference)
     for name in inputs['inputs']:
-        (output / 'inputs' / name).write_bytes((Path(task_path).parent / name).read_bytes())
+        (output / 'inputs/source' / name).write_bytes((Path(task_path).parent / name).read_bytes())
     command = {'argv': [profile['node'], str(BUNDLE / 'source/apps/agent/src/main.ts'), 'run', '--python', profile['python'],
         '--expected-python-modules', profile['expected_python_modules'], '--config', str(output / 'config.json'),
         '--task', str(output / 'task.json'), '--timeout-ms', '7200000'],
@@ -121,10 +144,13 @@ def prepare(task_path, profile_path, output, mode):
         check_contract = subprocess.run([profile['node'], '--input-type=module', '-e', 'import {validateTaskContract} from ' + json.dumps((BUNDLE / 'source/apps/agent/src/tasks/contract.ts').as_uri()) + '; import fs from \"node:fs\"; validateTaskContract(JSON.parse(fs.readFileSync(process.argv[1], \"utf8\")));', str(output / 'task-contract.json')], capture_output=True, text=True, timeout=30)
         if check_contract.returncode: raise ValueError(check_contract.stderr)
         if rsi_text: (output / 'inputs/rsi.json').write_text(rsi_text)
+    if diagnostic_text:
+        (output / 'inputs/diagnostics.json').write_text(diagnostic_text)
     save('prepared.json', {'mode': mode, 'profile': str(Path(profile_path).resolve()), 'model_started': False, 'device_started': False})
     return {'output': str(output), 'bundle': str(BUNDLE), 'python': profile['python'],
             'expectedPythonModules': profile['expected_python_modules'], 'pythonPath': python_path,
-            'loopx': profile.get('loopx'), 'mode': mode}
+            'loopx': profile.get('loopx'), 'mode': mode,
+            'localRsi': str(output / 'inputs/rsi.json') if mode == 'optimize' and rsi_text else None}
 
 
 if __name__ == '__main__':
@@ -132,5 +158,6 @@ if __name__ == '__main__':
     for name in ('task', 'profile', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--mode', choices=['generate', 'optimize'], default='optimize')
+    parser.add_argument('--session-seed', type=Path)
     args = parser.parse_args()
-    print(json.dumps(prepare(args.task, args.profile, args.output, args.mode)))
+    print(json.dumps(prepare(args.task, args.profile, args.output, args.mode, args.session_seed)))

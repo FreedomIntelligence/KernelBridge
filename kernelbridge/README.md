@@ -390,3 +390,9 @@ CLI 同时打印摘要与计数，完整报告写入指定 JSON。该命令只�
 所有功能配置应在任务与运行输入被冻结前确定；继续已有任务时保留其原始身份、配置绑定和未决操作记录。
 
 历史会话支持 [一条命令恢复](../examples/cann/README.md#一条命令恢复原会话)：校验归档后，以 Pi SessionManager 还原原 session ID、当前分支与完整上下文，输出 `session.html`、`session.jsonl` 和原生 Pi 打开命令。Sigmoid 的重新实验命令与历史会话恢复命令分别列在 [复现指南](../examples/cann/sigmoid-optimization/README.md)。
+
+## 通用工具与跨环境还原
+
+Pi 是默认会话引擎；Goal 使用 LoopX。`config.business_tools` 按部署配置暴露有限命令，参数校验、权限、预算和回执沿用 KernelBridge。任务中的 `AGENTS.md`、`AGENTS.task.md` 通过 Pi 原生 resource loader 进入模型上下文。
+
+根目录 `bash restore.sh --run ABS_ARCHIVE --output NEW_ABS` 安装锁定依赖并恢复原会话；追加 `--profile ABS_PROFILE --continue` 继续执行。详见 [还原与工具配置](../examples/cann/README.md#一条命令恢复原会话)。

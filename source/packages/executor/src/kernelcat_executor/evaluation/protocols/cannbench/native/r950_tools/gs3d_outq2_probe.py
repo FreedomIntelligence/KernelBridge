@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """demo2 3-case Duration probe: GS3D parent vs 910c_tasks/.../arm (outq2).
 
-Uses school_sdk SOCKS (not Clash 7897, not BindInterface=en0).
+Uses the explicitly configured direct SSH connection.
 C = sum of per-kernel Duration(us) medians from kernel_details.csv.
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ REPO = HERE.parent.parent
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(HERE))
 
-from school_sdk.ssh import ssh as school_ssh, ssh_argv
+from kernelcat_executor.backends.ascend.transport.direct_ssh import ssh as school_ssh, ssh_argv
 
 from kernel_c_score import CASE_PERF, s_of
 

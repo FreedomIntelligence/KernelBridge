@@ -62,12 +62,25 @@ class PiWorkerConfig(Contract):
     codemode: bool = False
 
 
+class NativeSessionSeed(Contract):
+    path: str = Field(min_length=1)
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class BusinessToolConfig(EvaluatorConfig):
+    name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    description: str = Field(min_length=1, max_length=4096)
+    files: tuple[NativeSessionSeed, ...] = Field(min_length=1, max_length=128)
+
+
 class Config(Contract):
     python_modules: Json
+    native_session_seed: NativeSessionSeed | None = None
+    business_tools: tuple[BusinessToolConfig, ...] = Field(default=(), max_length=32)
     state_dir: str = ".state"
     workspace: str = "workspace"
     writable_paths: tuple[str, ...] | None = None
-    readonly_paths: tuple[str, ...] = ("reference",)
+    readonly_paths: tuple[str, ...] = ("reference", "AGENTS.md", "AGENTS.task.md")
     knowledge_root: str | None = Field(default=None, min_length=1)
     skill_roots: tuple[str, ...] = ()
     credits: int = Field(gt=0, default=200)

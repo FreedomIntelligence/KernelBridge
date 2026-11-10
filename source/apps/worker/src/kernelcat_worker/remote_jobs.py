@@ -15,7 +15,7 @@ JobStatus = Literal["running", "completed", "failed", "unknown"]
 
 
 class Gateway(Protocol):
-    """Injected finite transport, including the user's gateway_ssh helper."""
+    """Injected finite transport, provided by the deployment operator."""
 
     def run(self, argv: list[str], *, cwd: str | None = None, stdin: bytes = b"",
             timeout: float = 120) -> Mapping[str, object]: ...

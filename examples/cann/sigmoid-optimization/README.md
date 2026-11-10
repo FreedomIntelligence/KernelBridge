@@ -27,9 +27,9 @@ node examples/cann/sigmoid-optimization/reproduce.mjs \
 ## 恢复之前的 session
 
 ```sh
-node examples/cann/restore-session.mjs \
+bash restore.sh \
   --run /absolute/KernelBridge-delivery-20261109/runs/sdk-goal-sigmoid-optimization2-40turn \
   --output /absolute/restored/sigmoid-session
 ```
 
-恢复命令验证全部文件哈希，并通过 Pi SessionManager 还原原会话 ID、当前分支与完整模型上下文。`session.html` 用于阅读，`session.jsonl` 用于 Pi 原生 session 打开，`restore.json` 保存核对结果与精确打开命令。四组交付会话均已完成这个恢复检查。
+恢复脚本安装锁定依赖，验证全部文件哈希，并通过 Pi SessionManager 还原会话 ID、当前分支与完整模型上下文。加入 `--profile /absolute/npu.json --continue`，使用原最终候选和对话启动新的受控 Goal；`lineage.json` 记录关联。

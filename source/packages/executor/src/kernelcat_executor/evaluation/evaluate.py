@@ -55,7 +55,7 @@ def run_job(request: Request) -> dict:
     build = request.workspace / "build"
     shutil.copytree(BACKEND_ROOT / "templates" / "CppExtension", build / "CppExtension",
                     ignore=shutil.ignore_patterns("build", "dist", "__pycache__", "*.so", "*.egg-info"))
-    env = os.environ.copy()
+    env = {**os.environ, 'PYTHONDONTWRITEBYTECODE': '1'}
     # CANN's set_env.sh supplies Python packages used by msopgen and its compiler.
     # Keep that provisioned SDK path when prepending the verified product source.
     python_paths = [str(BACKEND_ROOT.parents[2]), *filter(None, env.get("PYTHONPATH", "").split(os.pathsep))]

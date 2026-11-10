@@ -70,13 +70,15 @@ export async function exportRun(source, output, { html = true } = {}) {
   if (!await exists(join(output, 'acceptance.json')) && await exists(join(output, 'sdk/result.json'))) {
     const result = JSON.parse(await readFile(join(output, 'sdk/result.json'), 'utf8'));
     const validation = result.observation?.validation;
-    await writeFile(join(output, 'acceptance.json'), JSON.stringify({ accepted: validation?.status === 'passed',
+    const state = await exists(join(output, 'sdk/state.json')) ? JSON.parse(await readFile(join(output, 'sdk/state.json'), 'utf8')) : null;
+    await writeFile(join(output, 'acceptance.json'), JSON.stringify({ accepted: ['progress', 'completed'].includes(result.status) && validation?.status === 'passed' && state?.pending_effect_ids?.length === 0,
+      pending_effect_ids: state?.pending_effect_ids ?? null,
       provenance: 'sdk/result.json#observation.validation', original_validation: validation ?? null,
       scope: 'Original LoopX independent validator; not a new evaluation' }, null, 2) + '\n');
   }
   await mkdir(join(output, 'evaluations'), { recursive: true });
   await writeFile(join(output, 'evaluations/index.json'), JSON.stringify({ original_paths: names.filter(x => /evaluation|receipt|rsi-private/.test(x)),
-    device_logs: '../../logs/remote-generation-logs-9bc390f0.tar.gz or ../../logs/remote-sigmoid-logs-2f0ee7f9.tar.gz (historical delivery only)' }, null, 2) + '\n');
+    device_logs: names.filter(x => /\.(log|out|err)$/.test(x)) }, null, 2) + '\n');
   // Preserve original nested workspace layout; add a convenient snapshot only when its source is unambiguous.
   const candidates = names.filter(x => /^workspace\/[^/]+\/solution\.py$/.test(x));
   if (candidates.length === 1 && !await exists(join(output, 'workspace/solution.py'))) await cp(join(output, candidates[0]), join(output, 'workspace/solution.py'));

@@ -63,7 +63,8 @@ function validatePrepared(config, task) {
       || !task.seed_files?.['solution.py']) throw new Error('Expected a bounded RSI config and solution.py seed');
 }
 
-export async function runGoal({ bundle, input, loopx }) {
+export async function runGoal({ bundle, input, loopx, signal }) {
+  signal?.throwIfAborted();
   if (!relative(bundle, input).startsWith('..')) throw new Error('--input must be outside --bundle');
   const command = await readJson(join(input, 'command.json'));
   const options = commandOptions(command);
@@ -81,7 +82,7 @@ export async function runGoal({ bundle, input, loopx }) {
   const output = join(input, 'sdk');
   await mkdir(output); // The attempt reservation precedes account creation; never redispatch on loss.
   const save = (name, value) => writeFile(join(output, name), redact(value), { flag: 'wx', mode: 0o600 });
-  process.env.PYTHONPATH = command.python_path;
+  process.env.PYTHONPATH = [command.python_path, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':');
   process.env.PYTHONDONTWRITEBYTECODE = '1';
   delete process.env.PYTHONPYCACHEPREFIX;
   const importSource = path => import(pathToFileURL(join(options.agent, path)).href);
@@ -100,7 +101,8 @@ export async function runGoal({ bundle, input, loopx }) {
   await loadLaunchManifest(join(output, 'manifest.json'));
   await save('task-contract.json', contract);
   await writeFile(join(output, 'baseline.py'), task.seed_files['solution.py'], { flag: 'wx', mode: 0o600 });
-  await runSession(KernelCat, LoopXGoal, options, output, manifest, save, secret, loopx);
+  signal?.throwIfAborted();
+  await runSession(KernelCat, LoopXGoal, options, output, manifest, save, secret, loopx, signal);
 }
 
 async function createAccount(options, config, input, output, identity, save) {
@@ -135,7 +137,7 @@ function launchManifest(receipt, identity, config, task, contract, program) {
   };
 }
 
-async function runSession(KernelCat, LoopXGoal, options, output, manifest, save, secret, loopx) {
+async function runSession(KernelCat, LoopXGoal, options, output, manifest, save, secret, loopx, signal) {
   const client = new KernelCat({ python: options.python, expectedPythonModules: options.expectedPythonModules,
     config: options.config, timeoutMs: options.timeoutMs, maxFrameBytes: 1048576 });
   const session = await client.createSession({ manifest: join(output, 'manifest.json') });
@@ -144,10 +146,10 @@ async function runSession(KernelCat, LoopXGoal, options, output, manifest, save,
   let sequence = 0;
   try {
     if (loopx) {
-      await advanceGoal(LoopXGoal, session, options, output, manifest, save, secret, events, loopx);
+      await advanceGoal(LoopXGoal, session, options, output, manifest, save, secret, events, loopx, signal);
       return;
     }
-    const invocation = session.runStreamed();
+    const invocation = session.runStreamed({ signal });
     void invocation.result.catch(() => {}); // Event failure still settles/disposes the original invocation.
     for await (const event of invocation.events) {
       if (event.sequence !== ++sequence) throw new Error('SDK event order changed');
@@ -169,7 +171,7 @@ async function runSession(KernelCat, LoopXGoal, options, output, manifest, save,
   }
 }
 
-async function advanceGoal(LoopXGoal, session, options, output, manifest, save, secret, events, cli) {
+async function advanceGoal(LoopXGoal, session, options, output, manifest, save, secret, events, cli, signal) {
   const root = join(output, 'loopx');
   const connection = { cli, node: options.node, project: join(root, 'project'),
     registry: join(root, 'registry.md'), runtimeRoot: join(root, 'runtime'), home: join(root, 'home'),
@@ -211,7 +213,7 @@ async function advanceGoal(LoopXGoal, session, options, output, manifest, save, 
     } catch (error) { observerError = error; session.interrupt('Event observer failed'); }
   });
   try {
-    const result = await goal.advance({ intentId: `cann-task-turn-${manifest.run_id}`, run: {} });
+    const result = await goal.advance({ intentId: `cann-task-turn-${manifest.run_id}`, signal, run: { signal } });
     await save('result.json', result);
     if (result.turnKey) await save('goal-turn.json', await goal.inspectTurn(result.turnKey));
     await save('goal-after.json', await goal.read());

@@ -24,8 +24,8 @@ TOOLS = Path(__file__).resolve().parent
 REPO = TOOLS.parent.parent
 sys.path.insert(0, str(REPO))
 
-from school_sdk.config import load_config  # noqa: E402
-from school_sdk.ssh import ssh_exec  # noqa: E402
+from kernelcat_executor.backends.ascend.transport.direct_ssh import load_config  # noqa: E402
+from kernelcat_executor.backends.ascend.transport.direct_ssh import ssh_exec  # noqa: E402
 
 IGNORED_SOURCE_PARTS = frozenset(
     {

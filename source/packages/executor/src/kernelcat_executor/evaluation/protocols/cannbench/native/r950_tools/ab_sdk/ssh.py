@@ -83,20 +83,7 @@ def _iface_exists(name: str) -> bool:
 
 
 def school_proxy_opts() -> list[str]:
-    """Windows operator: 10.1.30.201:31222 via school_sdk SLAI SOCKS, not Clash 7897."""
-    repo = Path(__file__).resolve().parents[6] / "backends/ascend/transport"
-    try:
-        if str(repo) not in sys.path:
-            sys.path.insert(0, str(repo))
-        from school_sdk.config import load_config
-        from school_sdk.ssh import proxy_command
-
-        pc = proxy_command(load_config())
-    except Exception:
-        return []
-    if not pc:
-        return []
-    return ["-o", f"ProxyCommand={pc}"]
+    return []
 
 
 def effective_ssh_opts() -> list[str]:
@@ -128,18 +115,7 @@ def _decode(blob: bytes | str | None) -> str:
 
 
 def _paramiko_exec_fn():
-    """Windows 上 OpenSSH 交互/传输挂死：返回 school_sdk 的 Paramiko 执行器。"""
-    if os.name != "nt":
-        return None
-    try:
-        import sys as _sys
-        _root = Path(__file__).resolve().parents[6] / "backends/ascend/transport"
-        if str(_root) not in _sys.path:
-            _sys.path.insert(0, str(_root))
-        from school_sdk.ssh import ssh_exec as _sx
-        return _sx
-    except Exception:
-        return None
+    return None
 
 
 def _school_cfg(ssh_host: str):
@@ -149,7 +125,7 @@ def _school_cfg(ssh_host: str):
     _root = Path(__file__).resolve().parents[6] / "backends/ascend/transport"
     if str(_root) not in sys.path:
         sys.path.insert(0, str(_root))
-    from school_sdk.config import load_config
+    from kernelcat_executor.backends.ascend.transport.direct_ssh import load_config
 
     user = _target_user(ssh_host)
     alias = {"demo1": "school-demo1", "demo2": "school-demo2"}.get(user, f"school-{user}")

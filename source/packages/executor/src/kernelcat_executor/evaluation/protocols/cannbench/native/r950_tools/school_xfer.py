@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from school_sdk.ssh import ssh_exec  # noqa: E402
+from kernelcat_executor.backends.ascend.transport.direct_ssh import ssh_exec  # noqa: E402
 
 
 def _emit(proc) -> int:

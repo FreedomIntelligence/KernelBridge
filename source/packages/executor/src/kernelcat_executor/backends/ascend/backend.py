@@ -21,7 +21,6 @@ COMMANDS = {
     "control": (PIPELINE, [str(PIPELINE / "kcatctl.py")]),
     "profile": (TOOLS, [str(TOOLS / "profiler_run.py")]),
     "score": (TOOLS, [str(TOOLS / "kernel_c_score.py")]),
-    "school": (TRANSPORT, ["-m", "school_sdk"]),
     "audit": (ROOT, [str(ROOT / "tools/check_hack.py")]),
     "schema": (ROOT, ["-m", "kernelcat_executor.evaluation.protocols.six_source.native.schema"]),
 }
@@ -52,7 +51,6 @@ def test_plan() -> list[tuple[Path, list[str]]]:
         (ROOT, ["-m", "pytest", "-q", "tests/test_boundaries.py", "tests/test_performance_schema.py"]),
         (PIPELINE, ["-m", "pytest", "-q", "tests"]),
         (TOOLS, ["-m", "pytest", "-q", *["ab_sdk/tests/" + name for name in maintained]]),
-        (TRANSPORT, ["-m", "pytest", "-q", "school_sdk/tests"]),
         *[(ROOT, [str(ROOT / "tests" / script)]) for script in
           ("test_ast_audit.py", "test_audit_modelnew.py", "test_runtime_guard.py")],
     ]

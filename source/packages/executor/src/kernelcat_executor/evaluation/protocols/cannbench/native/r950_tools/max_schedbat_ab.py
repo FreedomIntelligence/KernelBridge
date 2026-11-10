@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Maximum 20-case Duration A/B on demo2 cards 10,11 via school_sdk ssh.
+"""Maximum 20-case Duration A/B on demo2 cards 10,11 via configured direct SSH.
 
 Does NOT use abctl. Remote driver is share ab910.sh with AB_LOCAL=1.
 C = kernel_details.csv Duration(us) median sum per case.
@@ -23,7 +23,7 @@ REPO = HERE.parent.parent
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(HERE))
 
-from school_sdk.ssh import ssh as school_ssh, ssh_argv
+from kernelcat_executor.backends.ascend.transport.direct_ssh import ssh as school_ssh, ssh_argv
 from kernel_c_score import CASE_PERF, s_of
 from push910 import to_lf_tree
 

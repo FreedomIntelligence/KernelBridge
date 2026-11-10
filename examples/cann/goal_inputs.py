@@ -1,6 +1,7 @@
 """Prepare the existing managed SDK/LoopX protocol from frozen CANN inputs."""
 import hashlib
 import json
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -35,10 +36,32 @@ def local_rsi(profile, output, request, kind='native'):
     cfg = {'kind': kind, 'state': str(output / 'evaluations'), 'soc': request['soc'], 'device': request['device']}
     if kind == 'sigmoid': cfg['suite'] = str(ROOT / 'examples/cann/sigmoid-optimization/suite')
     else: cfg.update(reference=request['reference'], operator=request['operator'], atol=request['atol'], rtol=request['rtol'])
+    environment_names = ('PATH', 'LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH', 'ASCEND_HOME_PATH',
+                         'ASCEND_OPP_PATH', 'ASCEND_AICPU_PATH', 'ASCEND_TOOLKIT_HOME',
+                         'TBE_IMPL_PATH', 'PYTHONPATH', 'TMPDIR', 'CMAKE_PREFIX_PATH', 'ASC_DIR',
+                         'LIBRARY_PATH', 'CPLUS_INCLUDE_PATH', 'C_INCLUDE_PATH')
+    environment = {name: os.environ[name] for name in environment_names if name in os.environ}
+    explicit = profile.get('npu_environment', {})
+    if not isinstance(explicit, dict) or set(explicit) - set(environment_names) or any(
+            not isinstance(value, str) or '\x00' in value for value in explicit.values()):
+        raise ValueError('npu_environment must contain string values for supported CANN runtime variables')
+    environment.update(explicit)
+    paths = [profile['_python_path'], *filter(None, environment.get('PYTHONPATH', '').split(os.pathsep))]
+    environment['PYTHONPATH'] = os.pathsep.join(dict.fromkeys(paths))
+    environment.setdefault('PATH', os.defpath)
+    npu_python = profile.get('npu_python', profile['python'])
+    if not Path(npu_python).is_absolute() or not Path(npu_python).is_file():
+        raise ValueError('npu_python must be an existing absolute Python executable')
+    cfg.update(python=npu_python, python_real=str(Path(npu_python).resolve()), environment=environment)
     text = json.dumps(cfg, indent=2) + '\n'
-    path = output / 'inputs/rsi.json'
-    python = Path(profile['python']).resolve()
+    path = output / 'inputs' / profile.get('_config_name', 'rsi.json')
+    python = Path(npu_python).resolve()
     pin_paths = [python, ROOT / 'examples/cann/rsi_local.py', ROOT / 'validation/native_rsi_adapter.py']
+    if profile.get('_config_name') == 'diagnostics.json':
+        pin_paths += sorted(p for p in (ROOT / 'examples/cann/tools').rglob('*') if p.is_file() and '__pycache__' not in p.parts)
+    venv_configuration = Path(npu_python).parent.parent / 'pyvenv.cfg'
+    if venv_configuration.is_file():
+        pin_paths.append(venv_configuration.resolve())
     if kind == 'sigmoid':
         pin_paths += [ROOT / 'validation/cannbench_sigmoid_adapter.py', *sorted(p for p in Path(cfg['suite']).rglob('*') if p.is_file())]
     pins = [{'path': str(p), 'sha256': sha(p.read_bytes())} for p in pin_paths]

@@ -1,0 +1,51 @@
+{
+  "repository": "hw-native-sys/pypto",
+  "revision": "69dbfe2cb20f36ebbb12cbab68f7a1f672c0e771",
+  "files": [
+    {
+      "file": "clean_sim_trace.py",
+      "url": "https://raw.githubusercontent.com/hw-native-sys/pypto/69dbfe2cb20f36ebbb12cbab68f7a1f672c0e771/python/pypto/tools/clean_sim_trace.py",
+      "sha256": "5f6f0dffdf92c01c038cc0040c613cb4bdddafbeb9d842d8d0d768f26dc8001c"
+    },
+    {
+      "file": "ir_trace/__init__.py",
+      "url": "https://raw.githubusercontent.com/hw-native-sys/pypto/69dbfe2cb20f36ebbb12cbab68f7a1f672c0e771/python/pypto/tools/ir_trace/__init__.py",
+      "sha256": "9213ffc667ba6049622d1156b1dfd59d6f37d3a8178abc2ce8b85c9837c6e130"
+    },
+    {
+      "file": "ir_trace/__main__.py",
+      "url": "https://raw.githubusercontent.com/hw-native-sys/pypto/69dbfe2cb20f36ebbb12cbab68f7a1f672c0e771/python/pypto/tools/ir_trace/__main__.py",
+      "sha256": "943ef1b7b158f54da2be44521077bf9119e9ee32ea1cc17fef0d9fc21ea83080"
+    },
+    {
+      "file": "ir_trace/cli.py",
+      "url": "https://raw.githubusercontent.com/hw-native-sys/pypto/69dbfe2cb20f36ebbb12cbab68f7a1f672c0e771/python/pypto/tools/ir_trace/cli.py",
+      "sha256": "83cf624d7026227a6b4f571de959f14026f752fade2bdaf727a7ec796b1ea703"
+    },
+    {
+      "file": "ir_trace/discovery.py",
+      "url": "https://raw.githubusercontent.com/hw-native-sys/pypto/69dbfe2cb20f36ebbb12cbab68f7a1f672c0e771/python/pypto/tools/ir_trace/discovery.py",
+      "sha256": "bb405280c7d8a84a7775fe610a58c8481a7972f0dc4a5c118a66e1049cd85aaa"
+    },
+    {
+      "file": "ir_trace/diff.py",
+      "url": "https://raw.githubusercontent.com/hw-native-sys/pypto/69dbfe2cb20f36ebbb12cbab68f7a1f672c0e771/python/pypto/tools/ir_trace/diff.py",
+      "sha256": "e74b1713a3fcf30f9eaa73c16e9c343b7364b6a67b4d86a2d97a779c5ce5bbe9"
+    },
+    {
+      "file": "ir_trace/html.py",
+      "url": "https://raw.githubusercontent.com/hw-native-sys/pypto/69dbfe2cb20f36ebbb12cbab68f7a1f672c0e771/python/pypto/tools/ir_trace/html.py",
+      "sha256": "b82e5044e7801cdbeaf22b1f9565e2cc6ce850fd14df5ffcc28238034dc32f84"
+    },
+    {
+      "file": "ir_trace/model.py",
+      "url": "https://raw.githubusercontent.com/hw-native-sys/pypto/69dbfe2cb20f36ebbb12cbab68f7a1f672c0e771/python/pypto/tools/ir_trace/model.py",
+      "sha256": "ca8c8f56d90342b790cc2e560fe24a4579a12f9ee9cda0ecc8abcf4b72988cd3"
+    },
+    {
+      "file": "LICENSE",
+      "url": "https://raw.githubusercontent.com/hw-native-sys/pypto/69dbfe2cb20f36ebbb12cbab68f7a1f672c0e771/LICENSE",
+      "sha256": "89b1c114df62cfd183004f38d18d07f186436c3b37203dd69c3e84becf9d2282"
+    }
+  ]
+}

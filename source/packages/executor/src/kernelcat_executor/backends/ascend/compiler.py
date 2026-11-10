@@ -64,14 +64,15 @@ def _normalize_addconfig(source: str, soc: str) -> str:
     return re.sub(r'AddConfig\("ascend910[^" ]*"\)', f'AddConfig("{family}")', source) if family else source
 
 
-def _inject_kernel_include_paths(target: Path, paths) -> None:
+def _inject_kernel_include_paths(target: Path, paths, options=()) -> None:
     cmake = target / "op_kernel/CMakeLists.txt"
-    if not paths or not cmake.is_file():
+    if not (paths or options) or not cmake.is_file():
         return
     text = cmake.read_text()
     modern = "npu_op_kernel_library(" in text
     command = "npu_op_kernel_options(ascendc_kernels ALL OPTIONS" if modern else "add_ops_compile_options(ALL OPTIONS"
     additions = [f'{command} "-I{p}")' for p in paths if p]
+    additions.extend(f'{command} "{option}")' for option in options)
     additions = list(dict.fromkeys(line for line in additions if line not in text))
     if not additions:
         return
@@ -82,7 +83,8 @@ def _inject_kernel_include_paths(target: Path, paths) -> None:
 
 
 def compile_sources(sources: Mapping[str, str], settings: BuildSettings,
-                    extra_kernel_include_paths: tuple[str, ...] = ()) -> BuildOutputs:
+                    extra_kernel_include_paths: tuple[str, ...] = (), *,
+                    diagnostic_options: tuple[str, ...] = ()) -> BuildOutputs:
     """Compile already parsed sources in the explicitly provisioned native process."""
     if any(not sources.get(field, "").strip() for field in _FIELDS):
         raise ValueError("compiler requires five nonempty native source strings")
@@ -108,7 +110,9 @@ def compile_sources(sources: Mapping[str, str], settings: BuildSettings,
     }
     for path, text in outputs.items():
         path.write_text(text)
-    _inject_kernel_include_paths(project, extra_kernel_include_paths)
+    if set(diagnostic_options) - {'-save-temps', '--save-temp-files'}:
+        raise ValueError('Unsupported diagnostic compiler option')
+    _inject_kernel_include_paths(project, extra_kernel_include_paths, diagnostic_options)
     # Keep the established native build/deploy protocol; isolate it per job.
     os.environ.pop("ASCEND_CUSTOM_OPP_PATH", None)
     _run(["./build.sh"], project)

@@ -28,8 +28,10 @@ class ScriptedProvider:
     def __init__(self, calls):
         self.calls = iter(calls)
         self.declarations = []
+        self.harnesses = []
 
     def prepare_harness(self, harness):
+        self.harnesses.append(harness)
         self.declarations.append({tool['name'] for tool in harness['tools']})
         return ModelRequest(provider='openai', endpoint='https://example.invalid/chat/completions',
             body_json=canonical({'tools': [{'type': 'function', 'function': tool} for tool in harness['tools']]}))
@@ -57,7 +59,7 @@ class RuntimeTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def session(self, calls):
+    def session(self, calls, *, extra_tools=()):
         provider = ScriptedProvider(calls)
         evaluator = FunctionTool(ToolSpec(name='evaluate', description='Evaluate the candidate.',
             parameters=schema({}, []), credits=2), lambda _: Outcome(data={'correctness': True, 'receipt_fixture': True}))
@@ -65,7 +67,7 @@ class RuntimeTests(unittest.TestCase):
             parameters=schema({'query': {'type': 'string'}}, ['query']), credits=1),
             lambda _: Outcome(data={'hits': ['a trusted reference']}))
         number = FunctionTool(ToolSpec(name='number_probe',description='Return a JSON number.',parameters=schema({'value':{'type':'number'}},['value']),credits=1),lambda a:Outcome(data=a.arguments))
-        gateway = Gateway(self.store, [*builtin_tools(self.workspace, Skills(())), evaluator, knowledge, number], self.task.scope,
+        gateway = Gateway(self.store, [*builtin_tools(self.workspace, Skills(())), evaluator, knowledge, number, *extra_tools], self.task.scope,
             (WorkspaceGuard(self.workspace.root, ('solution.py',)),))
         replay = NativeReplayFiles(self.store, self.base / 'state', self.workspace.root, self.task.id)
         session = ExecutionSession(gateway, {'primary': provider}, [], cwd=self.workspace.root,

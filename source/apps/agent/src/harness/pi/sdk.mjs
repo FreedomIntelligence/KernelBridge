@@ -12,6 +12,7 @@ import { createReplayExtension, REPLAY_TOOL } from './replay-extension.ts';
 import { prepareProductReplay, restoreProductSession, snapshotProductSession } from '../../replay/product-session.ts';
 import { workspaceHistoryResources } from './workspace-history.ts';
 import { createReceiptContextBinding } from '../../replay/receipt-context.ts';
+import { projectInstructions } from './context-files.mjs';
 import { workspaceTools } from './workspace-tools.mjs';
 
 const SYSTEM = 'You are a kernel engineering agent. Use Pi file tools to inspect and implement the candidate. Use the configured evaluation, knowledge, and receipt tools for domain work. Treat task references as read-only. Only original evaluation receipts establish correctness or performance. After an error, inspect the returned evidence and revise the candidate.';
@@ -97,6 +98,7 @@ async function runtimeServices(options, dependencies, provider, factories, repla
   const resourceLoader = new sdk.DefaultResourceLoader({ ...options, settingsManager,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
     ...(replay ? workspaceHistoryResources(replay.history, settingsManager) : {}),
+    agentsFilesOverride: () => projectInstructions(options.cwd),
     extensionFactories: factories, appendSystemPrompt: [SYSTEM] });
   await resourceLoader.reload();
   if (resourceLoader.getExtensions().errors.length) throw new Error('Required Pi extension failed to load');
@@ -219,7 +221,7 @@ async function runPreparedAgent(client, home, dependencies, options = {}) {
     await bind(nativeRuntime.session);
     const restored = replay ? await restoreProductSession(nativeRuntime, replay) : false;
     session = nativeRuntime.session;
-    await session.prompt(restored ? 'Continue the admitted task from this restored checkpoint. Preserve its goal and constraints; consult original receipts for completed work.' : hello.goal,
+    await session.prompt(restored ? 'Continue from the restored conversation using the currently admitted tools and workspace. Current task and constraints:\n' + hello.goal : hello.goal,
       { expandPromptTemplates: false });
     if (controller.failure) throw controller.failure;
     // Restoration requests are applied by the protected parent after native disposal.
