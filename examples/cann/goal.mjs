@@ -4,7 +4,7 @@ import { closeSync, openSync, writeSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 
 const HELP = 'Usage: node examples/cann/goal.mjs --bundle ABS --input ABS [--loopx ABS]\n'
   + 'Consumes frozen config, task, command and TaskContract files from INPUT. Starts one bounded managed SDK Trial.\n'
@@ -63,7 +63,7 @@ function validatePrepared(config, task) {
       || !task.seed_files?.['solution.py']) throw new Error('Expected a bounded RSI config and solution.py seed');
 }
 
-async function run({ bundle, input, loopx }) {
+export async function runGoal({ bundle, input, loopx }) {
   if (!relative(bundle, input).startsWith('..')) throw new Error('--input must be outside --bundle');
   const command = await readJson(join(input, 'command.json'));
   const options = commandOptions(command);
@@ -144,7 +144,7 @@ async function runSession(KernelCat, LoopXGoal, options, output, manifest, save,
   let sequence = 0;
   try {
     if (loopx) {
-      await runGoal(LoopXGoal, session, options, output, manifest, save, secret, events, loopx);
+      await advanceGoal(LoopXGoal, session, options, output, manifest, save, secret, events, loopx);
       return;
     }
     const invocation = session.runStreamed();
@@ -169,7 +169,7 @@ async function runSession(KernelCat, LoopXGoal, options, output, manifest, save,
   }
 }
 
-async function runGoal(LoopXGoal, session, options, output, manifest, save, secret, events, cli) {
+async function advanceGoal(LoopXGoal, session, options, output, manifest, save, secret, events, cli) {
   const root = join(output, 'loopx');
   const connection = { cli, node: options.node, project: join(root, 'project'),
     registry: join(root, 'registry.md'), runtimeRoot: join(root, 'runtime'), home: join(root, 'home'),
@@ -279,10 +279,10 @@ assert not state['pending_effect_ids'], 'Original effects remain unresolved'
 print(json.dumps({'ok': True, 'audit_receipts': len(audits), 'correct_measured_nodes': len(measured)}))
 `;
 
-try {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) try {
   const args = argumentsFor(process.argv.slice(2));
   if (args === null) process.stdout.write(HELP);
-  else await run(args);
+  else await runGoal(args);
 } catch (error) {
   process.stderr.write(`cann-task SDK: ${String(error.message).split(process.env.DEEPSEEK_API_KEY || '\0').join('[REDACTED]')}; preserve original state; no automatic retry\n`);
   process.exitCode = 1;

@@ -1,10 +1,14 @@
 # KernelBridge 源码交付
 
+CANN 任务统一从 [task 提交入口](examples/cann/README.md) 启动：冻结 task 与测试输入，建立 LoopX Goal，再由 Pi SDK 执行算子生成、NPU 评测和修复。默认复用 managed SDK + LoopX；`--mode generate` 提供单次 Pi 会话。Vector Add、Cube Matmul 与 Sigmoid 40-turn 复现包含原生 C++、profile、完整日志索引和 session。
+
 KernelAgent 面向通用算子生成：把算子语义、输入约束、目标平台和预算交给 Agent，得到候选程序与对应执行记录。KernelCat 是产品 CLI 和应用 SDK；KernelBridge 提供上下文组织、知识与原始证据检索、只读历史会话分析，复用同一 KernelCat 会话、有限 Python Worker 和原始执行账本。
 
 首次使用按本页完成安装和独立向量加法示例。日常任务、SDK 和恢复见 [KernelCat](kernelcat/README.md)；上下文、知识与只读会话回放见 [KernelBridge](kernelbridge/README.md)。使用本产品无需选择某个 benchmark，也无需提交公开榜单。
 
-真实 CANN 算子从 [Vector / Cube task 示例](examples/cann/README.md) 开始。`task.goal` 直接进入 Pi SDK；选择 Goal 模式时由 LoopX 管理同一个执行会话。两个示例均完成在线生成、NPU 编译、五组输入正确性和独立凭据验收，具体平台与范围见 [验收记录](validation/ACCEPTANCE_RESULTS.md)。
+真实 CANN 算子从 [Vector / Cube task 示例](examples/cann/README.md) 开始。`task.goal` 直接进入 Pi SDK；选择 Goal 模式时由 LoopX 管理同一个执行会话。两个示例的已有在线生成与 NPU 凭据来自提交 `80c1c0b`。本次增加独立 Ascend C `.cpp/.h`、可编辑 task、可信 profile、统一 SDK 提交入口与日志导出；本次新增入口的离线验证与历史在线验收分别记录。具体平台与范围见 [验收记录](validation/ACCEPTANCE_RESULTS.md)。
+
+完整交付包顶层包含 `KernelBridge/`（本源码与示例）、`runs/`（四组完整会话及 Pi HTML）、`logs/`（全部验收与远端日志）、`manifest.json`（文件哈希）及 `githubgist.diff`。根目录的 [githubgist.diff](githubgist.diff) 是相对初始提交 `87c8fe4` 的实际补丁，不是 Markdown，也没有公开发布私有日志。补丁省略自身与派生的 `PIN_MANIFEST.json`，其余源码变化完整保留；源码包内含最终清单。
 
 ## 交付内容与环境
 
@@ -25,7 +29,7 @@ KernelBridge/
 
 本安装流程使用 Linux/macOS 的 POSIX 路径。准备 Python 3.11 或更新版本、Node.js 22.22.3 LTS 或具备 Zstd API 的更新兼容版本、npm 和联网环境。Node 23.7 缺少依赖所需 API，安装预检会拒绝。安装程序会创建独立 Python 虚拟环境。源码和 Node 完整依赖锁随包交付；Python 主机侧依赖与构建工具的固定版本记录在 `requirements.lock`。完整 Goal 工作流使用 LoopX 1.2.3，需要 Node 22.22.3 或更新版本。普通 `run` 只执行一次；自动跨 Trial 的产品入口为 `pursue --goal`，其绑定文件与 SDK 用法见 [KernelCat](kernelcat/README.md#loopx-自动续接入口)。
 
-首次示例只需要 CPU。运行真实设备算子还需单独准备相应编译器、驱动、运行时和设备访问权限，并配置匹配的独立评估器。主机侧安装不包含 Torch、CANN 或设备环境。交付包不含模型凭证、开发机虚拟环境、历史会话或客户运行数据。
+首次示例只需要 CPU。运行真实设备算子还需单独准备相应编译器、驱动、运行时和设备访问权限，并配置匹配的独立评估器。主机侧安装不包含 Torch、CANN 或设备环境。源码子包不含模型凭证或开发机虚拟环境。完整交付目录的同级 `runs/` 与 `logs/` 提供本项目此前的完整验收会话、失败修复和设备日志；不含客户新运行数据。
 
 ## 在线安装
 

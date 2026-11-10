@@ -1,0 +1,41 @@
+{
+  "schema_version": "kernelbridge.cann-profile/v1",
+  "python": "{bundle}/runtime/venv/bin/python",
+  "node": "/absolute/node",
+  "expected_python_modules": "{bundle}/runtime/expected.json",
+  "config": {
+    "credits": 1000,
+    "policy": {
+      "max_steps": 40,
+      "context_bytes": 524288
+    },
+    "writable_paths": [
+      "solution.py"
+    ],
+    "readonly_paths": [
+      "reference"
+    ],
+    "providers": {
+      "primary": {
+        "provider": "openai",
+        "base_url": "https://api.deepseek.com/v1",
+        "model": "deepseek-flash",
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "max_tokens": 8192,
+        "timeout": 120,
+        "wire_options": {
+          "native_turns": true,
+          "token_parameter": "max_tokens",
+          "include_parallel_tool_calls": false,
+          "tool_choice": "auto",
+          "thinking": "disabled"
+        }
+      }
+    },
+    "pi_worker": {
+      "timeout": 7200,
+      "codemode": false
+    }
+  },
+  "loopx": "{bundle}/runtime/venv/bin/loopx"
+}

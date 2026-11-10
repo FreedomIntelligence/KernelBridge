@@ -1,9 +1,25 @@
-# Sigmoid：40 回合原生优化产物
+# Sigmoid：40-turn Goal 优化与一键复现
 
-`solution.py` 是实际通过 Pi SDK + LoopX 运行保留下来的六段源码，未作离线改写；SHA256 和来源见 `provenance.json`。起点为人工写出的保守单核实现（`validation/fixtures/sigmoid_baseline.py`），先验证正确，再交给 DeepSeek Flash 做 40 个父模型回合的优化。不是从零生成成功的声明。
+原实验从 `baseline.py` 的保守单核实现开始，由 DeepSeek Flash 经 Pi SDK + LoopX 执行 40 个父模型回合。最终 `solution.py` 使用 40 核、2048 元素分块和双缓冲；独立 Ascend C 文件位于 [native/](native/)，来源与哈希见 `provenance.json` 和 `native/sources.json`。
 
-最终保留 40 核、每块 2048 元素和双缓冲流水；失败的更大分块候选未被采用。使用固定 CANNBench 提交的 Season 1 Sigmoid 全部 20 用例，覆盖 FP16/BF16/FP32、非整块长度、NaN/Inf；完整输出按原 MERE/MARE 阈值检查，另查输入未修改。新种子的独立确认通过，LoopX 独立 validator 也通过。
+随包保留完整 `task.json`、`task-contract.json`、起始 baseline、最终实现以及 `suite/`：20 用例、数据生成器、参考、原始来源与许可证。平台为 Ascend910_9382、逻辑 NPU 1、CANN 9.1、torch_npu 2.10。
 
-该文件须交给受信任的 six-source CANN 执行器编译，不能直接作为 Python CPU 算子运行。当前实测平台是 Ascend910_9382 / CANN 9.1 / torch_npu 2.10；完整用例适配器为 `validation/cannbench_sigmoid_adapter.py`，需要另行准备冻结的原始测试集与数据生成器。性能数据、失败尝试和边界见 [验收记录](../../../validation/ACCEPTANCE_RESULTS.md)。这是本地实验，没有提交 CANNBench 平台或产生官方分数。
+## 一条命令执行原实验流程
 
-最终独立复测：相对保守单核起点 16.91×；与 Torch 的两组交换顺序配对合并为 0.512×，即整体仍慢约 1.95 倍。完整 20 用例均正确。摘要见 `performance.json`，不宣称超过 Torch。
+先按根 README 安装，在已配置 CANN 的 NPU 主机填写 `profiles/npu.example.json` 的模型、Python、Node 与 LoopX 路径，并设置其中 `api_key_env` 指定的凭据环境变量。运行：
+
+```sh
+node examples/cann/sigmoid-optimization/reproduce.mjs \
+  --profile /absolute/profiles/npu.json \
+  --output /absolute/runs/sigmoid-40turn-001
+```
+
+加 `--prepare-only` 可检查冻结输入。执行时自动建立 Goal、提交既有 managed SDK 会话、调用原 20 用例成对评测器、独立确认并保留全部事件、checkpoint、LoopX journal 和原始凭据。模型生成与设备计时产生本次新记录；原实验记录位于完整交付包的 `runs/sdk-goal-sigmoid-optimization2-40turn/`。
+
+## 已有结果
+
+全部 20 用例正确，覆盖 FP16/BF16/FP32、不规则长度、NaN/Inf 和输入保持。完整输出使用原 MERE/MARE 阈值。独立复测相对单核 baseline 为 **16.91×**；相对 Torch 为 **0.512×**。结果类型为固定测试集上的本地 NPU 成对测量，具体逐例值见 `performance.json`。
+
+## 日志与复查
+
+完整交付包 `runs/` 保留可直接打开的 Pi session HTML、原生 JSONL、SDK 事件、KernelBridge 账本和 LoopX 状态。`logs/` 提供包括失败修复在内的全部原始日志与远端编译/计时归档。文件 SHA256 由各层 manifest 索引。复查按 task、候选源码摘要、编译凭据、测量样本与 Goal validator 结果关联。

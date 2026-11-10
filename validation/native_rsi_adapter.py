@@ -54,7 +54,8 @@ def build(files, args):
     root.mkdir(parents=True)
     candidate = root / 'candidate.py'
     candidate.write_text(source(files))
-    result = run_job(Request(candidate, args.reference, root / 'job', 'audit_add', args.soc, args.device, True, 600))
+    (root / 'protocol.json').write_text(json.dumps({'operator': args.operator, 'atol': args.atol, 'rtol': args.rtol}))
+    result = run_job(Request(candidate, args.reference, root / 'job', args.operator, args.soc, args.device, True, 600, args.atol, args.rtol))
     return root, result
 
 
@@ -69,7 +70,8 @@ def worker(root, device):
     record = json.loads((root / 'job/result.json').read_text())
     manifest = record['data']['result']['build']
     workspace = root / 'job/build'
-    runtime = AscendRuntime(BuildSettings('audit_add', workspace, manifest['target'], device))
+    protocol = json.loads((root / 'protocol.json').read_text()) if (root / 'protocol.json').exists() else {'operator': 'audit_add', 'atol': 1e-4, 'rtol': 1e-4}
+    runtime = AscendRuntime(BuildSettings(protocol['operator'], workspace, manifest['target'], device))
     context = {}
     exec(compile((root / 'candidate.py').read_text(), '<frozen-candidate>', 'exec'), context)
     outputs = BuildOutputs(workspace, manifest['source_digest'], manifest['target'],
@@ -83,7 +85,7 @@ def worker(root, device):
         for line in sys.stdin:
             request = json.loads(line)
             correct, info, stage = execute_template(torch_npu.npu.synchronize, runtime.device,
-                runtime.context, num_correct_trials=1, seed_num=request['seed'])
+                runtime.context, num_correct_trials=5, seed_num=request['seed'], atol=protocol['atol'], rtol=protocol['rtol'])
             samples = time_execution_event_template(runtime.context, runtime.device,
                 torch_npu.npu.synchronize, torch_npu.npu.Event, 'ModelNew', num_perf_trials=20, num_warmup=3) if correct else []
             print(json.dumps({'correct': correct, 'info': info, 'failure_stage': stage,
@@ -148,7 +150,7 @@ def measure(request, args, attempt):
                 arm['correct'] = response['correct'] and len(response['samples_ms']) == 20 and all(math.isfinite(t) and t > 0 for t in response['samples_ms'])
             samples.append(row)
             (attempt / 'samples.json').write_text(json.dumps(samples, indent=2))
-        evidence = {'protocol': 'ascend-add-f32-128-alternating-v1', 'samples': samples,
+        evidence = {'protocol': 'ascend-native-five-seed-alternating-v1', 'samples': samples,
                     'environments': environments, 'builds': {n: a['receipt'] for n, a in arms.items()}}
         (attempt / 'evidence.json').write_text(json.dumps(evidence, indent=2))
         scores = lambda name: [-math.log(sum(row[name]['samples_ms']) / len(row[name]['samples_ms']))
@@ -176,8 +178,8 @@ def measure(request, args, attempt):
             'independent_confirmation': request['operation'] == 'confirm',
             'evidence_ids': ['evidence-sha256:' + digest(evidence), 'artifact:' + str(attempt)],
             'features': features('keep'), 'remove_features': features('remove'),
-            'visible_coverage': ['float32', 'length:128', 'seeded-finite-inputs'],
-            'holdout_coverage': ['independent-sample-namespace'] if request['operation'] == 'confirm' else None,
+            'visible_coverage': [args.operator, 'frozen-reference-five-seeds'],
+            'holdout_coverage': ['independent-timing-sample-namespace-same-public-inputs'] if request['operation'] == 'confirm' else None,
             'keep_complexity': complexity(request['keep']), 'remove_complexity': complexity(request['remove'])}}
     finally:
         for arm in arms.values():
@@ -197,6 +199,9 @@ def main():
     parser.add_argument('--reference', type=Path, required=True)
     parser.add_argument('--soc', required=True)
     parser.add_argument('--device', type=int, required=True)
+    parser.add_argument('--operator', default='audit_add')
+    parser.add_argument('--atol', type=float, default=1e-4)
+    parser.add_argument('--rtol', type=float, default=1e-4)
     args = parser.parse_args();args.state=args.state.resolve();args.reference=args.reference.resolve()
     action = json.load(sys.stdin);request = action['arguments']
     attempt = args.state / 'attempts' / digest({'id':action['id'], 'request':request})

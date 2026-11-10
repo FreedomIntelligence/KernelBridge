@@ -1,0 +1,31 @@
+{
+  "schema_version": "kernelbridge.native-sources/v1",
+  "wrapper": "solution.py",
+  "wrapper_sha256": "831458d59ad59db391642ae52fbb563065ad3ed33b07218d39cf357534f3f379",
+  "fields": {
+    "project_json_src": {
+      "path": "sigmoid_custom.json",
+      "sha256": "13272b3ee69b179951fb8eeaa620a5ff28e2cf1404e509287fe89a1701d26dc7"
+    },
+    "host_tiling_src": {
+      "path": "op_kernel/sigmoid_custom_tiling.h",
+      "sha256": "360b648a785f2193f50f8907443f1a0baaad5b6d8c466494977e74282a4816c8"
+    },
+    "host_operator_src": {
+      "path": "op_host/sigmoid_custom.cpp",
+      "sha256": "8881edb8406118266f0e98a609e5305a68b2ef4fe4ab3bb6614a7015bd8cc7d4"
+    },
+    "kernel_src": {
+      "path": "op_kernel/sigmoid_custom.cpp",
+      "sha256": "b6ea1b3dcc1f4fd8352d51b7b579557c5485cf723f456fc4452f26ff353c6204"
+    },
+    "python_bind_src": {
+      "path": "bindings/op.cpp",
+      "sha256": "41a3a8a6735419ec38e4a144ed746446889a9943ce6b9e4a455298c9fd958552"
+    },
+    "model_src": {
+      "path": "bindings/model.py",
+      "sha256": "06c24d2ac9a47234fe2301f4e6bf5fa225461dc16f4013931e2d8f16c0fa3140"
+    }
+  }
+}

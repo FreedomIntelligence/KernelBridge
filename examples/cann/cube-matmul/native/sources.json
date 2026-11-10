@@ -1,0 +1,31 @@
+{
+  "schema_version": "kernelbridge.native-sources/v1",
+  "wrapper": "baseline.py",
+  "wrapper_sha256": "f4b2c23bf97d8f03c2d38f8111340802348347d199f2ccda44ab680be5067c6c",
+  "fields": {
+    "project_json_src": {
+      "path": "matmul_custom.json",
+      "sha256": "4dd9022748e1940ef1a23940c697829c9f8637cdd7a29282d5af7663c48bfc5f"
+    },
+    "host_tiling_src": {
+      "path": "op_kernel/matmul_custom_tiling.h",
+      "sha256": "531ec0d731ad8d8cf0f63f2b58be0bdf06bcfce6df2c59cbdb6ede28e3d35b8c"
+    },
+    "host_operator_src": {
+      "path": "op_host/matmul_custom.cpp",
+      "sha256": "9a8797d0f97330ed1f4e8ecb984257247be8c68c642d9cbe287f21acd657d080"
+    },
+    "kernel_src": {
+      "path": "op_kernel/matmul_custom.cpp",
+      "sha256": "74e9f74d7693e9847b8bd8a5b558b0fa97715eb9621381af3cfc3dcd994484a6"
+    },
+    "python_bind_src": {
+      "path": "bindings/op.cpp",
+      "sha256": "be2eec89a6a1abb18e2deed579b616ecae79c26a37e10d79739d4545bad92a24"
+    },
+    "model_src": {
+      "path": "bindings/model.py",
+      "sha256": "ef9a43c29978491926e671393de681a8d1e0988048e4047ff25272e024fe4ea3"
+    }
+  }
+}

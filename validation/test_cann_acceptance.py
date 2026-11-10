@@ -20,7 +20,7 @@ class CannAcceptance(unittest.TestCase):
     def test_finished_message_and_stale_receipt_cannot_qualify_candidate(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            task = Task.model_validate_json((ROOT / 'examples/cann/vector-add/task.json').read_text())
+            task = Task.model_validate_json((ROOT / 'examples/cann/vector-add/task.compiled.json').read_text())
             workspace = root / 'workspace' / digest(task)[:20]
             workspace.mkdir(parents=True)
             candidate = workspace / 'solution.py'; candidate.write_text('original bytes')
@@ -48,7 +48,7 @@ class CannAcceptance(unittest.TestCase):
     def test_unresolved_effect_blocks_success_even_after_finished_text(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            task = Task.model_validate_json((ROOT / 'examples/cann/vector-add/task.json').read_text())
+            task = Task.model_validate_json((ROOT / 'examples/cann/vector-add/task.compiled.json').read_text())
             workspace = root / 'workspace' / digest(task)[:20]; workspace.mkdir(parents=True)
             (workspace / 'solution.py').write_text('source')
             (root / 'task.json').write_text(task.model_dump_json())

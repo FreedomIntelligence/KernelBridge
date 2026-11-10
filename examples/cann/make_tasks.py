@@ -6,8 +6,9 @@ ROOT = Path(__file__).resolve().parent
 FIELDS = ['project_json_src', 'host_tiling_src', 'host_operator_src', 'kernel_src', 'python_bind_src', 'model_src']
 
 
-def generate(directory):
-    case = json.loads((directory / 'case.json').read_text())
+def build_task(case, baseline, objective, mode="generate"):
+    if mode not in ("generate", "optimize"):
+        raise ValueError("mode must be generate or optimize")
     vector = case['kind'] == 'vector_add'
     dtype = case['dtype']
     if case['kind'] not in ('vector_add', 'matmul') or dtype not in ('float16', 'float32'):
@@ -46,7 +47,7 @@ def get_init_inputs():
     semantics = '逐元素计算 c = a + b，两个输入形状相同，不广播。' if vector else f'计算 C[M,N] = A[M,K] @ B[K,N]，不转置、无 bias、无 batch；以 FP32 累加，最终转换为 {dtype} 输出。'
     class_name = ''.join(part.capitalize() for part in case['native_operator'].split('_')) + 'Custom'
     entry = case['native_operator'] + '_custom'
-    goal = (f'使用 Ascend C 实现{name}。{semantics} '
+    goal = objective.strip() + '\n\n' + (f'使用 Ascend C 实现{name}。{semantics} '
         f'输入形状为 {shapes}，连续 ND 布局，dtype={dtype}；输出形状 {output_shape}，dtype={dtype}。'
         f'目标为 {case["soc"]}。先读取 reference/case.json 与 reference/reference.py，'
         '再用 Pi 文件工具在 solution.py 中生成完整候选。'
@@ -70,15 +71,23 @@ def get_init_inputs():
         'performance':{'timer':'npu_event','device_stream':'explicit target device','warmup':3,'samples':100,
             'comparison':'same-device interleaved paired measurements; compile and input preparation excluded'}}
     task={'id':case['task_id'],'scope':'cann-operator-generation','goal':goal,'contract':contract,
-        'seed_files':{'solution.py':'"""Implement the six-source Ascend C candidate specified by this task."""\n',
+        'seed_files':{'solution.py':baseline if mode == 'optimize' else '"""Implement the six-source Ascend C candidate specified by this task."""\n',
             'reference/case.json':json.dumps(case,ensure_ascii=False,indent=2)+'\n','reference/reference.py':reference,
-            'reference/native-template.py':(ROOT/('native-template.py' if vector else 'matmul-template.py')).read_text()}}
-    (directory/'task.json').write_text(json.dumps(task,ensure_ascii=False,indent=2)+'\n')
-    (directory/'reference.py').write_text(reference)
+            'reference/native-template.py':baseline}}
     request={'candidate':'./workspace/solution.py','reference':'./reference.py','workspace':'./new-evaluation-job',
         'operator':case['native_operator'],'soc':case['soc'],'device':case['device'],'fast':False,'timeout':600,
         'atol':case['atol'],'rtol':case['rtol']}
-    (directory/'evaluation-request.example.json').write_text(json.dumps(request,indent=2)+'\n')
+    if mode == 'optimize':
+        task['goal'] = objective.strip() + '\nOptimize the provided native baseline. Read the frozen case and reference, keep all tests correct, use Pi tools to edit solution.py, then call run_experiment(hypothesis, expected_delta, cites=[]). Read the restored source after rejection. Only original paired measurements and independent confirmation can establish improvement. Preserve the accepted source when the budget ends.'
+    return task, reference, request
+
+
+def generate(directory):
+    from task_bundle import load_bundle
+    task, reference, request, _ = load_bundle(directory / 'task.json')
+    for name, value in [('task.compiled.json',task), ('evaluation-request.example.json',request)]:
+        (directory/name).write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n')
+    (directory/'reference.py').write_text(reference)
 
 
 if __name__ == '__main__':

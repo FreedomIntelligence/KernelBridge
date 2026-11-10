@@ -1,5 +1,7 @@
 # KernelBridge
 
+CANN 任务统一从 [task 提交入口](../examples/cann/README.md) 启动：冻结 task 与测试输入，建立 LoopX Goal，再由 Pi SDK 执行算子生成、NPU 评测和修复。默认复用 managed SDK + LoopX；`--mode generate` 提供单次 Pi 会话。Vector Add、Cube Matmul 与 Sigmoid 40-turn 复现包含原生 C++、profile、完整日志索引和 session。
+
 KernelBridge 为 KernelAgent 提供三项能力：**Context 组织本次模型输入，Search 检索知识与原始证据，Replay 回放分析历史执行过程。** 用于诊断算子、形成实验假设、核对结果和复盘失败原因。
 
 V1 通过 KernelCat 的配置、CLI 和 TypeScript SDK 接入，复用 KernelCat 会话执行与 Worker。安装及首次运行统一见 [根目录 README](../README.md)，任务输入、模型配置和 SDK 用法见 [KernelCat README](../kernelcat/README.md)。

@@ -1,0 +1,136 @@
+"""Freeze a CANN task and trusted profile before starting any model or NPU work."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+from urllib.parse import unquote, urlparse
+from task_bundle import load_bundle
+from goal_inputs import task_contract, local_rsi
+
+BUNDLE = Path(__file__).resolve().parents[2]
+
+
+def expand(value, variables):
+    if isinstance(value, str):
+        for key, replacement in variables.items():
+            value = value.replace('{' + key + '}', replacement)
+        if re.search(r'\{[a-z_]+\}', value):
+            raise ValueError('unresolved profile placeholder: ' + value)
+        return value
+    if isinstance(value, list):
+        return [expand(x, variables) for x in value]
+    if isinstance(value, dict):
+        for key in value:
+            if key.lower() in ('api_key', 'password', 'token', 'authorization'):
+                raise ValueError('credentials must be supplied through api_key_env, not the profile')
+        return {k: expand(v, variables) for k, v in value.items()}
+    return value
+
+
+def prepare(task_path, profile_path, output, mode):
+    output = Path(output).absolute()
+    if output.resolve() != output:
+        raise ValueError('output must not traverse symlinks')
+    for protected in (BUNDLE, Path(task_path).resolve().parent):
+        if output == protected or output.is_relative_to(protected) or protected.is_relative_to(output):
+            raise ValueError('output must be disjoint from source and task input directories')
+    if output.exists():
+        raise FileExistsError('preserve the original attempt; output already exists')
+    raw = json.loads(Path(task_path).read_text())
+    sigmoid = raw.get('contract', {}).get('suite') == 'CANNBench Season 1 Sigmoid, 20 cases'
+    if sigmoid:
+        if mode != 'optimize': raise ValueError('Sigmoid reproduction uses Goal mode')
+        compiled = raw
+        reference = (BUNDLE / 'examples/cann/sigmoid-optimization/suite/reference.py').read_text()
+        request = {'operator': 'sigmoid', 'soc': 'ai_core-Ascend910_9382', 'device': 1, 'fast': False, 'timeout': 780, 'atol': 1e-4, 'rtol': 1e-4}
+        names = [Path(task_path).name, 'task-contract.json', 'baseline.py']
+        inputs = {'schema_version': 'kernelbridge.cann-inputs/v1', 'mode': mode, 'source_directory': str(Path(task_path).parent),
+                  'inputs': {name: {'sha256': hashlib.sha256((Path(task_path).parent / name).read_bytes()).hexdigest()} for name in names}}
+    else:
+        compiled, reference, request, inputs = load_bundle(task_path, mode)
+    profile = json.loads(Path(profile_path).read_text())
+    allowed = {'schema_version', 'python', 'node', 'expected_python_modules', 'config', 'loopx', 'task_contract_file'}
+    if set(profile) - allowed or profile.get('schema_version') != 'kernelbridge.cann-profile/v1':
+        raise ValueError('unsupported or unknown CANN profile field')
+    profile = expand(profile, {'bundle': str(BUNDLE), 'run': str(output)})
+    for name in ('python', 'node', 'expected_python_modules'):
+        if not Path(profile[name]).is_absolute() or not Path(profile[name]).is_file():
+            raise ValueError(name + ' must select an existing absolute installed file')
+    bindings = json.loads(Path(profile['expected_python_modules']).read_text())
+    roots = {str(Path(unquote(urlparse(root).path)).parent)
+             for module in bindings['modules'] for root in module['allowed_package_roots']}
+    if len(roots) != 1:
+        raise ValueError('expected one frozen installed Python module root')
+    python_path = roots.pop()
+    config = profile['config']
+    config.update(python_modules=bindings, workspace=str(output / 'workspace'),
+                  state_dir=str(output / 'state'), writable_paths=['solution.py'], readonly_paths=['reference'])
+    config.setdefault('pi_worker', {}).update(node=profile['node'], root=str(BUNDLE / 'source/apps/agent'))
+    request.update(reference=str(output / 'inputs/reference.py'), jobs=str(output / 'evaluations'))
+    request.pop('workspace', None); request.pop('candidate', None)
+    contract = None
+    if mode == 'generate':
+        if config.get('rsi'):
+            raise ValueError('generate requires an ordinary evaluator; use optimize for RSI')
+        config.setdefault('evaluator', {'argv': [profile['python'], str(BUNDLE / 'examples/cann/evaluate.py'), str(output / 'inputs/evaluation.json')],
+            'parameters': {'type': 'object', 'properties': {'candidate': {'type': 'string'}}, 'required': ['candidate'], 'additionalProperties': False},
+            'credits': 10, 'timeout': 1800,
+            'env_allowlist': ['PATH', 'LD_LIBRARY_PATH', 'ASCEND_HOME_PATH', 'ASCEND_OPP_PATH', 'PYTHONPATH']})
+    else:
+        if config.get('evaluator') or not profile.get('loopx') or not Path(profile['loopx']).is_file():
+            raise ValueError('Goal mode needs the installed loopx executable and a paired RSI evaluator')
+        if not config.get('rsi'):
+            config['rsi'], rsi_text = local_rsi({**profile, '_reference': reference}, output, request, 'sigmoid' if sigmoid else 'native')
+        else:
+            rsi_text = None
+        if profile.get('task_contract_file'):
+            contract = json.loads(Path(profile['task_contract_file']).read_text())
+        elif sigmoid:
+            contract = json.loads((Path(task_path).parent / 'task-contract.json').read_text())
+        else:
+            contract = task_contract(compiled, reference)
+        identity_reference = (BUNDLE / 'examples/cann/sigmoid-optimization/suite/golden.py').read_bytes() if sigmoid else reference.encode()
+        if contract['operator']['reference_digest'] != 'sha256:' + hashlib.sha256(identity_reference).hexdigest():
+            raise ValueError('Goal contract reference digest must match the frozen case/reference')
+    env = {**os.environ, 'PYTHONPATH': python_path, 'PYTHONDONTWRITEBYTECODE': '1'}
+    check = subprocess.run([profile['python'], '-B', '-c',
+        'import json,sys; from kernelcat_worker.configuration import Config; from kernelcat_executor.contracts.models import Task; v=json.load(sys.stdin); Config.model_validate_json(json.dumps(v["config"])); Task.model_validate_json(json.dumps(v["task"]))'],
+        input=json.dumps({'config': config, 'task': compiled}), text=True, capture_output=True, env=env, timeout=30)
+    if check.returncode:
+        raise ValueError('installed worker rejected frozen config/task: ' + check.stderr[-3000:])
+    output.mkdir(mode=0o700)
+    (output / 'inputs').mkdir()
+    def save(name, value):
+        with (output / name).open('x') as stream:
+            json.dump(value, stream, ensure_ascii=False, indent=2); stream.write('\n')
+    save('task.json', compiled); save('config.json', config); save('config.redacted.json', config)
+    save('input-manifest.json', inputs); save('inputs/evaluation.json', request)
+    (output / 'inputs/reference.py').write_text(reference)
+    for name in inputs['inputs']:
+        (output / 'inputs' / name).write_bytes((Path(task_path).parent / name).read_bytes())
+    command = {'argv': [profile['node'], str(BUNDLE / 'source/apps/agent/src/main.ts'), 'run', '--python', profile['python'],
+        '--expected-python-modules', profile['expected_python_modules'], '--config', str(output / 'config.json'),
+        '--task', str(output / 'task.json'), '--timeout-ms', '7200000'],
+        'python_path': python_path, 'api_key_env': config['providers']['primary']['api_key_env']}
+    save('command.json', command)
+    if contract:
+        save('task-contract.json', contract)
+        check_contract = subprocess.run([profile['node'], '--input-type=module', '-e', 'import {validateTaskContract} from ' + json.dumps((BUNDLE / 'source/apps/agent/src/tasks/contract.ts').as_uri()) + '; import fs from \"node:fs\"; validateTaskContract(JSON.parse(fs.readFileSync(process.argv[1], \"utf8\")));', str(output / 'task-contract.json')], capture_output=True, text=True, timeout=30)
+        if check_contract.returncode: raise ValueError(check_contract.stderr)
+        if rsi_text: (output / 'inputs/rsi.json').write_text(rsi_text)
+    save('prepared.json', {'mode': mode, 'profile': str(Path(profile_path).resolve()), 'model_started': False, 'device_started': False})
+    return {'output': str(output), 'bundle': str(BUNDLE), 'python': profile['python'],
+            'expectedPythonModules': profile['expected_python_modules'], 'pythonPath': python_path,
+            'loopx': profile.get('loopx'), 'mode': mode}
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    for name in ('task', 'profile', 'output'):
+        parser.add_argument('--' + name, type=Path, required=True)
+    parser.add_argument('--mode', choices=['generate', 'optimize'], default='optimize')
+    args = parser.parse_args()
+    print(json.dumps(prepare(args.task, args.profile, args.output, args.mode)))

@@ -1,0 +1,700 @@
+{
+  "schema_version": "kernelcat.task-contract/v1",
+  "contract_id": "cannbench-sigmoid-native-warm-start-v1",
+  "revision": 1,
+  "purpose": "research",
+  "provenance": {
+    "kind": "frozen_inputs",
+    "source": "CANNBench archive commit d9cb127b40f2c454c8df32cc29c65d0852c1f608, archives/season1/tasks/level1/sigmoid; all 20 public cases. Local qualification, no platform submission.",
+    "source_digest": "sha256:08d12f78ddfd933ac8a8e799b3132af714344d39025400f1829a46a6c513bde9"
+  },
+  "operator": {
+    "name": "sigmoid",
+    "definition": "y = torch.sigmoid(x), preserve inputs, shape and dtype. All 20 archived CANNBench cases. Full-output MERE < T and MARE < 10*T, T=2^-10 FP16, 2^-7 BF16, 2^-13 FP32; denominator abs(golden)+1e-7. Nonfinite positions must match.",
+    "reference_digest": "sha256:015de3dda4e3ee39e6dc70a98514ae8fd69e168bdb5b71c01508ce236cffeae7"
+  },
+  "target": {
+    "vendor": "Huawei",
+    "architecture": "Ascend910_9382",
+    "requirements": {
+      "runtime": "CANN 9.1, torch_npu 2.10, logical device 1"
+    }
+  },
+  "input_domain": {
+    "casepack_digest": "sha256:b597c30b087df774114aa19b06028f134d3e3b15c4bb462673460cfb20f36eef",
+    "cases": {
+      "case1": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              1024,
+              1024
+            ],
+            "dtype": "float16",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              1024,
+              1024
+            ],
+            "dtype": "float16",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "case2": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              2048,
+              2048
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              2048,
+              2048
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "case3": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              4096,
+              4096
+            ],
+            "dtype": "bfloat16",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              4096,
+              4096
+            ],
+            "dtype": "bfloat16",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "case4": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              8192,
+              8192
+            ],
+            "dtype": "float16",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              8192,
+              8192
+            ],
+            "dtype": "float16",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "case5": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              8192,
+              8192
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              8192,
+              8192
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "case6": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              1023,
+              1023
+            ],
+            "dtype": "bfloat16",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              1023,
+              1023
+            ],
+            "dtype": "bfloat16",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "case7": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              1009,
+              1021
+            ],
+            "dtype": "float16",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              1009,
+              1021
+            ],
+            "dtype": "float16",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "case8": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              1537,
+              769
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              1537,
+              769
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "case9": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              363,
+              367,
+              373
+            ],
+            "dtype": "bfloat16",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              363,
+              367,
+              373
+            ],
+            "dtype": "bfloat16",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "case10": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              2049,
+              513
+            ],
+            "dtype": "float16",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              2049,
+              513
+            ],
+            "dtype": "float16",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "case11": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              3,
+              7,
+              13,
+              4001
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              3,
+              7,
+              13,
+              4001
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "case12": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              1000003
+            ],
+            "dtype": "bfloat16",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              1000003
+            ],
+            "dtype": "bfloat16",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "case13": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              11,
+              13,
+              17,
+              67,
+              67
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              11,
+              13,
+              17,
+              67,
+              67
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "case14": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              3,
+              7,
+              11,
+              13,
+              1009
+            ],
+            "dtype": "float16",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              3,
+              7,
+              11,
+              13,
+              1009
+            ],
+            "dtype": "float16",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "case15": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              512,
+              2049
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              512,
+              2049
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "case16": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              255,
+              8193
+            ],
+            "dtype": "bfloat16",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              255,
+              8193
+            ],
+            "dtype": "bfloat16",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "case17": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              4097,
+              511
+            ],
+            "dtype": "float16",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              4097,
+              511
+            ],
+            "dtype": "float16",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "case18": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              2,
+              511,
+              2049
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              2,
+              511,
+              2049
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "case19": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              4,
+              255,
+              2049
+            ],
+            "dtype": "bfloat16",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              4,
+              255,
+              2049
+            ],
+            "dtype": "bfloat16",
+            "layout": "contiguous"
+          }
+        }
+      },
+      "case20": {
+        "weight": 1,
+        "inputs": {
+          "x": {
+            "shape": [
+              2,
+              3,
+              17,
+              1024,
+              101
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        },
+        "outputs": {
+          "y": {
+            "shape": [
+              2,
+              3,
+              17,
+              1024,
+              101
+            ],
+            "dtype": "float32",
+            "layout": "contiguous"
+          }
+        }
+      }
+    }
+  },
+  "tolerances": {
+    "float16": {
+      "kind": "floating",
+      "atol": 9.765625e-10,
+      "rtol": 0.009765625,
+      "nan": "same_positions",
+      "inf": "same_sign_and_positions",
+      "comparison": "elementwise_abs_rel"
+    },
+    "bfloat16": {
+      "kind": "floating",
+      "atol": 7.8125e-09,
+      "rtol": 0.078125,
+      "nan": "same_positions",
+      "inf": "same_sign_and_positions",
+      "comparison": "elementwise_abs_rel"
+    },
+    "float32": {
+      "kind": "floating",
+      "atol": 1.220703125e-10,
+      "rtol": 0.001220703125,
+      "nan": "same_positions",
+      "inf": "same_sign_and_positions",
+      "comparison": "elementwise_abs_rel"
+    }
+  },
+  "specialization_policy": {
+    "allowed": [],
+    "outside_domain": "reject"
+  },
+  "aliasing": {
+    "output_aliases": {},
+    "in_place": false
+  },
+  "allowed_calls": [
+    "AscendC",
+    "torch_npu",
+    "custom_ops_lib"
+  ],
+  "baseline": {
+    "program_id": "qualified-one-core-native-sigmoid",
+    "artifact_digest": "sha256:444133490b8b16537795d812b6d21f0136d1ef4dd392391f60ef255cb8b2ae88"
+  },
+  "scoring": {
+    "kind": "weighted_geomean_speedup",
+    "direction": "maximize"
+  },
+  "measurement_protocol": {
+    "rule_id": "cannbench-season1-sigmoid-20-full-output-v1",
+    "levels": {
+      "smoke": {
+        "timing": false,
+        "correctness_case_ids": [
+          "case1",
+          "case2",
+          "case3",
+          "case4",
+          "case5",
+          "case6",
+          "case7",
+          "case8",
+          "case9",
+          "case10",
+          "case11",
+          "case12",
+          "case13",
+          "case14",
+          "case15",
+          "case16",
+          "case17",
+          "case18",
+          "case19",
+          "case20"
+        ]
+      },
+      "quick": {
+        "timing": true,
+        "correctness_case_ids": [
+          "case1",
+          "case2",
+          "case3",
+          "case4",
+          "case5",
+          "case6",
+          "case7",
+          "case8",
+          "case9",
+          "case10",
+          "case11",
+          "case12",
+          "case13",
+          "case14",
+          "case15",
+          "case16",
+          "case17",
+          "case18",
+          "case19",
+          "case20"
+        ],
+        "warmup_iterations": 3,
+        "blocks": 20,
+        "samples_per_arm": 30,
+        "pairing": "alternating",
+        "case_reducer": "mean",
+        "minimum_effect": 0.01,
+        "confidence_level": 0.97,
+        "bootstrap_resamples": 1000
+      },
+      "full": {
+        "timing": true,
+        "correctness_case_ids": [
+          "case1",
+          "case2",
+          "case3",
+          "case4",
+          "case5",
+          "case6",
+          "case7",
+          "case8",
+          "case9",
+          "case10",
+          "case11",
+          "case12",
+          "case13",
+          "case14",
+          "case15",
+          "case16",
+          "case17",
+          "case18",
+          "case19",
+          "case20"
+        ],
+        "warmup_iterations": 3,
+        "blocks": 20,
+        "samples_per_arm": 30,
+        "pairing": "alternating",
+        "case_reducer": "mean",
+        "minimum_effect": 0.01,
+        "confidence_level": 0.97,
+        "bootstrap_resamples": 1000
+      }
+    }
+  },
+  "timing": {
+    "scope": "kernel_only",
+    "clock": "device_event",
+    "cache": {
+      "mode": "natural",
+      "rule_id": "three-warmups-no-eviction"
+    },
+    "synchronization": {
+      "before_interval": "NPU synchronize; timing uses NPU events after warmups.",
+      "completion": "all_streams_in_interval"
+    },
+    "input_preparation": "outside_interval",
+    "profiling": "excluded"
+  },
+  "budgets": {
+    "max_build_seconds": 780,
+    "max_evaluation_seconds": 1800,
+    "max_total_seconds": 7200,
+    "max_device_memory_bytes": 4294967296,
+    "max_scratch_bytes": 268435456
+  },
+  "quality_policy": {
+    "rule_id": "native-sigmoid-full20-v1",
+    "hard_limits": {},
+    "forbidden_patterns": [
+      "reference modification",
+      "torch-only fallback",
+      "hardcoded output"
+    ],
+    "tie_break": {
+      "relative_score_tolerance": 0,
+      "metrics": [
+        "logical_loc_growth_ratio"
+      ],
+      "final": "program_id_ascending"
+    },
+    "cleanup_triggers": {
+      "logical_loc_growth_ratio": 2,
+      "complexity_growth_ratio": 2,
+      "fork_count": 2,
+      "before_final_delivery": true
+    }
+  }
+}

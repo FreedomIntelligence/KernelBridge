@@ -1,5 +1,7 @@
 # KernelCat
 
+CANN 任务统一从 [task 提交入口](../examples/cann/README.md) 启动：冻结 task 与测试输入，建立 LoopX Goal，再由 Pi SDK 执行算子生成、NPU 评测和修复。默认复用 managed SDK + LoopX；`--mode generate` 提供单次 Pi 会话。Vector Add、Cube Matmul 与 Sigmoid 40-turn 复现包含原生 C++、profile、完整日志索引和 session。
+
 KernelCat 是面向算子生成的 CLI 与 TypeScript 应用 SDK。输入明确的算子语义、shape/dtype、目标平台、正确性要求及预算；Agent 在许可范围内读取资料、生成候选，并通过配置的评估器验证结果。安装与第一个独立示例统一见 [交付根目录 README](../README.md)。
 
 ## 执行入口

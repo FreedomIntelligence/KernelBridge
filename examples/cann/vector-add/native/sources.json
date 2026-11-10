@@ -1,0 +1,31 @@
+{
+  "schema_version": "kernelbridge.native-sources/v1",
+  "wrapper": "baseline.py",
+  "wrapper_sha256": "65c289d081e51e6375696553a4d7e53b1d9553edcf4659e0d177152549b5ba09",
+  "fields": {
+    "project_json_src": {
+      "path": "vector_add_custom.json",
+      "sha256": "4eedc5ae69cc5b420fb220a98e68e2bc586df0e9fb1e308f0281dd5bb1bb320b"
+    },
+    "host_tiling_src": {
+      "path": "op_kernel/vector_add_custom_tiling.h",
+      "sha256": "8d50def6acf9f694d18d98c9d460b88d26119ced8ce404fdfe53d5f8bc5e38c3"
+    },
+    "host_operator_src": {
+      "path": "op_host/vector_add_custom.cpp",
+      "sha256": "32ba8fa0eac3e472f546a8efe863729ecbb767b88f77e24a339bf67620403615"
+    },
+    "kernel_src": {
+      "path": "op_kernel/vector_add_custom.cpp",
+      "sha256": "843cf7343797080b568f484f867c47217e9f1d782397ef9ffc04fac24bca8896"
+    },
+    "python_bind_src": {
+      "path": "bindings/op.cpp",
+      "sha256": "b365dd393cb6bcba8d4b210ca6360f0104d22ee1c26691d607d6908424d06b96"
+    },
+    "model_src": {
+      "path": "bindings/model.py",
+      "sha256": "571240efc7e378ca19f76f0132ace37bca83767cfa16ba49fe56ccf54f6bf6e4"
+    }
+  }
+}

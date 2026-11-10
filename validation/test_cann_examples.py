@@ -19,7 +19,7 @@ class CannTasks(unittest.TestCase):
         for name in ('vector-add', 'cube-matmul'):
             directory=ROOT/'examples/cann'/name
             with self.subTest(example=name):
-                task=Task.model_validate_json((directory/'task.json').read_text())
+                task=Task.model_validate_json((directory/'task.compiled.json').read_text())
                 case=json.loads((directory/'case.json').read_text())
                 self.assertEqual(task.seed_files['reference/reference.py'],(directory/'reference.py').read_text())
                 self.assertEqual(json.loads(task.seed_files['reference/case.json']),case)

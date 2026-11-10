@@ -1,0 +1,14 @@
+{
+  "source_commit": "d9cb127b40f2c454c8df32cc29c65d0852c1f608",
+  "path": "archives/season1/tasks/level1/sigmoid",
+  "scope": "all 20 archived Season 1 cases; not current leaderboard",
+  "files": {
+    "LICENSE": "cb282ac2b66d7d6734c3fb354db792b28cf23ab29fbc16d5cfd8bd542bedeb1e",
+    "baseline.py": "cccfc5d270a7d6820b06ab8f16094b85e7a0bed91b696a2aba1640e110a62aef",
+    "desc.md": "771d07d8264414ca91244b2cc461fd8351d025431b5f65bfc4ee53598153f897",
+    "golden.py": "015de3dda4e3ee39e6dc70a98514ae8fd69e168bdb5b71c01508ce236cffeae7",
+    "proto.yaml": "bfcf5e74de2c7cb0e0fc027f670ca511477f20a58db76e1a9cb9f2ee78754ff9",
+    "cases.yaml": "b597c30b087df774114aa19b06028f134d3e3b15c4bb462673460cfb20f36eef",
+    "reference.py": "f6fc34c51fdd01bc89c7a8840e51d7dac61699c5c8a92601d56d4d49507e4c0b"
+  }
+}
