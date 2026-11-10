@@ -10,6 +10,7 @@ from kernelcat_executor.capabilities.filesystem import Workspace
 from kernelcat_executor.capabilities.runtime_artifacts import RuntimeArtifacts, workspace_bundle
 from kernelcat_executor.capabilities.skills import Skills
 from kernelcat_executor.capabilities.workspace_tools import builtin_tools
+from kernelcat_executor.capabilities.workspace_policy import WorkspaceGuard
 from kernelcat_executor.contracts.models import Conflict, Json, Task, canonical, digest
 from kernelcat_executor.contracts.ports import Store, Tool
 from kernelcat_executor.contracts.runtime import PROGRAM_BYTES, validate_runtime
@@ -23,6 +24,7 @@ from kernelcat_executor.state.runtime_state import actor_from, check_actor
 from kernelcat_executor.state.runtime_store import RuntimeStore
 
 from kernelcat_worker.bindings import _build_proposers, _preflight, _version_inputs
+from kernelcat_worker.business_tools import configured_tools
 from kernelcat_worker.configuration import Config
 from kernelcat_worker.knowledge import KnowledgeReadSurface, knowledge_tools
 from kernelcat_worker.managed_input import enqueue_managed_input
@@ -30,6 +32,8 @@ from kernelcat_worker.managed_knowledge import ManagedKnowledge
 from kernelcat_worker.replay import NativeReplayFiles
 from kernelcat_worker.rsi_effects import RsiEffects
 from kernelcat_worker.rsi_experiments import ExperimentTool, SourceGuard
+from kernelcat_worker.rsi_records import Records
+from kernelcat_worker.rsi_retained import retained_bundle
 from kernelcat_worker.startup import PythonStartup, admit_config
 from kernelcat_worker.versions import collect_version_lock
 
@@ -85,6 +89,8 @@ class RuntimeService:
     def _tools(self, store: Store, workspace: Workspace, skills: Skills,
                knowledge: KnowledgeReadSurface | None) -> list[Tool]:
         tools: list[Tool] = [*builtin_tools(workspace, skills), SubagentEffect(), ReadLearnedSkill(store)]
+        tools.extend(configured_tools(self.config.business_tools, workspace,
+            (self.base / self.config.state_dir).resolve()))
         if knowledge is not None:
             tools.extend(knowledge_tools(knowledge))
         if self.config.rsi is not None:
@@ -170,7 +176,10 @@ class RuntimeService:
         skills = Skills(tuple(self.base / root for root in self.config.skill_roots))
         binding = state["trial"]["external_snapshot"].get("knowledge")
         tools = self._tools(store, workspace, skills, self.knowledge.open(binding))
-        guards = () if self.config.rsi is None else (SourceGuard(self.config.rsi["source_paths"]),)
+        writable_paths = (tuple(self.config.rsi["source_paths"]) if self.config.rsi is not None
+                          else self.config.writable_paths)
+        guards = (WorkspaceGuard(workspace.root, writable_paths, self.config.readonly_paths),
+                  *((SourceGuard(self.config.rsi["source_paths"]),) if self.config.rsi is not None else ()))
         gateway = Gateway(store, tools, task.scope, guards)
         specifications = gateway.specifications()
         actual_digest = "sha256:" + digest([spec.model_dump(mode="json") for spec in specifications])
@@ -188,7 +197,11 @@ class RuntimeService:
                 task_identity=digest(task), external_context=True, cwd=self.workspace.root,
                 role=self.config.pi_worker.role, timeout=self.config.pi_worker.timeout,
                 max_frame_bytes=self.config.pi_worker.max_frame_bytes, rsi=rsi,
-                replay=NativeReplayFiles(store, (self.base / self.config.state_dir).resolve(), workspace.root, task.id))
+                workspace_policy={"root": str(workspace.root), "writable_paths": writable_paths,
+                                  "readonly_paths": self.config.readonly_paths,
+                                  "codemode": self.config.pi_worker.codemode},
+                replay=NativeReplayFiles(store, (self.base / self.config.state_dir).resolve(), workspace.root, task.id,
+                    seed=self.config.native_session_seed.model_dump(mode="json") if self.config.native_session_seed else None))
             self.handler = self.stack.enter_context(self.host.open_rpc(task))
 
     def _bind_finalization(self, params: Json) -> Json:
@@ -370,7 +383,13 @@ class RuntimeService:
             if self.store is None or self.gateway is None or self.workspace is None:
                 raise Conflict("snapshot requires a currently bound frozen Actor")
             self.knowledge.before_effect(self.store.actor["run_id"], self.store.actor["trial_id"])
-            return owner.snapshot(params, self.store, self.gateway, partial(workspace_bundle, self.workspace))
+            materialize = partial(workspace_bundle, self.workspace)
+            if self.config.rsi is not None:
+                preparation = owner.preparation(self.store.actor["run_id"], self.store.actor["trial_id"])
+                records = Records(self.store, self.artifacts, preparation["task"]["id"])
+                materialize = partial(retained_bundle, self.workspace, records=records,
+                                      source_paths=self.config.rsi["source_paths"])
+            return owner.snapshot(params, self.store, self.gateway, materialize)
         if method == "adopt_candidate":
             owner = self._managed_owner()
             if self.store is None:

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import sys
 import unittest
+from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).parent))
 import test_runtime as support
 sys.path.insert(0, str(support.ROOT / 'examples/cann'))
@@ -57,3 +58,22 @@ class BusinessDiagnosticsTests(unittest.TestCase):
             parameters={'type':'object'}, files=({'path':str(file), 'sha256':hashlib.sha256(file.read_bytes()).hexdigest()},))
         with self.assertRaisesRegex(ValueError, 'conflicts'):
             configured_tools([spec], self.workspace, self.base / 'state')
+
+    def test_managed_goal_catalogue_executes_the_same_configured_tools(self):
+        from kernelcat_worker.runtime import RuntimeService
+        from kernelcat_executor.capabilities.skills import Skills
+        from kernelcat_executor.contracts.models import Action
+        command = self.base / 'probe.py'
+        command.write_text('import json,sys\na=json.load(sys.stdin)\nprint(json.dumps({"status":"completed","data":{"value":a["arguments"]["value"]}}))\n')
+        specification = BusinessToolConfig(name='operator_probe', description='Bounded operator probe',
+            argv=(str(Path(sys.executable).resolve()), str(command)),
+            parameters={'type': 'object', 'properties': {'value': {'type': 'integer'}}, 'required': ['value']},
+            files=({'path': str(command), 'sha256': hashlib.sha256(command.read_bytes()).hexdigest()},))
+        service = object.__new__(RuntimeService)
+        service.base = self.base
+        service.config = SimpleNamespace(business_tools=(specification,), state_dir='state', rsi=None, self_evolution=None)
+        tools = service._tools(self.store, self.workspace, Skills(()), None)
+        probe = next(tool for tool in tools if tool.spec.name == 'operator_probe')
+        outcome = probe.execute(Action(id='managed/probe', task='test', tool='operator_probe', arguments={'value': 17}))
+        self.assertEqual(outcome.status, 'completed')
+        self.assertEqual(outcome.data['value'], 17)

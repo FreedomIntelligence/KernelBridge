@@ -11,7 +11,7 @@ index 0000000..206cea4
 +*.pyc
 +/.restore/
 diff --git a/README.md b/README.md
-index b8f0c78..8948f7e 100644
+index b8f0c78..009f9d7 100644
 --- a/README.md
 +++ b/README.md
 @@ -1,95 +1,70 @@
@@ -155,7 +155,7 @@ index b8f0c78..8948f7e 100644
 +[githubgist.diff](githubgist.diff) 是相对初始提交 `87c8fe4` 的源码补丁；补丁自身、派生清单以及已移除的部署专用接入文件单独记录。当前文件身份以 `PIN_MANIFEST.json` 为准。
  
 -后续自定义算子可从示例生成的任务与配置出发，更换语义、输入范围、父程序和独立评估器。保留原始账本、回执、模块绑定和未决操作身份；升级源码不能通过清空预留、改写历史摘要或复制旧状态来强行继续。具体命令见 [KernelCat](kernelcat/README.md)，可选能力见 [KernelBridge](kernelbridge/README.md)。
-+验证记录见 [CANN 交付检查](validation/CANN_DELIVERY.md) 和 [原始设备验收](validation/ACCEPTANCE_RESULTS.md)。
++验证记录见 [CANN 交付检查](validation/CANN_DELIVERY.md) 、[原始设备验收](validation/ACCEPTANCE_RESULTS.md) 和 [Vector / Cube 20 轮回归](validation/NEW_FLOW_20TURNS.md)。
 diff --git a/examples/cann/README.md b/examples/cann/README.md
 new file mode 100644
 index 0000000..ab8e375
@@ -1895,10 +1895,10 @@ index 0000000..da0c58f
 +}
 diff --git a/examples/cann/goal.mjs b/examples/cann/goal.mjs
 new file mode 100644
-index 0000000..37dbb90
+index 0000000..78888c4
 --- /dev/null
 +++ b/examples/cann/goal.mjs
-@@ -0,0 +1,291 @@
+@@ -0,0 +1,299 @@
 +/** Customer SDK entrypoint. Prepare inputs with prepare_goal.py first. */
 +import { spawnSync } from 'node:child_process';
 +import { closeSync, openSync, writeSync } from 'node:fs';
@@ -2118,6 +2118,15 @@ index 0000000..37dbb90
 +    await save('result.json', result);
 +    if (result.turnKey) await save('goal-turn.json', await goal.inspectTurn(result.turnKey));
 +    await save('goal-after.json', await goal.read());
++    // A failed bootstrap has no frozen Run yet. Preserve the actual SDK failure
++    // instead of replacing it with a secondary state-query exception.
++    if (!['progress', 'completed', 'replayed'].includes(result.status)) {
++      await save('state-observation.json', { available: session.latestState !== undefined,
++        state: session.latestState ?? null, goal_status: result.status });
++      if (observerError) throw observerError;
++      process.exitCode = 1;
++      throw new Error(`Goal ${result.status}; inspect ${output}/result.json and ${output}/events.jsonl`);
++    }
 +    const state = await session.state();
 +    await save('state.json', state);
 +    if (observerError) throw observerError;
@@ -2147,7 +2156,6 @@ index 0000000..37dbb90
 +audits = [row for row in completed if row['action']['tool'] == 'delegate'
 +          and row['action']['arguments'].get('agent') == 'kernel-reviewer'
 +          and row['action']['arguments'].get('mode') == 'read_only']
-+# No child delegation is requested in this 40-turn search.
 +measured = []
 +for row in completed:
 +    if row['action']['tool'] not in ('__rsi_record__', '__rsi_apply__'):
@@ -14534,6 +14542,103 @@ index 051bc22..3029e32 100644
                  "integration": False}}, "PrivateRecord")
          outcome = records.outcome(record)
          return outcome.model_copy(update={"data": {**outcome.data,
+diff --git a/source/apps/worker/src/kernelcat_worker/rsi_retained.py b/source/apps/worker/src/kernelcat_worker/rsi_retained.py
+new file mode 100644
+index 0000000..abc04ed
+--- /dev/null
++++ b/source/apps/worker/src/kernelcat_worker/rsi_retained.py
+@@ -0,0 +1,13 @@
++"""Freeze the retained RSI source while preserving the agent's working draft."""
++from kernelcat_executor.capabilities.runtime_artifacts import workspace_bundle
++from kernelcat_executor.contracts.models import Conflict
++
++
++def retained_bundle(workspace, original, records, source_paths):
++    source = records.baseline()["value"]["source"]
++    paths = set(source_paths)
++    if len(source) != len(paths) or {item["path"] for item in source} != paths:
++        raise Conflict("retained RSI source differs from the configured source paths")
++    # The workspace and Pi history remain the exact draft at generation stop.
++    # The Program references only the source selected by the acceptance ledger.
++    return workspace_bundle(workspace, original, source_overrides=source)
+diff --git a/source/apps/worker/src/kernelcat_worker/runtime.py b/source/apps/worker/src/kernelcat_worker/runtime.py
+index 82eb5f9..ddc4e10 100644
+--- a/source/apps/worker/src/kernelcat_worker/runtime.py
++++ b/source/apps/worker/src/kernelcat_worker/runtime.py
+@@ -10,6 +10,7 @@ from kernelcat_executor.capabilities.filesystem import Workspace
+ from kernelcat_executor.capabilities.runtime_artifacts import RuntimeArtifacts, workspace_bundle
+ from kernelcat_executor.capabilities.skills import Skills
+ from kernelcat_executor.capabilities.workspace_tools import builtin_tools
++from kernelcat_executor.capabilities.workspace_policy import WorkspaceGuard
+ from kernelcat_executor.contracts.models import Conflict, Json, Task, canonical, digest
+ from kernelcat_executor.contracts.ports import Store, Tool
+ from kernelcat_executor.contracts.runtime import PROGRAM_BYTES, validate_runtime
+@@ -23,6 +24,7 @@ from kernelcat_executor.state.runtime_state import actor_from, check_actor
+ from kernelcat_executor.state.runtime_store import RuntimeStore
+ 
+ from kernelcat_worker.bindings import _build_proposers, _preflight, _version_inputs
++from kernelcat_worker.business_tools import configured_tools
+ from kernelcat_worker.configuration import Config
+ from kernelcat_worker.knowledge import KnowledgeReadSurface, knowledge_tools
+ from kernelcat_worker.managed_input import enqueue_managed_input
+@@ -30,6 +32,8 @@ from kernelcat_worker.managed_knowledge import ManagedKnowledge
+ from kernelcat_worker.replay import NativeReplayFiles
+ from kernelcat_worker.rsi_effects import RsiEffects
+ from kernelcat_worker.rsi_experiments import ExperimentTool, SourceGuard
++from kernelcat_worker.rsi_records import Records
++from kernelcat_worker.rsi_retained import retained_bundle
+ from kernelcat_worker.startup import PythonStartup, admit_config
+ from kernelcat_worker.versions import collect_version_lock
+ 
+@@ -85,6 +89,8 @@ class RuntimeService:
+     def _tools(self, store: Store, workspace: Workspace, skills: Skills,
+                knowledge: KnowledgeReadSurface | None) -> list[Tool]:
+         tools: list[Tool] = [*builtin_tools(workspace, skills), SubagentEffect(), ReadLearnedSkill(store)]
++        tools.extend(configured_tools(self.config.business_tools, workspace,
++            (self.base / self.config.state_dir).resolve()))
+         if knowledge is not None:
+             tools.extend(knowledge_tools(knowledge))
+         if self.config.rsi is not None:
+@@ -170,7 +176,10 @@ class RuntimeService:
+         skills = Skills(tuple(self.base / root for root in self.config.skill_roots))
+         binding = state["trial"]["external_snapshot"].get("knowledge")
+         tools = self._tools(store, workspace, skills, self.knowledge.open(binding))
+-        guards = () if self.config.rsi is None else (SourceGuard(self.config.rsi["source_paths"]),)
++        writable_paths = (tuple(self.config.rsi["source_paths"]) if self.config.rsi is not None
++                          else self.config.writable_paths)
++        guards = (WorkspaceGuard(workspace.root, writable_paths, self.config.readonly_paths),
++                  *((SourceGuard(self.config.rsi["source_paths"]),) if self.config.rsi is not None else ()))
+         gateway = Gateway(store, tools, task.scope, guards)
+         specifications = gateway.specifications()
+         actual_digest = "sha256:" + digest([spec.model_dump(mode="json") for spec in specifications])
+@@ -188,7 +197,11 @@ class RuntimeService:
+                 task_identity=digest(task), external_context=True, cwd=self.workspace.root,
+                 role=self.config.pi_worker.role, timeout=self.config.pi_worker.timeout,
+                 max_frame_bytes=self.config.pi_worker.max_frame_bytes, rsi=rsi,
+-                replay=NativeReplayFiles(store, (self.base / self.config.state_dir).resolve(), workspace.root, task.id))
++                workspace_policy={"root": str(workspace.root), "writable_paths": writable_paths,
++                                  "readonly_paths": self.config.readonly_paths,
++                                  "codemode": self.config.pi_worker.codemode},
++                replay=NativeReplayFiles(store, (self.base / self.config.state_dir).resolve(), workspace.root, task.id,
++                    seed=self.config.native_session_seed.model_dump(mode="json") if self.config.native_session_seed else None))
+             self.handler = self.stack.enter_context(self.host.open_rpc(task))
+ 
+     def _bind_finalization(self, params: Json) -> Json:
+@@ -370,7 +383,13 @@ class RuntimeService:
+             if self.store is None or self.gateway is None or self.workspace is None:
+                 raise Conflict("snapshot requires a currently bound frozen Actor")
+             self.knowledge.before_effect(self.store.actor["run_id"], self.store.actor["trial_id"])
+-            return owner.snapshot(params, self.store, self.gateway, partial(workspace_bundle, self.workspace))
++            materialize = partial(workspace_bundle, self.workspace)
++            if self.config.rsi is not None:
++                preparation = owner.preparation(self.store.actor["run_id"], self.store.actor["trial_id"])
++                records = Records(self.store, self.artifacts, preparation["task"]["id"])
++                materialize = partial(retained_bundle, self.workspace, records=records,
++                                      source_paths=self.config.rsi["source_paths"])
++            return owner.snapshot(params, self.store, self.gateway, materialize)
+         if method == "adopt_candidate":
+             owner = self._managed_owner()
+             if self.store is None:
 diff --git a/source/contracts/execution/v1/harness.schema.json b/source/contracts/execution/v1/harness.schema.json
 index 8ce3eab..e127317 100644
 --- a/source/contracts/execution/v1/harness.schema.json
@@ -14713,6 +14818,188 @@ index 87ceb02..4eabade 100644
  
      def load(self, outputs: BuildOutputs, model_source: str) -> None:
          verify_outputs(outputs, self.settings.workspace)
+diff --git a/source/packages/executor/src/kernelcat_executor/backends/ascend/templates/CppExtension/csrc/pytorch_npu_helper.hpp b/source/packages/executor/src/kernelcat_executor/backends/ascend/templates/CppExtension/csrc/pytorch_npu_helper.hpp
+index 0f4e2c9..9b076b9 100644
+--- a/source/packages/executor/src/kernelcat_executor/backends/ascend/templates/CppExtension/csrc/pytorch_npu_helper.hpp
++++ b/source/packages/executor/src/kernelcat_executor/backends/ascend/templates/CppExtension/csrc/pytorch_npu_helper.hpp
+@@ -28,7 +28,10 @@
+ #include <torch_npu/csrc/framework/utils/CalcuOpUtil.h>
+ #include <torch_npu/csrc/framework/utils/OpAdapter.h>
+ 
++#include <torch_npu/csrc/core/npu/NPUCachingAllocator.h>
+ #include <functional>
++#include <memory>
++#include <tuple>
+ #include <type_traits>
+ #include <vector>
+ 
+@@ -602,6 +605,38 @@ void ReleaseConvertTypes(Tuple &t) {
+   CallRelease(t, std::make_index_sequence<size>{});
+ }
+ 
++// Keep tensor handles and borrowed arrays alive until the queued host command runs.
++// Executor construction, workspace allocation and ACL cleanup run on that same
++// thread: CANN's huge-memory allocator is thread-local.
++template <typename T>
++struct OwnedApiArray {
++  std::shared_ptr<T[]> values;
++  size_t size;
++  explicit OwnedApiArray(at::ArrayRef<T> source)
++      : values(new T[source.size()], std::default_delete<T[]>()), size(source.size()) {
++    std::copy(source.begin(), source.end(), values.get());
++  }
++};
++template <typename T>
++auto ConvertType(const OwnedApiArray<T> &value) {
++  return ConvertType(at::ArrayRef<T>(value.values.get(), value.size));
++}
++template <typename T>
++T OwnApiParameter(const T &value) { return value; }
++template <typename T>
++OwnedApiArray<T> OwnApiParameter(at::ArrayRef<T> value) { return OwnedApiArray<T>(value); }
++inline auto OwnApiParameter(const c10::optional<at::IntArrayRef> &value) {
++  return value ? c10::optional<OwnedApiArray<int64_t>>(OwnedApiArray<int64_t>(*value))
++               : c10::nullopt;
++}
++inline aclIntArray *ConvertType(const c10::optional<OwnedApiArray<int64_t>> &value) {
++  return value ? ConvertType(*value) : nullptr;
++}
++template <typename... Ts>
++auto OwnApiParameters(const Ts &... values) {
++  return std::make_tuple(OwnApiParameter(values)...);
++}
++
+ template <typename... Ts>
+ constexpr auto ConvertTypes(Ts &... args) {
+   return std::make_tuple(ConvertType(args)...);
+@@ -651,71 +686,61 @@ typedef int (*InitHugeMemThreadLocal)(void *, bool);
+ typedef void (*UnInitHugeMemThreadLocal)(void *, bool);
+ typedef void (*ReleaseHugeMem)(void *, bool);
+ 
+-#define EXEC_NPU_CMD(aclnn_api, ...)                                          \
+-  do {                                                                        \
+-    static const auto getWorkspaceSizeFuncAddr =                              \
+-        GetOpApiFuncAddr(#aclnn_api "GetWorkspaceSize");                      \
+-    static const auto opApiFuncAddr = GetOpApiFuncAddr(#aclnn_api);           \
+-    static const auto initMemAddr =                                           \
+-        GetOpApiFuncAddr("InitHugeMemThreadLocal");                           \
+-    static const auto unInitMemAddr =                                         \
+-        GetOpApiFuncAddr("UnInitHugeMemThreadLocal");                         \
+-    static const auto releaseMemAddr = GetOpApiFuncAddr("ReleaseHugeMem");    \
+-    TORCH_CHECK(                                                              \
+-        getWorkspaceSizeFuncAddr != nullptr && opApiFuncAddr != nullptr,      \
+-        #aclnn_api, " or ", #aclnn_api "GetWorkspaceSize", " not in ",        \
+-        GetOpApiLibName(), ", or ", GetOpApiLibName(), "not found.");         \
+-    auto acl_stream = c10_npu::getCurrentNPUStream().stream(false);           \
+-    uint64_t workspace_size = 0;                                              \
+-    uint64_t *workspace_size_addr = &workspace_size;                          \
+-    aclOpExecutor *executor = nullptr;                                        \
+-    aclOpExecutor **executor_addr = &executor;                                \
+-    InitHugeMemThreadLocal initMemFunc =                                      \
+-        reinterpret_cast<InitHugeMemThreadLocal>(initMemAddr);                \
+-    UnInitHugeMemThreadLocal unInitMemFunc =                                  \
+-        reinterpret_cast<UnInitHugeMemThreadLocal>(unInitMemAddr);            \
+-    if (initMemFunc) {                                                        \
+-      initMemFunc(nullptr, false);                                            \
+-    }                                                                         \
+-    auto converted_params =                                                   \
+-        ConvertTypes(__VA_ARGS__, workspace_size_addr, executor_addr);        \
+-    static auto getWorkspaceSizeFunc =                                        \
+-        ConvertToOpApiFunc(converted_params, getWorkspaceSizeFuncAddr);       \
+-    auto workspace_status = call(getWorkspaceSizeFunc, converted_params);     \
+-    TORCH_CHECK(workspace_status == 0,                                        \
+-                "call " #aclnn_api " failed, detail:", aclGetRecentErrMsg()); \
+-    void *workspace_addr = nullptr;                                           \
+-    if (workspace_size != 0) {                                                \
+-      at::TensorOptions options =                                             \
+-          at::TensorOptions(torch_npu::utils::get_npu_device_type());         \
+-      auto workspace_tensor =                                                 \
+-          at::empty({workspace_size}, options.dtype(at::kByte));                  \
+-      workspace_addr = const_cast<void *>(workspace_tensor.storage().data()); \
+-    }                                                                         \
+-    auto acl_call = [converted_params, workspace_addr, workspace_size,        \
+-                     acl_stream, executor]() -> int {                         \
+-      typedef int (*OpApiFunc)(void *, uint64_t, aclOpExecutor *,             \
+-                               const aclrtStream);                            \
+-      OpApiFunc opApiFunc = reinterpret_cast<OpApiFunc>(opApiFuncAddr);       \
+-      auto api_ret =                                                          \
+-          opApiFunc(workspace_addr, workspace_size, executor, acl_stream);    \
+-      TORCH_CHECK(api_ret == 0, "call " #aclnn_api " failed, detail:",        \
+-                  aclGetRecentErrMsg());                                      \
+-      ReleaseConvertTypes(converted_params);                                  \
+-      ReleaseHugeMem releaseMemFunc =                                         \
+-          reinterpret_cast<ReleaseHugeMem>(releaseMemAddr);                   \
+-      if (releaseMemFunc) {                                                   \
+-        releaseMemFunc(nullptr, false);                                       \
+-      }                                                                       \
+-      return api_ret;                                                         \
+-    };                                                                        \
+-    at_npu::native::OpCommand cmd;                                            \
+-    cmd.Name(#aclnn_api);                                                     \
+-    cmd.SetCustomHandler(acl_call);                                           \
+-    cmd.Run();                                                                \
+-    if (unInitMemFunc) {                                                      \
+-      unInitMemFunc(nullptr, false);                                          \
+-    }                                                                         \
++#define EXEC_NPU_CMD(aclnn_api, ...) \
++  do { \
++    static const auto getWorkspaceSizeFuncAddr = \
++        GetOpApiFuncAddr(#aclnn_api "GetWorkspaceSize"); \
++    static const auto opApiFuncAddr = GetOpApiFuncAddr(#aclnn_api); \
++    static const auto initMemAddr = GetOpApiFuncAddr("InitHugeMemThreadLocal"); \
++    static const auto unInitMemAddr = GetOpApiFuncAddr("UnInitHugeMemThreadLocal"); \
++    static const auto releaseMemAddr = GetOpApiFuncAddr("ReleaseHugeMem"); \
++    TORCH_CHECK(getWorkspaceSizeFuncAddr && opApiFuncAddr, \
++                #aclnn_api " entry points not found in ", GetOpApiLibName()); \
++    auto acl_stream = c10_npu::getCurrentNPUStream().stream(false); \
++    auto owned_params = OwnApiParameters(__VA_ARGS__); \
++    auto acl_call = [owned_params, acl_stream]() mutable -> int { \
++      auto initMemFunc = reinterpret_cast<InitHugeMemThreadLocal>(initMemAddr); \
++      auto unInitMemFunc = reinterpret_cast<UnInitHugeMemThreadLocal>(unInitMemAddr); \
++      auto releaseMemFunc = reinterpret_cast<ReleaseHugeMem>(releaseMemAddr); \
++      if (initMemFunc) initMemFunc(nullptr, false); \
++      auto memory_guard = std::shared_ptr<void>(reinterpret_cast<void *>(1), \
++          [unInitMemFunc, releaseMemFunc](void *) { \
++            if (releaseMemFunc) releaseMemFunc(nullptr, false); \
++            if (unInitMemFunc) unInitMemFunc(nullptr, false); \
++          }); \
++      uint64_t workspace_size = 0; \
++      auto workspace_size_addr = &workspace_size; \
++      aclOpExecutor *executor = nullptr; \
++      auto executor_addr = &executor; \
++      auto converted_params = std::apply([&](auto &... args) { \
++        return ConvertTypes(args..., workspace_size_addr, executor_addr); \
++      }, owned_params); \
++      auto params_guard = std::shared_ptr<void>(reinterpret_cast<void *>(1), \
++          [&converted_params](void *) { ReleaseConvertTypes(converted_params); }); \
++      auto getWorkspaceSizeFunc = \
++          ConvertToOpApiFunc(converted_params, getWorkspaceSizeFuncAddr); \
++      auto workspace_status = call(getWorkspaceSizeFunc, converted_params); \
++      TORCH_CHECK(workspace_status == 0, "call " #aclnn_api \
++                  "GetWorkspaceSize failed: ", aclGetRecentErrMsg()); \
++      std::shared_ptr<void> workspace; \
++      void *workspace_addr = nullptr; \
++      if (workspace_size != 0) { \
++        workspace_addr = c10_npu::NPUCachingAllocator::raw_alloc_with_stream( \
++            workspace_size, acl_stream); \
++        workspace = std::shared_ptr<void>(workspace_addr, [](void *ptr) { \
++          c10_npu::NPUCachingAllocator::raw_delete(ptr); \
++        }); \
++      } \
++      using OpApiFunc = int (*)(void *, uint64_t, aclOpExecutor *, aclrtStream); \
++      auto opApiFunc = reinterpret_cast<OpApiFunc>(opApiFuncAddr); \
++      auto api_ret = opApiFunc(workspace_addr, workspace_size, executor, acl_stream); \
++      TORCH_CHECK(api_ret == 0, "call " #aclnn_api " failed: ", aclGetRecentErrMsg()); \
++      return api_ret; \
++    }; \
++    at_npu::native::OpCommand cmd; \
++    cmd.Name(#aclnn_api); \
++    cmd.SetCustomHandler(acl_call); \
++    cmd.Run(); \
+   } while (false)
+ 
+ #endif  // PYTORCH_NPU_HELPER_HPP_
+\ No newline at end of file
 diff --git a/source/packages/executor/src/kernelcat_executor/backends/ascend/transport/__init__.py b/source/packages/executor/src/kernelcat_executor/backends/ascend/transport/__init__.py
 new file mode 100644
 index 0000000..c4013f0
@@ -14789,6 +15076,28 @@ index 429f04e..1797795 100644
                           and type(value) is int and value >= 0}
              if native_turns:
                  turn = parse_turn(self.provider, data, usage)
+diff --git a/source/packages/executor/src/kernelcat_executor/capabilities/runtime_artifacts.py b/source/packages/executor/src/kernelcat_executor/capabilities/runtime_artifacts.py
+index b40eeb0..986fee2 100644
+--- a/source/packages/executor/src/kernelcat_executor/capabilities/runtime_artifacts.py
++++ b/source/packages/executor/src/kernelcat_executor/capabilities/runtime_artifacts.py
+@@ -85,7 +85,8 @@ def _scan_error(error: OSError) -> None:
+     raise ToolFailure("workspace snapshot scan failed at " + str(error.filename) + ": " + str(error)) from error
+ 
+ 
+-def workspace_bundle(workspace: Workspace, original: ProgramBundle) -> ProgramBundle:
++def workspace_bundle(workspace: Workspace, original: ProgramBundle, *,
++                     source_overrides: list[Json] | None = None) -> ProgramBundle:
+     files: list[Json] = []
+     total = 0
+     for directory, directories, names in os.walk(workspace.root, followlinks=False, onerror=_scan_error):
+@@ -106,4 +107,7 @@ def workspace_bundle(workspace: Workspace, original: ProgramBundle) -> ProgramBu
+             if total > PROGRAM_BYTES or len(files) >= 2048:
+                 raise Conflict("workspace snapshot exceeds its source byte/file limit")
+             files.append({"path": relative, "text": raw.decode("utf-8", errors="strict")})
++    if source_overrides is not None:
++        paths = {item["path"] for item in source_overrides}
++        files = [*[item for item in files if item["path"] not in paths], *source_overrides]
+     return normalize_program({**original, "files": files})
 diff --git a/source/packages/executor/src/kernelcat_executor/capabilities/worker.py b/source/packages/executor/src/kernelcat_executor/capabilities/worker.py
 index a281741..dec4912 100644
 --- a/source/packages/executor/src/kernelcat_executor/capabilities/worker.py
@@ -15937,12 +16246,63 @@ index 0000000..3a59902
 +IR 采集通过完整原生编译，重放留存的设备编译命令生成 bitcode，再解码为 LLVM 文本。归档包含原始命令、导出命令、编译器身份、源码哈希、bitcode 与 `llvm/0-kernel.ll`。CANN 环境的 `CMAKE_PREFIX_PATH` 与工具链变量在最小执行环境中保留。
 +
 +安装还原验证使用 macOS arm64；设备诊断使用 Linux aarch64、CANN 9.1、Python 3.12、Torch/torch_npu 2.10。两次全新目录安装分别还原 Vector 和 Sigmoid，并准备带原始对话的新 Goal。
+diff --git a/validation/NEW_FLOW_20TURNS.md b/validation/NEW_FLOW_20TURNS.md
+new file mode 100644
+index 0000000..1be9cc2
+--- /dev/null
++++ b/validation/NEW_FLOW_20TURNS.md
+@@ -0,0 +1,45 @@
++# Vector / Cube：新流程 20 轮回归
++
++执行入口：`examples/cann/run.mjs` 默认 Goal 模式，task → LoopX Goal → Pi SDK → NPU 业务工具。DeepSeek `deepseek-flash`，Pi 1.5.0，LoopX 1.2.3；Ascend910_9382 逻辑 NPU 1，CANN 9.1，Torch / torch_npu 2.10。每个任务设置 `policy.max_steps: 20`。轮数从执行账本的 `__propose__` 按主任务统计。
++
++## 在线结果
++
++Vector Add 使用 FP32 `[128]`；Cube Matmul 使用 FP16 `[128,128]`，保持任务原始种子和容差。共完成两组 Vector / Cube 测试，即 80 个主模型回合；Cube v5 另有 1 个只读审阅子回合。
++
++| 会话 | 主回合 | 提交实验 | 接受候选 | 原始 Goal 结果 |
++| --- | ---: | ---: | ---: | --- |
++| vector-add-v4 | 20 | 1，另有 1 次无变化调用被拒绝 | 1 | validation_failed：接受后又编辑，结束时留下未评测草稿 |
++| cube-matmul-v3 | 20 | 2 | 0 | no_progress：保留初始实现 |
++| vector-add-v5 | 20 | 3 | 0 | no_progress：一个候选正确但确认未接受，另两个正确性失败 |
++| cube-matmul-v5 | 20 | 2，另有 1 次无变化调用被拒绝 | 0 | validation_failed：候选正确性/编译失败，结束时又留下草稿 |
++
++v5 使用了第一阶段的资源持有修复。最后的 stream 工作区修复和候选冻结修复，在上述会话结束后做了针对性回归；原始会话的失败状态保持原样。四次在线运行没有产生一组 Vector、Cube 均通过最终验收的结果。
++
++## 发现与修复
++
++1. **托管 Goal 遗漏配置工具和权限。** `RuntimeService` 接入与普通 Worker 相同的 `configured_tools`、WorkspaceGuard、Pi workspace policy 和原生 session seed。实际模型请求包含 Pi 基础工具、IR/profiler 采集、解析、读取及展示工具；上下文包含冻结的通用 AGENTS 和任务附录。
++2. **ACLNN 异步工作区使用了错误的分配路径。** 原 helper 过早释放工作区、未持有输入参数，并跨线程管理 CANN 线程局部资源。第一阶段修复持有期后，Cube 仍偶发返回历史结果：110 次测试中 10 次失败，输入回读正常。原生矩阵乘、关闭队列、同步执行三组对照各 110/110 通过。最终改为 `NPUCachingAllocator::raw_alloc_with_stream`，按真实提交 stream 分配工作区，回调内管理资源；保留异步队列。最终 Cube 默认 stream 110/110、非默认 stream 1110/1110 通过；同一 helper 重编译后的 Vector 110/110 通过。只替换 `RunOpApi` 或增加 `SetSysWorkspace` 均未解决，未采用这些改动。
++3. **预算结束后快照使用未评测草稿。** RSI 快照改为读取执行账本当前保留的源码，工作区草稿和 Pi 历史原样保留。对四个真实会话重放选择逻辑，均取回正确的保留源码；Vector v4 取回第 13 轮接受的候选 `3176f4bf…`。新增回归覆盖草稿编辑、删除入口文件、缺失保留文件和越权替换参考文件。独立 validator 继续按源码与凭据验收。
++4. **Goal 根因被后续状态查询遮盖。** Goal 尚未创建 frozen Run 就失败时，保存原始结果和观察状态，直接报告实际 Goal 状态。
++
++远程测试适配器另修复了 CPU 日志解析排在 NPU 长编译后超时的问题：只对设备采集/测量持有 NPU 锁。早先超时请求按原句柄收集，保留原始 UNKNOWN 记录和后续远程完成结果。
++
++## Agent 行为
++
++原生 read/write/edit/bash、工具错误恢复、拒绝越界 shell、无变化实验拒绝均在实际会话中执行。IR、profiler 的采集与读取在首组会话执行，第二组 Vector 调用了 IR 采集。Cube 生成过未配套地址偏移的多核切分，以及类型不配套的 FP32 输出改动；正确性和编译检查分别拒绝了它们。20 个模型回合包含读取、诊断、修复和审阅，实际设备实验次数见表。
++
++Vector v4 接受过一个成对评测候选；v5 的一次探索测量较快，但确认未接受。本轮最终 helper 修复后的测试验证正确性，性能结论需要使用该 helper 重新成对测量。
++
++## 回归和归档
++
++- Python 57 项、Node 25 项、TypeScript 类型检查；ACLNN 延迟队列回归检查输入、工作区、线程局部资源和 stream 身份。
++- 最新 Vector / Cube 导出分别含 589 / 459 个文件，Pi 原生 session 分别 1 / 2 个；在新目录还原全部字节并用 Pi 构建上下文，通过哈希验证。
++- `campaign.json`：按任务统计的轮数、每轮工具状态、实验、RSI 节点和测量。
++- `exports/`：五次会话归档，含一次早期超时尝试，保留原始 JSONL、checkpoint 和 Pi HTML。
++- `device-original.tar.gz`、`device-fixed.tar.gz`：源码、编译日志、正确性结果、成对计时、诊断和文件哈希。
++- `snapshot-recovery/`：四次会话的保留源码、原始草稿与选择记录。
++- `restore-checks/`、`host-regression/`：还原验证和主机回归。
++
++源码父提交为 `23657e4`，实际测试源树及后续修复分别以补丁和哈希归档。模型凭据、私有 SSH/跳板实现保留在测试主机，交付包只包含执行结果和通用工具。
++
++资源管理对照参考 Ascend [op_api_common.h](https://gitee.com/ascend/op-plugin/blob/master/op_plugin/utils/op_api_common.h)；运行结果来自本次实机记录。
 diff --git a/validation/TEST_PLAN.md b/validation/TEST_PLAN.md
 new file mode 100644
-index 0000000..c8c5c45
+index 0000000..4000907
 --- /dev/null
 +++ b/validation/TEST_PLAN.md
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,55 @@
 +# Pi / SDK / LoopX / NPU 功能验收清单
 +
 +2026-11-09。导入基线 `87c8fe4`；本轮实现、测试和 evidence 边界见 [验收记录](ACCEPTANCE_RESULTS.md)。通过只覆盖下表明确的场景，不代表任意生成程序都正确。
@@ -15987,7 +16347,7 @@ index 0000000..c8c5c45
 +git diff --check
 +```
 +
-+当前仓库回归目标为 Python 41 项、Node 19 项，另有类型与交付检查。上游选定测试使用独立锁定环境：181 项模型/原生协议/恢复、56 项远程作业/收集，以及之前的 Python 175 项、Node 119 项和 RSI 46 项集合。各次集合可能重叠，不相加宣称独立总数，也不宣称完整上游套件已经随包交付。
++当前仓库回归目标为 Python 57 项、Node 25 项，另有类型与交付检查。上游选定测试使用独立锁定环境：181 项模型/原生协议/恢复、56 项远程作业/收集，以及之前的 Python 175 项、Node 119 项和 RSI 46 项集合。各次集合可能重叠，不相加宣称独立总数，也不宣称完整上游套件已经随包交付。
 +
 +## 实机和在线放行
 +
@@ -15996,6 +16356,8 @@ index 0000000..c8c5c45
 +3. 长性能目标绑定 LoopX 和匹配的 RSI adapter，记录每个模型回合、候选哈希、测量与接受结果。40 模型回合不等于 40 次设备实验。
 +4. 正确性通过后才比较性能；初始 baseline、候选、设备、计时范围、完整用例和原始样本都必须明确。远程结果不明时收集原句柄，不重发。
 +5. 交付时验证新目录安装，更新源码 inventory，扫描凭证，再提交推送。没有被本轮覆盖的 Pi TUI、任意第三方插件、其他 SoC、隐藏用例和自动多 Trial 生命周期保留为未覆盖项。
++
++本次默认 Goal 入口的 Vector / Cube 各 20 轮测试及发现、修复见 [20 轮回归](NEW_FLOW_20TURNS.md)。
 diff --git a/validation/business-tools.mjs b/validation/business-tools.mjs
 new file mode 100644
 index 0000000..f36881e
@@ -16341,6 +16703,98 @@ index 0000000..c60103d
 +
 +
 +if __name__=='__main__':main()
+diff --git a/validation/fixtures/aclnn_lifetime.cpp b/validation/fixtures/aclnn_lifetime.cpp
+new file mode 100644
+index 0000000..b175d3e
+--- /dev/null
++++ b/validation/fixtures/aclnn_lifetime.cpp
+@@ -0,0 +1,86 @@
++// A deferred host queue: operands leave their caller's scope before execution.
++#include <algorithm>
++#include <atomic>
++#include <cstdint>
++#include <functional>
++#include <map>
++#include <memory>
++#include <stdexcept>
++#include <string>
++#include <thread>
++#include <tuple>
++#include <vector>
++#define TORCH_CHECK(condition, ...) if (!(condition)) throw std::runtime_error(#condition)
++thread_local bool initialized = false;
++std::atomic<int> alive{0}, releases{0}, completions{0};
++struct Buffer { Buffer(){++alive;} ~Buffer(){--alive;} };
++namespace at {
++constexpr int kByte = 0;
++struct TensorOptions { explicit TensorOptions(int){} TensorOptions dtype(int){return *this;} };
++struct Tensor { std::shared_ptr<Buffer> buffer; void *data_ptr(){return buffer.get();} };
++Tensor empty(std::initializer_list<int64_t>, TensorOptions){return {std::make_shared<Buffer>()};}
++}
++namespace torch_npu { namespace utils {int get_npu_device_type(){return 0;}} }
++using aclrtStream = void *;
++struct aclOpExecutor { Buffer *operand; };
++namespace c10_npu {
++static void *expected_stream = reinterpret_cast<void*>(17);
++struct Stream { void *stream(bool){return expected_stream;} }; Stream getCurrentNPUStream(){return {};}
++namespace NPUCachingAllocator {
++void *raw_alloc_with_stream(size_t bytes, aclrtStream stream){
++ TORCH_CHECK(bytes==16 && stream==expected_stream); return new Buffer;
++}
++void raw_delete(void *ptr){delete static_cast<Buffer*>(ptr);}
++}
++}
++std::vector<std::function<int()>> queue;
++namespace at_npu { namespace native {
++struct OpCommand {
++ std::function<int()> handler;
++ void Name(const char*){}
++ void SetCustomHandler(std::function<int()> f){handler=std::move(f);}
++ void Run(){queue.push_back(handler);}
++};
++} }
++void init(void*,bool){TORCH_CHECK(!initialized); initialized=true;}
++void release(void*,bool){TORCH_CHECK(initialized); ++releases;}
++void uninit(void*,bool){TORCH_CHECK(initialized); initialized=false;}
++int workspace(Buffer *operand, uint64_t *size, aclOpExecutor **executor){
++ TORCH_CHECK(initialized); TORCH_CHECK(alive==1); *size=16; *executor=new aclOpExecutor{operand}; return 0;
++}
++int execute(void *buffer,uint64_t size,aclOpExecutor *executor,aclrtStream stream){
++ TORCH_CHECK(stream==c10_npu::expected_stream);
++ TORCH_CHECK(initialized); TORCH_CHECK(buffer && size==16 && executor->operand);
++ TORCH_CHECK(alive==2); delete executor; ++completions; return 0;
++}
++void *GetOpApiFuncAddr(const char *name){
++ std::string s(name);
++ if(s=="InitHugeMemThreadLocal")return reinterpret_cast<void*>(init);
++ if(s=="UnInitHugeMemThreadLocal")return reinterpret_cast<void*>(uninit);
++ if(s=="ReleaseHugeMem")return reinterpret_cast<void*>(release);
++ if(s=="aclnnProbeGetWorkspaceSize")return reinterpret_cast<void*>(workspace);
++ return reinterpret_cast<void*>(execute);
++}
++const char *GetOpApiLibName(){return "probe";}
++const char *aclGetRecentErrMsg(){return "probe failure";}
++using InitHugeMemThreadLocal=void(*)(void*,bool);
++using UnInitHugeMemThreadLocal=void(*)(void*,bool);
++using ReleaseHugeMem=void(*)(void*,bool);
++template<class... T> auto OwnApiParameters(const T &... args){return std::make_tuple(args...);}
++auto ConvertTypes(at::Tensor &t,uint64_t *&n,aclOpExecutor **&e){return std::make_tuple(t.buffer.get(),n,e);}
++template<class T> auto ConvertToOpApiFunc(T&,void *p){return reinterpret_cast<int(*)(Buffer*,uint64_t*,aclOpExecutor**)>(p);}
++template<class F,class T> auto call(F f,T &t){return std::apply(f,t);}
++template<class T> void ReleaseConvertTypes(T&){}
++// EXEC_NPU_CMD is inserted from the production header by the Python test.
++PRODUCTION_MACRO
++int main(){
++ {
++  at::Tensor operand{std::make_shared<Buffer>()};
++  EXEC_NPU_CMD(aclnnProbe,operand);
++ }
++ TORCH_CHECK(completions==0 && alive==1 && !initialized);
++ std::exception_ptr error;
++ std::thread worker([&]{try {queue.front()(); TORCH_CHECK(!initialized);} catch(...){error=std::current_exception();}});
++ worker.join(); if(error)std::rethrow_exception(error);
++ queue.clear(); TORCH_CHECK(completions==1 && releases==1 && alive==0);
++}
 diff --git a/validation/fixtures/ascend_add.py b/validation/fixtures/ascend_add.py
 new file mode 100644
 index 0000000..f175c8b
@@ -17213,18 +17667,46 @@ index 0000000..85f782f
 +  assert.ok(!JSON.stringify(result).includes('private-raw-result'));
 +  assert.throws(()=>discoveryFeedback({...measurement,independent_confirmation:true},'unit'),/Confirmation/);
 +});
+diff --git a/validation/test_aclnn_lifetime.py b/validation/test_aclnn_lifetime.py
+new file mode 100644
+index 0000000..b6ecf79
+--- /dev/null
++++ b/validation/test_aclnn_lifetime.py
+@@ -0,0 +1,21 @@
++"""Execute the shipped ACLNN macro on a deferred queue with lifetime checks."""
++from pathlib import Path
++import shutil
++import subprocess
++import tempfile
++import unittest
++
++ROOT = Path(__file__).resolve().parents[1]
++
++class AclnnLifetimeTests(unittest.TestCase):
++    @unittest.skipUnless(shutil.which('c++'), 'C++ compiler required')
++    def test_deferred_command_owns_operands_workspace_and_thread_local_state(self):
++        header = (ROOT / 'source/packages/executor/src/kernelcat_executor/backends/ascend/templates/CppExtension/csrc/pytorch_npu_helper.hpp').read_text()
++        macro = header[header.index('#define EXEC_NPU_CMD('):header.rindex('#endif')]
++        fixture = (ROOT / 'validation/fixtures/aclnn_lifetime.cpp').read_text()
++        with tempfile.TemporaryDirectory() as directory:
++            source = Path(directory) / 'lifetime.cpp'
++            binary = Path(directory) / 'lifetime'
++            source.write_text(fixture.replace('PRODUCTION_MACRO', macro))
++            subprocess.run(['c++', '-std=c++17', '-pthread', str(source), '-o', str(binary)], check=True, capture_output=True)
++            subprocess.run([str(binary)], check=True, capture_output=True)
 diff --git a/validation/test_business_diagnostics.py b/validation/test_business_diagnostics.py
 new file mode 100644
-index 0000000..6169189
+index 0000000..b59653b
 --- /dev/null
 +++ b/validation/test_business_diagnostics.py
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,79 @@
 +"""Configured tools run through Pi and Gateway; diagnostic reads bind retained artifacts."""
 +import hashlib
 +import json
 +from pathlib import Path
 +import sys
 +import unittest
++from types import SimpleNamespace
 +sys.path.insert(0, str(Path(__file__).parent))
 +import test_runtime as support
 +sys.path.insert(0, str(support.ROOT / 'examples/cann'))
@@ -17278,6 +17760,25 @@ index 0000000..6169189
 +            parameters={'type':'object'}, files=({'path':str(file), 'sha256':hashlib.sha256(file.read_bytes()).hexdigest()},))
 +        with self.assertRaisesRegex(ValueError, 'conflicts'):
 +            configured_tools([spec], self.workspace, self.base / 'state')
++
++    def test_managed_goal_catalogue_executes_the_same_configured_tools(self):
++        from kernelcat_worker.runtime import RuntimeService
++        from kernelcat_executor.capabilities.skills import Skills
++        from kernelcat_executor.contracts.models import Action
++        command = self.base / 'probe.py'
++        command.write_text('import json,sys\na=json.load(sys.stdin)\nprint(json.dumps({"status":"completed","data":{"value":a["arguments"]["value"]}}))\n')
++        specification = BusinessToolConfig(name='operator_probe', description='Bounded operator probe',
++            argv=(str(Path(sys.executable).resolve()), str(command)),
++            parameters={'type': 'object', 'properties': {'value': {'type': 'integer'}}, 'required': ['value']},
++            files=({'path': str(command), 'sha256': hashlib.sha256(command.read_bytes()).hexdigest()},))
++        service = object.__new__(RuntimeService)
++        service.base = self.base
++        service.config = SimpleNamespace(business_tools=(specification,), state_dir='state', rsi=None, self_evolution=None)
++        tools = service._tools(self.store, self.workspace, Skills(()), None)
++        probe = next(tool for tool in tools if tool.spec.name == 'operator_probe')
++        outcome = probe.execute(Action(id='managed/probe', task='test', tool='operator_probe', arguments={'value': 17}))
++        self.assertEqual(outcome.status, 'completed')
++        self.assertEqual(outcome.data['value'], 17)
 diff --git a/validation/test_cann_acceptance.py b/validation/test_cann_acceptance.py
 new file mode 100644
 index 0000000..98d41da
@@ -18096,6 +18597,56 @@ index 0000000..9dcc5bd
 +            self.assertEqual(result.status, 'failed')
 +            self.assertEqual(result.data['reason'], 'holdout_limit_exhausted')
 +            self.assertEqual(Records(store, artifacts, 'task').entries(), [])
+diff --git a/validation/test_rsi_snapshot.py b/validation/test_rsi_snapshot.py
+new file mode 100644
+index 0000000..bb313ff
+--- /dev/null
++++ b/validation/test_rsi_snapshot.py
+@@ -0,0 +1,44 @@
++"""A final draft must not replace an already retained candidate."""
++from pathlib import Path
++from types import SimpleNamespace
++import sys
++import unittest
++
++sys.path.insert(0, str(Path(__file__).parent))
++import test_runtime as support
++from kernelcat_executor.contracts.models import Conflict
++from kernelcat_worker.rsi_retained import retained_bundle
++
++
++class RsiSnapshotTests(unittest.TestCase):
++    setUp = support.RuntimeTests.setUp
++    tearDown = support.RuntimeTests.tearDown
++
++    def bundle(self, source, *, missing=False):
++        if not missing:
++            (self.workspace.root / 'solution.py').write_text('unmeasured draft\n')
++        original = {'schema_version': 'kernelcat.program-bundle/v1',
++                    'entrypoint': 'solution.py', 'configuration_source': '{}',
++                    'files': [{'path': 'solution.py', 'text': 'initial\n'}]}
++        records = SimpleNamespace(baseline=lambda: {'value': {'source': source}})
++        return retained_bundle(self.workspace, original, records, ['solution.py'])
++
++    def test_snapshot_uses_retained_source_and_preserves_draft_and_reference(self):
++        result = self.bundle([{'path': 'solution.py', 'text': 'accepted\n'}])
++        files = {item['path']: item['text'] for item in result['files']}
++        self.assertEqual(files['solution.py'], 'accepted\n')
++        self.assertEqual(files['reference/spec.txt'], 'immutable')
++        self.assertEqual((self.workspace.root / 'solution.py').read_text(), 'unmeasured draft\n')
++
++    def test_missing_retained_file_is_rejected(self):
++        with self.assertRaises(Conflict):
++            self.bundle([])
++
++    def test_deleted_draft_entrypoint_is_recovered_from_retained_source(self):
++        result = self.bundle([{'path': 'solution.py', 'text': 'accepted\n'}], missing=True)
++        self.assertEqual(next(x['text'] for x in result['files'] if x['path'] == 'solution.py'), 'accepted\n')
++        self.assertFalse((self.workspace.root / 'solution.py').exists())
++
++    def test_retained_source_cannot_replace_reference(self):
++        with self.assertRaises(Conflict):
++            self.bundle([{'path': 'reference/spec.txt', 'text': 'changed'}])
 diff --git a/validation/test_runtime.py b/validation/test_runtime.py
 new file mode 100644
 index 0000000..b42e0f9

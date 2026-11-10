@@ -85,7 +85,8 @@ def _scan_error(error: OSError) -> None:
     raise ToolFailure("workspace snapshot scan failed at " + str(error.filename) + ": " + str(error)) from error
 
 
-def workspace_bundle(workspace: Workspace, original: ProgramBundle) -> ProgramBundle:
+def workspace_bundle(workspace: Workspace, original: ProgramBundle, *,
+                     source_overrides: list[Json] | None = None) -> ProgramBundle:
     files: list[Json] = []
     total = 0
     for directory, directories, names in os.walk(workspace.root, followlinks=False, onerror=_scan_error):
@@ -106,4 +107,7 @@ def workspace_bundle(workspace: Workspace, original: ProgramBundle) -> ProgramBu
             if total > PROGRAM_BYTES or len(files) >= 2048:
                 raise Conflict("workspace snapshot exceeds its source byte/file limit")
             files.append({"path": relative, "text": raw.decode("utf-8", errors="strict")})
+    if source_overrides is not None:
+        paths = {item["path"] for item in source_overrides}
+        files = [*[item for item in files if item["path"] not in paths], *source_overrides]
     return normalize_program({**original, "files": files})

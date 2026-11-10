@@ -217,6 +217,15 @@ async function advanceGoal(LoopXGoal, session, options, output, manifest, save, 
     await save('result.json', result);
     if (result.turnKey) await save('goal-turn.json', await goal.inspectTurn(result.turnKey));
     await save('goal-after.json', await goal.read());
+    // A failed bootstrap has no frozen Run yet. Preserve the actual SDK failure
+    // instead of replacing it with a secondary state-query exception.
+    if (!['progress', 'completed', 'replayed'].includes(result.status)) {
+      await save('state-observation.json', { available: session.latestState !== undefined,
+        state: session.latestState ?? null, goal_status: result.status });
+      if (observerError) throw observerError;
+      process.exitCode = 1;
+      throw new Error(`Goal ${result.status}; inspect ${output}/result.json and ${output}/events.jsonl`);
+    }
     const state = await session.state();
     await save('state.json', state);
     if (observerError) throw observerError;
@@ -246,7 +255,6 @@ completed = [row for row in actions if row.get('outcome', {}).get('status') == '
 audits = [row for row in completed if row['action']['tool'] == 'delegate'
           and row['action']['arguments'].get('agent') == 'kernel-reviewer'
           and row['action']['arguments'].get('mode') == 'read_only']
-# No child delegation is requested in this 40-turn search.
 measured = []
 for row in completed:
     if row['action']['tool'] not in ('__rsi_record__', '__rsi_apply__'):

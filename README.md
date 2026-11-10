@@ -67,4 +67,4 @@ python3 -I -B install.py --verify-only
 
 [githubgist.diff](githubgist.diff) 是相对初始提交 `87c8fe4` 的源码补丁；补丁自身、派生清单以及已移除的部署专用接入文件单独记录。当前文件身份以 `PIN_MANIFEST.json` 为准。
 
-验证记录见 [CANN 交付检查](validation/CANN_DELIVERY.md) 和 [原始设备验收](validation/ACCEPTANCE_RESULTS.md)。
+验证记录见 [CANN 交付检查](validation/CANN_DELIVERY.md) 、[原始设备验收](validation/ACCEPTANCE_RESULTS.md) 和 [Vector / Cube 20 轮回归](validation/NEW_FLOW_20TURNS.md)。

@@ -103,15 +103,18 @@
       "source/apps/agent/src/harness/pi/workspace-tools.mjs",
       "source/apps/agent/src/rsi/feedback.ts",
       "source/apps/worker/src/kernelcat_worker/business_tools.py",
+      "source/apps/worker/src/kernelcat_worker/rsi_retained.py",
       "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/__init__.py",
       "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/direct_ssh.py",
       "source/packages/executor/src/kernelcat_executor/capabilities/workspace_policy.py",
       "validation/ACCEPTANCE_RESULTS.md",
       "validation/CANN_DELIVERY.md",
+      "validation/NEW_FLOW_20TURNS.md",
       "validation/TEST_PLAN.md",
       "validation/business-tools.mjs",
       "validation/cann-export.mjs",
       "validation/cannbench_sigmoid_adapter.py",
+      "validation/fixtures/aclnn_lifetime.cpp",
       "validation/fixtures/ascend_add.py",
       "validation/fixtures/ascend_add_reference.py",
       "validation/fixtures/sigmoid_baseline.py",
@@ -123,6 +126,7 @@
       "validation/pi-compatibility.mjs",
       "validation/portable-restore.mjs",
       "validation/rsi-feedback.mjs",
+      "validation/test_aclnn_lifetime.py",
       "validation/test_business_diagnostics.py",
       "validation/test_cann_acceptance.py",
       "validation/test_cann_delivery.py",
@@ -136,6 +140,7 @@
       "validation/test_portable_environment.py",
       "validation/test_portable_replay.py",
       "validation/test_rsi_proposal.py",
+      "validation/test_rsi_snapshot.py",
       "validation/test_runtime.py",
       "validation/usage.mjs",
       "validation/workspace-tools.mjs"
@@ -273,14 +278,18 @@
       "source/apps/worker/src/kernelcat_worker/replay.py",
       "source/apps/worker/src/kernelcat_worker/rsi_branches.py",
       "source/apps/worker/src/kernelcat_worker/rsi_experiments.py",
+      "source/apps/worker/src/kernelcat_worker/rsi_retained.py",
+      "source/apps/worker/src/kernelcat_worker/runtime.py",
       "source/contracts/execution/v1/harness.schema.json",
       "source/contracts/execution/v1/runtime.schema.json",
       "source/packages/executor/src/kernelcat_executor/backends/ascend/backend.py",
       "source/packages/executor/src/kernelcat_executor/backends/ascend/compiler.py",
       "source/packages/executor/src/kernelcat_executor/backends/ascend/runtime.py",
+      "source/packages/executor/src/kernelcat_executor/backends/ascend/templates/CppExtension/csrc/pytorch_npu_helper.hpp",
       "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/__init__.py",
       "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/direct_ssh.py",
       "source/packages/executor/src/kernelcat_executor/capabilities/llm.py",
+      "source/packages/executor/src/kernelcat_executor/capabilities/runtime_artifacts.py",
       "source/packages/executor/src/kernelcat_executor/capabilities/worker.py",
       "source/packages/executor/src/kernelcat_executor/capabilities/workspace_policy.py",
       "source/packages/executor/src/kernelcat_executor/contracts/harness.py",
@@ -310,10 +319,12 @@
       "source/runtime-resources.json",
       "validation/ACCEPTANCE_RESULTS.md",
       "validation/CANN_DELIVERY.md",
+      "validation/NEW_FLOW_20TURNS.md",
       "validation/TEST_PLAN.md",
       "validation/business-tools.mjs",
       "validation/cann-export.mjs",
       "validation/cannbench_sigmoid_adapter.py",
+      "validation/fixtures/aclnn_lifetime.cpp",
       "validation/fixtures/ascend_add.py",
       "validation/fixtures/ascend_add_reference.py",
       "validation/fixtures/sigmoid_baseline.py",
@@ -325,6 +336,7 @@
       "validation/pi-compatibility.mjs",
       "validation/portable-restore.mjs",
       "validation/rsi-feedback.mjs",
+      "validation/test_aclnn_lifetime.py",
       "validation/test_business_diagnostics.py",
       "validation/test_cann_acceptance.py",
       "validation/test_cann_delivery.py",
@@ -338,6 +350,7 @@
       "validation/test_portable_environment.py",
       "validation/test_portable_replay.py",
       "validation/test_rsi_proposal.py",
+      "validation/test_rsi_snapshot.py",
       "validation/test_runtime.py",
       "validation/usage.mjs",
       "validation/workspace-tools.mjs"
@@ -388,8 +401,8 @@
       "sha256": "ecee6d09c08c107d38b653b5971b289e0d8740e9d74446051399b3844338f9c3"
     },
     "README.md": {
-      "bytes": 4017,
-      "sha256": "8355562d365f750fef64da3ba550df51fbe58980050c492f883cb285723d7fda"
+      "bytes": 4081,
+      "sha256": "16ba0206a16896050d56d7b361b2f6bd192b5a954aadbb3f437bfacc0eaeb5f3"
     },
     "examples/cann/README.md": {
       "bytes": 9544,
@@ -476,8 +489,8 @@
       "sha256": "c87a053a49e73f68417af9471799c96a8cb6025e1733cbe877f4ec4848f06b3f"
     },
     "examples/cann/goal.mjs": {
-      "bytes": 16932,
-      "sha256": "9df9d6939535359f759fd6dc04186d4bec551010147f5802605005e0af4033d0"
+      "bytes": 17451,
+      "sha256": "1264526ffd0f122a02913612b61f6f5f49a3c142580252b8224d0c67a8e7ba41"
     },
     "examples/cann/goal_inputs.py": {
       "bytes": 5528,
@@ -796,8 +809,8 @@
       "sha256": "01528ed71043e131d7bb627eb219d3b009e3d68dbea3ba95fed6194b6201d0cf"
     },
     "githubgist.diff": {
-      "bytes": 927522,
-      "sha256": "476ab17119ba655ac9725626484254cd2b32b61674a48c4fba93d1fcbb54e4c7"
+      "bytes": 962629,
+      "sha256": "18a5f3585c150e1064f7ee941cf288d9f4c3024f167c50a29214eee3242b3d06"
     },
     "install.py": {
       "bytes": 11308,
@@ -1547,6 +1560,10 @@
       "bytes": 5318,
       "sha256": "037a940bfb66fe7f280fdbd684e0ceea29e18cc97450c209f76c9f4034495eaf"
     },
+    "source/apps/worker/src/kernelcat_worker/rsi_retained.py": {
+      "bytes": 764,
+      "sha256": "ff53906070f613f6a41e9bfd4c93eafcf50eb2f9aecbc336d661ec7026cc2e67"
+    },
     "source/apps/worker/src/kernelcat_worker/rsi_rounds.py": {
       "bytes": 8711,
       "sha256": "857b9bdc83dee698870e1ce93b67cdfec3e0e7d70581a094405cbaa097a4da34"
@@ -1556,8 +1573,8 @@
       "sha256": "cfe397e155ba80b3f628ff5a55fe68ca6f2236a555264de3fae6ad22269aa633"
     },
     "source/apps/worker/src/kernelcat_worker/runtime.py": {
-      "bytes": 26662,
-      "sha256": "1f2e2f74b7c000a894363512fe4420865cdb670e7e4eeb86651bdddb4644544e"
+      "bytes": 28133,
+      "sha256": "bd1b3a75cdc651aaa89f0de12c85f7c525b11c118f9efae39c28e60a34cf05ad"
     },
     "source/apps/worker/src/kernelcat_worker/startup.py": {
       "bytes": 4976,
@@ -1704,8 +1721,8 @@
       "sha256": "53927649f17ae26cf8fbfa3589c2520470d0bfa75525449dd39cf1d019bf284d"
     },
     "source/packages/executor/src/kernelcat_executor/backends/ascend/templates/CppExtension/csrc/pytorch_npu_helper.hpp": {
-      "bytes": 27523,
-      "sha256": "4bf812217dfdfe1eb8304940f630ce5badcf50adbc915f12bbbcc1378d478a58"
+      "bytes": 26819,
+      "sha256": "b092bd7c36b6aa38f4abc817d7fe939fa98c45ba71b51dcfb26989830b468968"
     },
     "source/packages/executor/src/kernelcat_executor/backends/ascend/templates/CppExtension/setup.py": {
       "bytes": 897,
@@ -1784,8 +1801,8 @@
       "sha256": "110961093ba250b99612ed96bd170a940209bd395be422a23347b9febf665fb6"
     },
     "source/packages/executor/src/kernelcat_executor/capabilities/runtime_artifacts.py": {
-      "bytes": 5111,
-      "sha256": "f1f946f54c68788d761005493439f5a3e01e5569159eef99c911424f7beec69f"
+      "bytes": 5368,
+      "sha256": "2c0e48bbef9c2e667f97fce1440600034c4a7455ae2daf9065667b42a40a4733"
     },
     "source/packages/executor/src/kernelcat_executor/capabilities/skills.py": {
       "bytes": 7520,
@@ -3303,9 +3320,13 @@
       "bytes": 3022,
       "sha256": "23daae4087b17217514502860d78aa21b99a3919a797c6b53380ea0a65eed7dc"
     },
+    "validation/NEW_FLOW_20TURNS.md": {
+      "bytes": 5323,
+      "sha256": "4923c06a84687edbdc1bdb66795a95fcee359c71c79cf76c1cded4d246b9632b"
+    },
     "validation/TEST_PLAN.md": {
-      "bytes": 6113,
-      "sha256": "1620b9977b1f74ecebb154c2f43b63c5e29a5d5dfdcf6685174073b25858cdad"
+      "bytes": 6233,
+      "sha256": "dbaf5e83f465a1a70b95db4296306889e53aea6f42a1d5cd694bf98344335e45"
     },
     "validation/business-tools.mjs": {
       "bytes": 2339,
@@ -3318,6 +3339,10 @@
     "validation/cannbench_sigmoid_adapter.py": {
       "bytes": 14233,
       "sha256": "502ad724661e6d6609e7d2ead537db91c79247569e8c905791c9bff4dd8c7fef"
+    },
+    "validation/fixtures/aclnn_lifetime.cpp": {
+      "bytes": 3990,
+      "sha256": "e6f9354015d6f5ea779c576f0969eb4423c081026565d7e489880329903f7a21"
     },
     "validation/fixtures/ascend_add.py": {
       "bytes": 2948,
@@ -3363,9 +3388,13 @@
       "bytes": 1139,
       "sha256": "656f0de44deded05975685d693fcd5d511efda71c84719521350e42f3e77d098"
     },
+    "validation/test_aclnn_lifetime.py": {
+      "bytes": 1172,
+      "sha256": "201fefcf7781c926b56badc17854779d14c28e240f76e3558104433d4d865146"
+    },
     "validation/test_business_diagnostics.py": {
-      "bytes": 3903,
-      "sha256": "ad97b480b4f4499d6fc13d3e0e79111c435fc5e1aa7da3012ca50d10f013fa7f"
+      "bytes": 5386,
+      "sha256": "58ccc83e25b275a8c4487b1f4672146d9d4fb1681ce6fdeee79c53abe538d2f7"
     },
     "validation/test_cann_acceptance.py": {
       "bytes": 3964,
@@ -3414,6 +3443,10 @@
     "validation/test_rsi_proposal.py": {
       "bytes": 5920,
       "sha256": "79e45efd612c47635951aca06e74bb6e0d8a14b78509473cf3464703e258d2c1"
+    },
+    "validation/test_rsi_snapshot.py": {
+      "bytes": 2147,
+      "sha256": "7377fcee13d08aaec3cfd4f7978cadb83dfb7bcf58ef5537731e17ea6ea332e5"
     },
     "validation/test_runtime.py": {
       "bytes": 10151,
