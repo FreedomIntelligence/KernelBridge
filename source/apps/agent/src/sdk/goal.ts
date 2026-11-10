@@ -322,7 +322,7 @@ export class LoopXGoal {
         }
         if (this.fenced || signal.aborted || this.session.hasPendingInput) throw new Error("Goal was fenced during managed execution");
         return { schema_version: "loopx_turn_result_v0", turn_key: key,
-          result_kind: request.completionCandidate ? "validated_completion" : "validated_progress",
+          result_kind: "validated_progress",
           completed_phases: ["host_execute", "typed_result"], classification: "kernelcat_managed_candidate",
           summary: `Managed candidate receipt sha256:${digest(managed)}`,
           recommended_action: "Independently validate the original objective and retained candidate.",
@@ -339,9 +339,19 @@ export class LoopXGoal {
       const turnKey = textField(cursor, "turnKey");
       if (result.resume_turn_key !== turnKey) throw new LoopXFailure("LoopX returned a different Turn identity", "unknown", result);
       if (result.status !== "committed" || object(result.receipt, "Turn receipt").ok !== true) return { status: "validation_failed", turnKey, observation: result };
-      if (result.result_kind === "validated_completion") {
+      if (request.completionCandidate) {
+        // The generic host commits the checked Turn first. Todo completion uses
+        // LoopX's lifecycle owner, which runs the configured acceptance checks.
+        const completion = await this.client.call(["todo", "complete", "--goal-id", o.goalId,
+          "--todo-id", o.todoId, "--agent-id", o.agentId, "--no-follow-up",
+          "--reason", "The configured task acceptance checks passed for the retained candidate.",
+          "--note", `Validated managed candidate from ${turnKey}`,
+          "--evidence", `turn:${turnKey}`, "--validation-command-json", JSON.stringify(o.validatorArgv),
+          "--validation-timeout-seconds", String(Math.min(o.validatorTimeoutSeconds, 25)),
+          "--turn-instance-id", `sdk-${digest([o.applicationSessionId, request.intentId])}`], signal);
         const accepted = await this.client.call(["goal-acceptance", "verify", "--goal-id", o.goalId, "--agent-id", o.agentId, "--execute"], signal);
-        return { status: accepted.acceptance_ready === true && accepted.checks_passed === true ? "completed" : "validation_failed", turnKey, observation: accepted };
+        return { status: accepted.acceptance_ready === true && accepted.checks_passed === true ? "completed" : "validation_failed", turnKey,
+          observation: { ...result, completion, goal_acceptance: accepted } };
       }
       return { status: result.result_kind === "validated_progress" ? "progress" : "no_progress", turnKey, observation: result };
     } catch (error) {

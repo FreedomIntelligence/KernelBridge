@@ -3,6 +3,7 @@ import { cp, lstat, mkdir, readdir, readFile, writeFile, access } from 'node:fs/
 import { createHash } from 'node:crypto';
 import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { materializedCandidate, candidateHash } from './candidate.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const exists = path => access(path).then(() => true, () => false);
@@ -47,6 +48,7 @@ export async function indexRun(root, { html = false } = {}) {
       evaluations: listing.filter(x => /(^evaluations\/|\/evaluations\/|\/rsi-evaluations\/|\/rsi-private\/)/.test(x)),
       loopx: listing.filter(x => x.startsWith('loopx/') || x.startsWith('sdk/loopx/')),
       acceptance: listing.filter(x => x === 'acceptance.json' || x === 'sdk/goal-turn.json'),
+      candidate: listing.filter(x => x.startsWith('candidate/')),
     }, scope: 'Copied evidence, no model/device execution. Original absolute locators are preserved; use relative file indices after relocation.' };
   await writeFile(join(root, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   return manifest;
@@ -57,7 +59,22 @@ export async function exportRun(source, output, { html = true } = {}) {
   if (output === source || !relative(source, output).startsWith('..') || !relative(output, source).startsWith('..')) throw new Error('Source and export must be disjoint');
   if ((await lstat(source)).isSymbolicLink()) throw new Error('Source cannot be a symlink');
   const names = await files(source);
-  for (const name of names) if (sensitive.test((await readFile(join(source, name))).toString('utf8'))) throw new Error(`Credential-like content blocks export: ${name}`);
+  const originals = new Map();
+  for (const name of names) {
+    const bytes = await readFile(join(source, name));
+    if (sensitive.test(bytes.toString('utf8'))) throw new Error(`Credential-like content blocks export: ${name}`);
+    originals.set(name, bytes);
+  }
+  const state = originals.has('sdk/state.json') ? JSON.parse(originals.get('sdk/state.json')) : null;
+  let candidate = materializedCandidate(originals, state);
+  const originalAcceptance = originals.has('acceptance.json') ? JSON.parse(originals.get('acceptance.json')) : null;
+  if (!state && originalAcceptance?.accepted === true) {
+    const entry = [...originals].find(([path, bytes]) => path.startsWith('workspace/') && path.endsWith('/solution.py')
+      && candidateHash(bytes) === originalAcceptance.candidate_sha256);
+    if (!entry) throw new Error('Accepted final candidate bytes are missing or altered');
+    candidate = { bytes: entry[1], identity: { sha256: candidateHash(entry[1]), bytes: entry[1].length,
+      basis: 'acceptance.json#candidate_sha256', source_path: entry[0] } };
+  }
   await mkdir(output, { mode: 0o700 });
   for (const name of names) {
     const target = join(output, name);
@@ -70,8 +87,8 @@ export async function exportRun(source, output, { html = true } = {}) {
   if (!await exists(join(output, 'acceptance.json')) && await exists(join(output, 'sdk/result.json'))) {
     const result = JSON.parse(await readFile(join(output, 'sdk/result.json'), 'utf8'));
     const validation = result.observation?.validation;
-    const state = await exists(join(output, 'sdk/state.json')) ? JSON.parse(await readFile(join(output, 'sdk/state.json'), 'utf8')) : null;
-    await writeFile(join(output, 'acceptance.json'), JSON.stringify({ accepted: ['progress', 'completed'].includes(result.status) && validation?.status === 'passed' && state?.pending_effect_ids?.length === 0,
+    await writeFile(join(output, 'acceptance.json'), JSON.stringify({ accepted: Boolean(candidate) && ['progress', 'completed'].includes(result.status) && validation?.status === 'passed' && state?.pending_effect_ids?.length === 0,
+      candidate_sha256: candidate?.identity.sha256 ?? null,
       pending_effect_ids: state?.pending_effect_ids ?? null,
       provenance: 'sdk/result.json#observation.validation', original_validation: validation ?? null,
       scope: 'Original LoopX independent validator; not a new evaluation' }, null, 2) + '\n');
@@ -79,9 +96,21 @@ export async function exportRun(source, output, { html = true } = {}) {
   await mkdir(join(output, 'evaluations'), { recursive: true });
   await writeFile(join(output, 'evaluations/index.json'), JSON.stringify({ original_paths: names.filter(x => /evaluation|receipt|rsi-private/.test(x)),
     device_logs: names.filter(x => /\.(log|out|err)$/.test(x)) }, null, 2) + '\n');
-  // Preserve original nested workspace layout; add a convenient snapshot only when its source is unambiguous.
-  const candidates = names.filter(x => /^workspace\/[^/]+\/solution\.py$/.test(x));
-  if (candidates.length === 1 && !await exists(join(output, 'workspace/solution.py'))) await cp(join(output, candidates[0]), join(output, 'workspace/solution.py'));
+  // A workspace may contain a later, unmeasured draft. Export the frozen identity separately.
+  if (candidate) {
+    await mkdir(join(output, 'candidate'), { recursive: true });
+    for (const [name, bytes] of [['solution.py', candidate.bytes],
+      ['identity.json', Buffer.from(JSON.stringify(candidate.identity, null, 2) + '\n')]]) {
+      const target = join(output, 'candidate', name);
+      if (await exists(target)) {
+        if (!(await readFile(target)).equals(bytes)) throw new Error(`Candidate export conflicts with original ${name}`);
+      } else await writeFile(target, bytes, { flag: 'wx' });
+    }
+    if (!await exists(join(output, 'workspace/solution.py'))) {
+      await mkdir(join(output, 'workspace'), { recursive: true });
+      await writeFile(join(output, 'workspace/solution.py'), candidate.bytes, { flag: 'wx' });
+    }
+  }
   const original = names.map(path => ({ path }));
   await writeFile(join(output, 'archive-provenance.json'), JSON.stringify({ source, original_files: original, original_paths_preserved: true }, null, 2) + '\n');
   return indexRun(output, { html });

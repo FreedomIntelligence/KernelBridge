@@ -20,6 +20,54 @@ from kernelcat_executor.contracts.models import Action
 
 
 class PortableEnvironmentTests(unittest.TestCase):
+    def test_generate_uses_npu_interpreter_and_frozen_environment(self):
+        with tempfile.TemporaryDirectory(prefix='kb generate environment ') as temporary:
+            root = Path(temporary).resolve()
+            venv = root / 'npu python'
+            subprocess.run([sys.executable, '-B', '-m', 'venv', '--without-pip', str(venv)], check=True)
+            python = venv / 'bin/python'
+            packages = next((venv / 'lib').glob('python*/site-packages'))
+            (packages / 'npu_only_dependency.py').write_text('marker = "npu venv"\n')
+            modules = root / 'installed modules'
+            executor = modules / 'kernelcat_executor'
+            (executor / 'evaluation/protocols/six_source').mkdir(parents=True)
+            for folder in (executor, executor / 'evaluation', executor / 'evaluation/protocols', executor / 'evaluation/protocols/six_source'):
+                (folder / '__init__.py').write_text('')
+            (executor / 'evaluation/protocols/six_source/config.py').write_text(
+                'class Request:\n @classmethod\n def from_dict(cls, value):\n  assert "_runtime" not in value\n  return value\n')
+            (executor / 'evaluation/evaluate.py').write_text(
+                'import sys,os,npu_only_dependency\n'
+                'def run_job(request):\n return {"status":"completed","data":dict('
+                'prefix=sys.prefix,python=sys.executable,marker=npu_only_dependency.marker,'
+                'vendor=os.environ.get("ASCEND_HOME_PATH"),secret=os.environ.get("DEEPSEEK_API_KEY"))}\n')
+            expected = root / 'expected.json'
+            expected.write_text(json.dumps({'modules': [{'allowed_package_roots': [(modules / 'kernelcat_worker').as_uri()]}]}))
+            profile = root / 'profile.json'
+            profile.write_text(json.dumps({'schema_version': 'kernelbridge.cann-profile/v1',
+                'python': sys.executable, 'node': shutil.which('node'), 'expected_python_modules': str(expected),
+                'npu_python': str(python), 'npu_environment': {'ASCEND_HOME_PATH': '/configured/cann'},
+                'config': {'providers': {'primary': {'api_key_env': 'TEST_KEY'}}}}))
+            output = root / 'run'
+            with patch.dict(os.environ, {'DEEPSEEK_API_KEY': 'not-forwarded'}), patch(
+                    'prepare.subprocess.run', return_value=subprocess.CompletedProcess([], 0, '', '')):
+                prepare(ROOT / 'examples/cann/vector-add/task.json', profile, output, 'generate', session_only=True)
+            cfg = json.loads((output / 'config.json').read_text())['evaluator']
+            workspace = Workspace(root / 'workspace')
+            (workspace.root / 'solution.py').write_text('candidate = True\n')
+            result = CommandEvaluator(tuple(cfg['argv']), workspace, cfg['parameters'], timeout=30,
+                environment={'DEEPSEEK_API_KEY': 'also-not-forwarded'}).execute(Action(
+                    id='generate/environment', task='test', tool='evaluate', arguments={'candidate': 'solution.py'}))
+            self.assertEqual(result.status, 'completed', result)
+            self.assertEqual(result.data['prefix'], str(venv))
+            self.assertEqual(result.data['python'], str(python))
+            self.assertEqual(result.data['vendor'], '/configured/cann')
+            self.assertEqual(result.data['marker'], 'npu venv')
+            self.assertIsNone(result.data['secret'])
+            self.assertEqual(cfg['env_allowlist'], [])
+            appendix = json.loads((output / 'task.json').read_text())['seed_files']['AGENTS.task.md']
+            self.assertIn('evaluate(candidate="solution.py")', appendix)
+            self.assertNotIn('Use run_experiment', appendix)
+
     def test_formal_evaluator_preserves_venv_and_frozen_vendor_environment(self):
         with tempfile.TemporaryDirectory(prefix='kb different environment ') as temporary:
             root = Path(temporary).resolve()
@@ -75,7 +123,7 @@ class PortableEnvironmentTests(unittest.TestCase):
                 'python': sys.executable, 'node': shutil.which('node'), 'expected_python_modules': str(expected),
                 'config': {'providers': {'primary': {'api_key_env': 'TEST_KEY'}}}}))
             with patch('prepare.subprocess.run', return_value=subprocess.CompletedProcess([], 0, '', '')):
-                prepared = prepare(task / 'task.json', profile, root / 'run', 'generate')
+                prepared = prepare(task / 'task.json', profile, root / 'run', 'generate', session_only=True)
             output = Path(prepared['output'])
             self.assertNotEqual((output / 'inputs/reference.py').read_bytes(), (task / 'baseline.py').read_bytes())
             self.assertEqual((output / 'inputs/source/reference.py').read_bytes(), (task / 'baseline.py').read_bytes())

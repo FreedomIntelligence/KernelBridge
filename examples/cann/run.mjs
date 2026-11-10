@@ -4,17 +4,18 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { openSync, closeSync, writeSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { withProcessEnvironment } from '../../source/apps/agent/src/harness/pi/environment.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const bundle = resolve(here, '../..');
-const HELP = 'node examples/cann/run.mjs --task ABS --profile ABS --output NEW_ABS [--mode generate|optimize] [--prepare-only]\n';
+const HELP = 'node examples/cann/run.mjs --task ABS --profile ABS --output NEW_ABS [--mode generate|optimize] [--session-only] [--prepare-only]\n';
 
-export async function prepareCannTask({ task, profile, output, mode = 'optimize', sessionSeed }) {
+export async function prepareCannTask({ task, profile, output, mode, sessionSeed, sessionOnly = false }) {
   for (const value of [task, profile, output]) if (!isAbsolute(value)) throw new Error('task/profile/output must be absolute');
   const data = JSON.parse(await readFile(profile, 'utf8'));
   const python = data.python.replaceAll('{bundle}', bundle);
   const run = spawnSync(python, ['-B', join(here, 'prepare.py'), '--task', task, '--profile', profile,
-    '--output', output, '--mode', mode, ...(sessionSeed ? ['--session-seed', sessionSeed] : [])], { encoding: 'utf8', timeout: 45000, maxBuffer: 8 * 1024 * 1024 });
+    '--output', output, ...(mode ? ['--mode', mode] : []), ...(sessionOnly ? ['--session-only'] : []), ...(sessionSeed ? ['--session-seed', sessionSeed] : [])], { encoding: 'utf8', timeout: 45000, maxBuffer: 8 * 1024 * 1024 });
   if (run.error || run.status !== 0) throw new Error(run.error?.message || run.stderr || 'Task preparation failed');
   return JSON.parse(run.stdout);
 }
@@ -26,12 +27,17 @@ export async function runCannTask(options) {
 }
 
 export async function executePrepared(prepared, options = {}) {
+  return withProcessEnvironment({}, () => executeTask(prepared, options));
+}
+
+async function executeTask(prepared, options) {
   const output = prepared.output;
   const config = JSON.parse(await readFile(join(output, 'config.json'), 'utf8'));
   const keys = Object.values(config.providers).map(x => process.env[x.api_key_env]).filter(Boolean);
   const encode = value => keys.reduce((s, key) => s.split(key).join('[REDACTED]'), JSON.stringify(value, null, 2)) + '\n';
   const save = (name, value) => writeFile(join(output, name), encode(value), { flag: 'wx', mode: 0o600 });
   const oldPythonPath = process.env.PYTHONPATH;
+  const oldDontWrite = process.env.PYTHONDONTWRITEBYTECODE;
   process.env.PYTHONPATH = [prepared.pythonPath, oldPythonPath].filter(Boolean).join(process.platform === 'win32' ? ';' : ':');
   process.env.PYTHONDONTWRITEBYTECODE = '1';
   let events;
@@ -46,7 +52,7 @@ export async function executePrepared(prepared, options = {}) {
       if (runtime.error || runtime.status !== 0) throw new Error(`NPU environment check failed; inspect ${output}/runtime-check.json`);
     }
     options.signal?.throwIfAborted();
-    if (prepared.mode === 'optimize') {
+    if (prepared.goal ?? prepared.mode === 'optimize') {
       const { runGoal } = await import('./goal.mjs');
       await runGoal({ bundle, input: output, loopx: prepared.loopx, signal: options.signal });
       const result = JSON.parse(await readFile(join(output, 'sdk/result.json'), 'utf8'));
@@ -81,6 +87,8 @@ export async function executePrepared(prepared, options = {}) {
     if (events !== undefined) closeSync(events);
     if (oldPythonPath === undefined) delete process.env.PYTHONPATH;
     else process.env.PYTHONPATH = oldPythonPath;
+    if (oldDontWrite === undefined) delete process.env.PYTHONDONTWRITEBYTECODE;
+    else process.env.PYTHONDONTWRITEBYTECODE = oldDontWrite;
     try {
       const { indexRun } = await import('./export.mjs');
       await indexRun(output);
@@ -100,6 +108,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       for (let i = 2; i < process.argv.length; i++) {
         const name = process.argv[i];
         if (name === '--prepare-only') { options.prepareOnly = true; continue; }
+        if (name === '--session-only') { options.sessionOnly = true; continue; }
         if (!['--task', '--profile', '--output', '--mode'].includes(name) || !process.argv[i + 1] || options[name.slice(2)] !== undefined) throw new Error(HELP);
         options[name.slice(2)] = process.argv[++i];
       }

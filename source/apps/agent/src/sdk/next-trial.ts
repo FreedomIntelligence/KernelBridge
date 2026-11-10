@@ -9,11 +9,13 @@ import { digestBytes, loadLaunchManifest } from "../tasks/launch-manifest.ts";
 import type { LoadedManifest } from "../tasks/launch-manifest.ts";
 import { validateTrialRequest } from "../tasks/trial-request.ts";
 import type { GoalContinuationResult, GoalManagedSession, GoalNextStop, GoalTurnRequest } from "./goal.ts";
+import type { GoalObservation } from "./goal.ts";
 
 export interface StageRouterNextOptions {
   readonly manifest: string;
   readonly intentId: string;
   readonly trialCreditLimit: number;
+  readonly observeGoal?: () => Promise<GoalObservation>;
 }
 
 export type StageRouterNext = (
@@ -110,9 +112,23 @@ export function createStageRouterNext(
 ): StageRouterNext {
   validateOptions(options);
   const selected = Object.freeze({ ...options });
-  return async (_previous, index) => {
+  return async (previous, index) => {
     const loaded = await loadLaunchManifest(selected.manifest);
     const state = await session.state();
-    return planNextTrial(state, loaded, selected, index);
+    if (!selected.observeGoal) return planNextTrial(state, loaded, selected, index);
+    const goal = await selected.observeGoal();
+    const search = managedSearchState(state);
+    const program = state.graph.objects.find((item): item is Program => item.kind === 'program'
+      && item.program_id === state.trial.working_program_id);
+    const validation = previous.observation?.validation;
+    if (previous.status === 'progress' && validation && typeof validation === 'object'
+        && !Array.isArray(validation) && (validation as Record<string, unknown>).status === 'passed' && program) {
+      // Qualification comes from the just-committed independent Goal validator.
+      const incumbent = { program_id: program.program_id, artifact_digest: program.artifact_digest };
+      return planNextTrial(state, loaded, selected, index, stageRouter.propose({ ...search,
+        timeAvailable: goal.activation === 'active' && goal.quota.should_run === true,
+        incumbent }));
+    }
+    return { stop: { reason: 'No committed validation receipt qualifies the next Trial parent' } };
   };
 }

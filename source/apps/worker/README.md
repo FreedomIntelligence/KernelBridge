@@ -6,13 +6,13 @@ RPC。`kernelcat_worker.configuration` 解析配置，`kernelcat_worker.bindings
 组合根，`compose` 连接有限 transport。Node 产品应用拥有启动与 Pi 会话继续；自动多 Trial
 必须由 LoopX 管理目标、Todo 和配额，Worker 不调度下一 assistant turn。
 
-安装统一见[根目录 README](../../README.md#quick-start)。普通用户通过
-[Agent CLI/SDK](../agent/README.md)运行任务；下列 Python 示例面向已准备部署的嵌入调用方。
+安装统一见[根目录 README](../../../README.md#quick-start)。普通用户通过
+[Agent CLI/SDK](../../../kernelcat/README.md)运行任务；下列 Python 示例面向已准备部署的嵌入调用方。
 Python >=3.11，默认安装不包含 Torch/CANN 或设备环境。
 
 ## 启动前提与输入
 
-先按[CI 部署说明](../../docs/CI.md)独立准备冻结 wheel 部署，选择规范 `unpacked/` 为
+先按[CI 部署说明](../../../validation/DELIVERY_GUIDE.md)独立准备冻结 wheel 部署，选择规范 `unpacked/` 为
 `PYTHONPATH`，并将同一 `expected.json` 写入 Worker 配置的 `python_modules`。
 固定 bootstrap 在导入 Worker 前检查包来源与字节。配置、Agent/controller 源码、状态、
 显式 skills、合同、父本/case、evaluator 必须符合与可写候选 workspace 分离的规则。
@@ -205,7 +205,4 @@ UNKNOWN、lease、reservation 和历史证据仍用于对账。不能因进程�
 
 ## 离线验证
 
-从仓库根目录运行 `python scripts/ci.py --suite worker`，由 dispatcher 保留组件 cwd，使用
-明确冻结部署执行测试，并对 source 做 lint/types。`KERNELCAT_TEST_PYTHON_BINDING` 由
-它提供，不从环境 import 猜 expected 实现。完整入口与依赖见 [CI](../../docs/CI.md)。
-临时 loopback fixture 只验证软件协议，不证明模型质量、设备性能、生产迁移或全局撤回 barrier。
+从交付根目录执行 [回归命令](../../../README.md#独立安装与开发)。安装器生成精确 Python 模块绑定；Worker 回归覆盖基础工具、权限、业务工具、恢复与错误结算。在线模型和 NPU 结果见 [交付检查](../../../validation/DELIVERY_GUIDE.md)。

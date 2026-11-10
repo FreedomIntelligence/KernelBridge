@@ -6,6 +6,8 @@ KernelBridge 为 KernelAgent 提供三项能力：**Context 组织本次模型�
 
 V1 通过 KernelCat 的配置、CLI 和 TypeScript SDK 接入，复用 KernelCat 会话执行与 Worker。安装及首次运行统一见 [根目录 README](../README.md)，任务输入、模型配置和 SDK 用法见 [KernelCat README](../kernelcat/README.md)。
 
+Pi、KernelBridge、LoopX 的组件职责与调用顺序见 [算子开发流程](../validation/CODEGEN_WORKFLOW.md)。
+
 ## SDK 快速开始
 
 KernelBridge 的 Context 和 Search 随 KernelCat SDK 会话接入；Replay 使用本页的只读分析命令。应用直接调用随包的 SDK 源码入口，安装统一按根 README 完成。
@@ -253,7 +255,7 @@ KernelCat 的 `tool_search` 用来发现当前工具目录；知识内容由 `kn
 
 引用知识后，仍须由任务配置的独立评估器验证候选正确性与性能。检索回执说明“查到了什么”；候选采用、验证与测量依据各自的原始回执核对。
 
-配置 RSI 知识准备时，将完整的结构化查询放入现有 `rsi.knowledge_query`，同时配置 `knowledge_root`。保留原 RSI 配置中的源码范围、固定评估适配器、内容摘要、策略和预算。知识准备结果与实验观察保存在原始记录中，用于核对本轮输入、候选变化和评估反馈。
+配置 RSI 知识准备时，将完整的结构化查询放入现有 `rsi.knowledge_query`，同时配置 `knowledge_root`。保留原 RSI 配置中的源码范围、固定评估适配器、内容摘要、策略和预算。知识准备结果与实验观察保存在原始记录中，用于核对当前任务输入、候选变化和评估反馈。
 
 ## 自研工具、审查与执行记录
 
@@ -358,7 +360,7 @@ CLI 同时打印摘要与计数，完整报告写入指定 JSON。该命令只�
 1. **诊断前**，由 Context 带入任务约束、当前源码、预算和保留观察。
 2. **形成假设时**，用 Search 检索具体问题，读取知识修订和原始依据。
 3. **实现与实验时**，把假设写进明确任务说明，请只读子 Agent 审查后生成候选，通过配置评估器取得原始回执。
-4. **评估后**，核对源码、case、正确性、计时和环境，保存本轮结论。
+4. **评估后**，核对源码、case、正确性、计时和环境，保存当前任务结论。
 5. **复盘时**，用 Replay 定位当时的输入、工具结果和未决调用。
 6. **继续时**，由原始执行入口恢复；自动下一 Trial 仍由 LoopX 准入。
 

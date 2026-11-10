@@ -1,6 +1,6 @@
 # KernelCat
 
-CANN 任务统一从 [task 提交入口](../examples/cann/README.md) 启动：冻结 task 与测试输入，建立 LoopX Goal，再由 Pi SDK 执行算子生成、NPU 评测和修复。默认复用 managed SDK + LoopX；`--mode generate` 提供单次 Pi 会话。Vector Add、Cube Matmul 与 Sigmoid 40-turn 复现包含原生 C++、profile、完整日志索引和 session。
+CANN 任务统一从 [task 提交入口](../examples/cann/README.md) 启动：冻结 task 与测试输入，建立 LoopX Goal，再由 Pi SDK 执行算子生成、NPU 评测和修复。默认复用 managed SDK + LoopX；`--session-only` 提供单次 Pi 会话。Vector Add、Cube Matmul 与 Sigmoid 40-turn 复现包含原生 C++、profile、完整日志索引和 session。
 
 KernelCat 是面向算子生成的 CLI 与 TypeScript 应用 SDK。输入明确的算子语义、shape/dtype、目标平台、正确性要求及预算；Agent 在许可范围内读取资料、生成候选，并通过配置的评估器验证结果。安装与第一个独立示例统一见 [交付根目录 README](../README.md)。
 
@@ -46,6 +46,8 @@ KernelCat 是面向算子生成的 CLI 与 TypeScript 应用 SDK。输入明确�
 
 模型服务通过显式 `providers` 配置接入，支持配置合同中的 OpenAI-compatible 或 Anthropic 路线。凭证只填写环境变量名称。`deepseek-flash` 的文本/工具路线使用 `thinking: "disabled"`。模型 ID、协议与思考选项按实际服务和所选路线配置。请求费用、模型 token 上限与外部 LoopX 分钟配额是不同量，不能互相替代。
 
+[算子开发流程](../validation/CODEGEN_WORKFLOW.md)说明 Pi 会话、业务工具、验收与 Goal 调度的衔接。
+
 ## 任务与上下文输入
 
 首次任务在创建会话前准备。普通 CLI 和 SDK `KernelCat.runTask({task,onEvent,signal})` 使用 `task.json`，其中 `goal` 是交给 Pi 的 prompt。托管 SDK 使用完整的 `run.json` manifest；选用 Goal 模式后绑定 `LoopXGoal`，执行仍由 Pi 持有。`run()` 执行已选择的输入，任务文字来自这些文件。可直接修改和运行的 CANN Vector/Cube task、SDK runner 与独立验收检查见 [CANN 示例](../examples/cann/README.md)。
@@ -80,7 +82,7 @@ KernelCat 是面向算子生成的 CLI 与 TypeScript 应用 SDK。输入明确�
 | 目标、解释性上下文和参考摘录 | `goal` |
 | 算子语义、shape/dtype、硬约束、目标平台和基线身份 | `contract_source_text`：完整 TaskContract 的原始 JSON 文本 |
 | 父程序与可编辑候选文件 | `program.entrypoint`、`program.configuration_source`、`program.files` |
-| 本轮改变什么、预期结果和停止条件 | `proposal` |
+| 本次任务改变什么、预期结果和停止条件 | `proposal` |
 | 模型路由与额度 | `model_route`、`run_credit_limit`、`trial_credit_limit` |
 | 账户与恢复身份 | `account_id`、各 Run/Trial/Branch/Session ID 和稳定 `intent_id` |
 
@@ -161,7 +163,7 @@ node examples/vector-add/sdk-run.mjs \
   --loopx /absolute/KernelBridge/runtime/venv/bin/loopx
 ```
 
-完整示例把冻结的任务目标绑定到原始 LoopX Goal，通过原始有限 CLI 创建账户，调用 `KernelCat.createSession()`、`runStreamed()`、`state()` 和 `dispose()`，由 `LoopXGoal.advance()` 准入、验证并结算有限的一轮。它保留原始任务目标、八次模型请求上限、每次 2048 输出 token 及原有 RSI 评估器；在输入目录下新建 `sdk/` 保存账户意图、冻结的合同与 manifest、有序事件、结果和最终状态。相同目录不能再次启动，以免重发结果不明的效果。该示例使用本包的源码和锁定运行时；没有复制另一套 SDK。
+示例把冻结的任务目标绑定到 LoopX Goal，通过有限 CLI 创建账户，调用 `KernelCat.createSession()`、`runStreamed()`、`state()` 和 `dispose()`。`LoopXGoal.pursue()` 按配置推进 Trial、执行独立验证并结算；`advance()` 提供单次推进。输入目录中的 `sdk/` 保存账户意图、合同、manifest、事件、结果和最终状态。每次新任务使用新的输出目录。
 
 SDK 来自本包的 `source/apps/agent`。下面采用安装后可直接解析的源码入口：把代码保存为客户数据目录中的 `run-sdk.mjs`，替换绝对路径，并使用安装选定的 Node 执行。原账户与 manifest 须已准备好。
 
@@ -263,7 +265,7 @@ try {
 
 一次完整目标工作流从 LoopX Goal 开始。Goal 保留目标、当前 Todo 与配额；SDK 把一次受准入的执行落到原始 Run/Trial。执行时读取当前源码和回执，诊断后提出假设与实验，候选接受只依据独立评估。只读 `kernel-reviewer` 子 agent 可以审计当前源码，但其意见不能代替正确性检查和测量。知识与当前状态更新保存在原始 Journal；下一轮继续使用原 Goal，并提交带当前版本的下一 Trial 请求。
 
-本例的 LoopX 入口运行一个有界 Turn。`progress` 表示该 Turn 的候选、审计与测量通过独立验证且已结算，Goal 仍保留；它不是“任务已经完成”。`step_limit` 表示一次 Trial 的八步上限；`no_progress`、`validation_failed`、`recovery_required` 分别需要诊断、补证或原身份对账。出现未决效果时停止后续准入，保留原始预留。
+CANN 入口使用有界 Goal pursuit。`completed` 表示 Goal acceptance 已通过；`progress` 表示当前 Trial 的候选通过独立验证；`invocation_limit` 表示达到本次调用的 Trial 上限。`step_limit` 由 `policy.max_steps` 控制。`validation_failed` 保留验证结果，`recovery_required` 保留原身份供对账。
 
 自动跨 Trial 的公共入口和默认下一步策略见下节。示例的 `sdk/` 额外保存账户意图、`manifest.json`、冻结合同、事件、最终状态、LoopX Goal/Turn 读回与验证脚本。不要对同一个准备目录再次运行创建入口。继续时保留原 manifest、Goal、Run 和账户，先对账后提交明确的新意图。
 
@@ -271,7 +273,7 @@ try {
 
 使用 `pursue --goal` 绑定已经由 owner 配置好的 Goal、Agent、Todo 和分钟配额。它不会在预检时注册 Agent、规划 Todo、创建 Goal 或补充配额。首次 Run 仍须有已创建账户和合法 manifest。历史 `loopx-cycle` 与 SDK 的 Goal 绑定互斥，不要把两个驱动叠在同一 Goal 或执行段上。
 
-把下面内容保存为 `/absolute/pursuit.json`，将所有路径和身份替换为本次已有资源。JSON 不接受注释或额外字段；权威定义为 `source/contracts/execution/v1/runtime.schema.json` 的 `GoalPursuitBinding`。`validator_argv` 是独立校验器的明确 argv，不是 shell 命令串。
+把下面内容保存为 `/absolute/pursuit.json`，将所有路径和身份替换为本次已有资源。JSON 不接受注释或额外字段；权威定义为 `source/apps/agent/src/generated/runtime.ts` 的 `GoalPursuitBinding`。`validator_argv` 是独立校验器的明确 argv，不是 shell 命令串。
 
 ```json
 {
@@ -330,13 +332,13 @@ console.log(result);
 
 默认 `createStageRouterNext(session, { manifest, intentId, trialCreditLimit })` 读取当前权威状态后调用 `stageRouter`。它只为 `explore`、`establish_incumbent`、`confirm` 构造明确的下一 Trial，父程序必须已保留在图中。`reconcile`、`stop`、`wait` 仅产出停止建议，LoopX 用当前 fingerprint 条件写入原始生命周期记录并保留原因。`round-control` 提供诊断与验收证据，无权另起循环。
 
-**当前默认会等待。** 托管状态缺少权威剩余时间和候选 Evaluation 观测，字段保持 `unknown`。首次有效进展后，默认 planner 因时间未知返回 `wait`，LoopX 记录原因并返回 `paused`，不会再创建 Trial 或请求模型。`max_turns` 只是本次调用边界；到达上限返回 `invocation_limit`，不表示 Goal 完成。
+公共 `pursueGoal` 传入 LoopX 权威观测：Goal active 且 quota.should_run 时允许规划，上一回合的独立 validation passed 绑定已保留 Program，作为下一 Trial 的父候选。底层 `createStageRouterNext` 直接使用时传入 `observeGoal: () => goal.read()`；没有观测时保留 unknown 并记录 wait。`max_turns` 只是本次调用边界；到达上限返回 `invocation_limit`，不表示 Goal 完成。
 
 需要自己产生下一 Trial 的 SDK 调用方仍可传 `LoopXGoal.pursue({ first, maxTurns, next })`；`next` 返回明确的 `GoalTurnRequest`，或 `{ stop: { reason } }`／`undefined` 表示不再提议。所有准入仍由 LoopX 执行，调用方不能以自写循环绕开 Goal，也不能把未观测的条件当作已满足。
 
-暂停调用 `goal.pause((await goal.read()).stateFingerprint, reason)`；恢复先用新的 `read()` fingerprint 调用 `goal.resume(fingerprint, reason)`，再显式提交新的 pursuit 意图及第一步请求。未解决未知时间观测时，默认 planner 仍会等待。`clear(fingerprint)` 停止并解除应用附着，保留原始证据与用量。生命周期冲突或结果不明时先读回原 owner 状态，不盲目重试，不删除 claim 或释放预留。
+暂停调用 `goal.pause((await goal.read()).stateFingerprint, reason)`；恢复先用新的 `read()` fingerprint 调用 `goal.resume(fingerprint, reason)`，再显式提交新的 pursuit 意图及第一步请求。后续 Trial 使用恢复后的 Goal、配额和已验证候选观测。`clear(fingerprint)` 停止并解除应用附着，保留原始证据与用量。生命周期冲突或结果不明时先读回原 owner 状态，不盲目重试，不删除 claim 或释放预留。
 
-历史会话支持 [一条命令恢复](../examples/cann/README.md#一条命令恢复原会话)：校验归档后，以 Pi SessionManager 还原原 session ID、当前分支与完整上下文，输出 `session.html`、`session.jsonl` 和原生 Pi 打开命令。Sigmoid 的重新实验命令与历史会话恢复命令分别列在 [复现指南](../examples/cann/sigmoid-optimization/README.md)。
+历史会话支持 [一条命令恢复](../examples/cann/README.md#一条命令恢复原会话)：校验归档后，以 Pi SessionManager 还原原 session ID、当前分支与完整上下文，输出 `session.html`、`session.jsonl`、`restore.json` 和续跑参数。Sigmoid 的重新实验命令与历史会话恢复命令分别列在 [复现指南](../examples/cann/sigmoid-optimization/README.md)。
 
 ## 通用工具与跨环境还原
 

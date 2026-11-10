@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { prepareCannTask, executePrepared } from './run.mjs';
 import { verifyArchive } from './archive.mjs';
+import { materializedCandidate } from './candidate.mjs';
 import { inspectNativeSessionFile } from '../../source/apps/agent/src/replay/native-session.ts';
 const digest = value => createHash('sha256').update(value).digest('hex');
 const json = async path => JSON.parse(await readFile(path, 'utf8'));
@@ -18,21 +19,16 @@ async function finalCandidate(archive, acceptance) {
     if (!Array.isArray(state.pending_effect_ids) || state.pending_effect_ids.length) throw new Error('Reconcile original pending effects before continuation');
     const result = JSON.parse(files.get('sdk/result.json'));
     if (!['progress', 'completed'].includes(result.status) || result.observation?.validation?.status !== 'passed') throw new Error('Managed continuation requires a successful original Goal validation');
-    const reference = state.materialization?.result?.manifest_ref;
-    if (!reference) throw new Error('Archived managed state has no materialized candidate');
-    const row = manifest.files.find(file => 'sha256:' + file.sha256 === reference.digest && file.bytes === reference.byte_length);
-    if (!row) throw new Error('Materialized candidate bytes are missing from archive');
-    const program = JSON.parse(files.get(row.path));
-    const source = program.files.filter(file => file.path === 'solution.py');
-    if (source.length !== 1) throw new Error('Expected one materialized solution.py');
-    return source[0].text;
+    const candidate = materializedCandidate(files, state);
+    if (!candidate) throw new Error('Archived managed state has no materialized candidate');
+    return candidate.bytes.toString('utf8');
   }
-  const row = manifest.files.find(file => file.path.startsWith('workspace/') && file.sha256 === acceptance.candidate_sha256);
+  const row = manifest.files.find(file => file.path.startsWith('workspace/') && file.path.endsWith('/solution.py') && file.sha256 === acceptance.candidate_sha256);
   if (!row) throw new Error('Accepted final candidate bytes are missing from archive');
   return files.get(row.path).toString('utf8');
 }
 
-export async function prepareContinuation({ restored, profile, output, goal }) {
+export async function prepareContinuation({ restored, profile, output, goal, mode }) {
   const archive = await verifyArchive(restored);
   restored = archive.root;
   const report = await json(join(restored, 'restore.json'));
@@ -65,8 +61,10 @@ export async function prepareContinuation({ restored, profile, output, goal }) {
     await save(join(input, 'task.json'), { schema_version: 'kernelbridge.cann-task/v1',
       goal: objective, case_file: 'case.json', baseline_file: 'baseline.py' });
   }
+  const workflow = archive.files.has('workflow.json') ? JSON.parse(archive.files.get('workflow.json')) : {};
+  const selectedMode = mode ?? workflow.mode ?? 'optimize';
   const prepared = await prepareCannTask({ task: join(input, 'task.json'), profile, output,
-    mode: 'optimize', sessionSeed: join(input, 'session.jsonl') });
+    mode: selectedMode, sessionSeed: join(input, 'session.jsonl') });
   await save(join(output, 'lineage.json'), { archive_manifest_sha256: digest(await readFile(join(restored, 'manifest.json'))),
     original_session_id: report.sessions[0].session_id, original_leaf_id: report.sessions[0].leaf_id,
     baseline_sha256: digest(candidate), original_acceptance: acceptance,
@@ -85,7 +83,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     for (let index = 2; index < process.argv.length; index++) {
       const flag = process.argv[index];
       if (flag === '--prepare-only') { options.prepareOnly = true; continue; }
-      if (!['--restored', '--profile', '--output', '--goal'].includes(flag) || !process.argv[index + 1]) throw new Error('Expected --restored ABS --profile ABS --output NEW_ABS [--goal TEXT] [--prepare-only]');
+      if (!['--restored', '--profile', '--output', '--goal', '--mode'].includes(flag) || !process.argv[index + 1]) throw new Error('Expected --restored ABS --profile ABS --output NEW_ABS [--goal TEXT] [--mode generate|optimize] [--prepare-only]');
       options[flag.slice(2)] = process.argv[++index];
     }
     console.log(JSON.stringify(await continueRun(options)));

@@ -114,8 +114,11 @@ class GuardChain:
         self._guards = tuple((g.name, g.check) for g in guards)
 
     def evaluate(self, action: Action, scope: str, policy: Policy) -> dict[str, str]:
+        return {name: decision.verdict for name, decision in self.decisions(action, scope, policy).items()}
+
+    def decisions(self, action: Action, scope: str, policy: Policy) -> dict[str, GateDecision]:
         action_json, policy_json = canonical(action), canonical(policy)
-        decisions: dict[str, str] = {}
+        decisions: dict[str, GateDecision] = {}
         for name, check in self._guards:
             proposed = Action.model_validate_json(action_json)
             frozen_policy = Policy.model_validate_json(policy_json)
@@ -124,5 +127,5 @@ class GuardChain:
                 raise Conflict("admission guard mutated its execution or policy snapshot")
             if not isinstance(answer, GateDecision):
                 raise Conflict("admission guard did not return a typed deny/abstain decision")
-            decisions[name] = GateDecision.model_validate_json(canonical(answer)).verdict
+            decisions[name] = GateDecision.model_validate_json(canonical(answer))
         return decisions

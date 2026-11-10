@@ -3,7 +3,7 @@
 
 `kernelcat-executor` 0.8 分发包提供 `kernelcat_executor` Python 命名空间，负责效果准入、预算预留、执行回执和恢复。Gateway 与 Journal 是这些操作的原始管理方。导入包不会打开状态，也不会连接模型或设备。
 
-安装统一按[根 README](../../README.md)操作。产品启动、任务输入与配置见 [Agent 使用说明](../../apps/agent/README.md)；本包不提供独立的 Agent 产品命令，也没有 `kernelcat` 兼容命名空间。
+安装统一按[根 README](../../../README.md)操作。产品启动、任务输入与配置见 [Agent 使用说明](../../../kernelcat/README.md)；本包不提供独立的 Agent 产品命令，也没有 `kernelcat` 兼容命名空间。
 
 ## 如何使用
 
@@ -30,7 +30,7 @@ finally:
 
 `python -m kernelcat_executor` 会明确失败并指向 Node 产品入口。Worker 管理命令为 `kernelcat-admin`，旧的产品 `run` 在读取配置或打开状态之前就会拒绝。不要将它作为产品入口或绕过启动准入。
 
-Worker 启动需要与实际部署一致的独立 `ExpectedPythonModules`，绑定 Worker、Executor、Knowledge、Ingestion 四个包，并与配置中的 `python_modules` 一致。启动报告记录实际观察，不授予执行权限。资源根、配置、报告及状态路径要求见 [Worker 说明](../../apps/worker/README.md)和 [Python 模块绑定合同](../../contracts/execution/v1/python-modules.md)。安装、可选原生依赖和检查命令统一由根说明及 [CI](../../docs/CI.md)维护。
+Worker 启动需要与实际部署一致的独立 `ExpectedPythonModules`，绑定 Worker、Executor、Knowledge、Ingestion 四个包，并与配置中的 `python_modules` 一致。启动报告记录实际观察，不授予执行权限。资源根、配置、报告及状态路径要求见 [Worker 说明](../../apps/worker/README.md)和 [Python 模块绑定合同](src/kernelcat_executor/contracts/python_modules.py)。安装、可选原生依赖和检查命令统一由根说明及 [CI](../../../validation/DELIVERY_GUIDE.md)维护。
 
 ## 模型输入和工具效果
 
@@ -78,4 +78,4 @@ Trial 准备检查当前 stamp、同根保留 parent、Run 无未决效果及独
 
 `operations` 管理有限操作，`state` 管理回执和预留，`capabilities` 实现效果，`profiles` 管理 Profile 提案、证据与存储。原生编译/运行位于 `backends/ascend`；独立评估协议位于 `evaluation`。
 
-从仓库根目录通过 `make check` 或 `python scripts/ci.py --suite host` 使用 CI 的实际 cwd、导入根和严格检查。Worker suite 检查已迁移的装配模块；backend suite 需要显式可选依赖。具体覆盖见 [CI](../../docs/CI.md)。离线 fixture 通过不代表模型质量或设备性能。
+从交付根目录执行 [回归命令](../../../README.md#独立安装与开发)，覆盖正确性检查、工具准入、源码冻结、预算和恢复。设备结果见 [交付检查](../../../validation/DELIVERY_GUIDE.md)。

@@ -62,6 +62,7 @@ export async function pursueGoal(path: string, options: GoalPursuitOptions = {})
     }, session);
     const nextTrial = createStageRouterNext(session, {
       manifest: selected.manifest, intentId: pursuit.intent_id, trialCreditLimit: pursuit.trial_credit_limit,
+      observeGoal: () => goal.read(),
     });
     const turns = await goal.pursue({
       first: { intentId: pursuit.intent_id, signal: options.signal,

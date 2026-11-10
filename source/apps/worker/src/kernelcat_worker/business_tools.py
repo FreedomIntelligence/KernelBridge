@@ -4,7 +4,8 @@ import os
 from pathlib import Path
 from jsonschema import Draft202012Validator
 from kernelcat_executor.capabilities.process import CommandEvaluator
-from kernelcat_executor.contracts.models import Outcome, ToolSpec
+from kernelcat_executor.capabilities.runtime_artifacts import RuntimeArtifacts
+from kernelcat_executor.contracts.models import Outcome, ToolSpec, canonical
 
 RESERVED = {'read', 'write', 'edit', 'bash', 'grep', 'find', 'ls', 'codemode', 'tool_search',
             'evaluate', 'read_file', 'write_file', 'edit_file', 'exec_command', 'finish', 'delegate',
@@ -18,7 +19,15 @@ class PinnedCommand(CommandEvaluator):
             path = Path(pin.path)
             if path.resolve() != path or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != pin.sha256:
                 return Outcome(status='failed', data={'reason': 'business_tool_input_changed', 'unexecuted': True})
-        return super().execute(action)
+        captured = None
+        if self.capture_paths:
+            source = [{'path': name, 'text': self.workspace._read(self.workspace.path(name))}
+                      for name in self.capture_paths]
+            captured = self.source_artifacts.put(canonical(source).encode(), 'captured-source')
+        result = super().execute(action)
+        if captured is not None:
+            result = result.model_copy(update={'data': {**result.data, 'captured_source': captured}})
+        return result
 
 
 def configured_tools(configurations, workspace, state):
@@ -42,6 +51,8 @@ def configured_tools(configurations, workspace, state):
             {key: os.environ[key] for key in item.env_allowlist if key in os.environ},
             artifact_root=state / 'business-tools' / item.name)
         tool.pins = item.files
+        tool.capture_paths = item.capture_paths
+        tool.source_artifacts = RuntimeArtifacts(state / 'runtime-artifacts')
         tool.spec = ToolSpec(name=item.name, description=item.description,
                             parameters=item.parameters, credits=item.credits)
         result.append(tool)

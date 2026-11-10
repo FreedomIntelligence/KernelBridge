@@ -146,6 +146,7 @@ def main():
     parser.add_argument('--continue', dest='continue_run', action='store_true')
     parser.add_argument('--prepare-only', action='store_true', help='Prepare continuation without calling model/device')
     parser.add_argument('--execution-output', type=Path, help='New Goal output directory')
+    parser.add_argument('--mode', choices=['generate', 'optimize'], help='Continuation task mode; defaults to archived workflow')
     parser.add_argument('--goal', help='Goal for the continued execution; defaults to the archived goal')
     parser.add_argument('--install-only', action='store_true')
     parser.add_argument('--cache', type=Path, default=ROOT / '.restore')
@@ -192,6 +193,8 @@ def main():
                 '--profile', output / 'local-profile.json', '--output', execution]
         if args.prepare_only:
             argv.append('--prepare-only')
+        if args.mode:
+            argv.extend(['--mode', args.mode])
         if args.goal:
             argv.extend(['--goal', args.goal])
         run(argv)

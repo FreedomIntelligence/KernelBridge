@@ -174,9 +174,11 @@ class Gateway:
                 return Outcome(data={"admit": False, "reason": "unregistered_tool"})
             if not Draft202012Validator(binding.spec().parameters).is_valid(action.arguments):
                 return Outcome(data={"admit": False, "reason": "invalid_arguments"})
-            extra = self._guards.evaluate(action, self.scope, policy)
-            permitted = "deny" not in extra.values()
-            return Outcome(data={"admit": permitted, "reason": "guard",
+            decisions = self._guards.decisions(action, self.scope, policy)
+            extra = {name: decision.verdict for name, decision in decisions.items()}
+            denied = [(name, decision.reason) for name, decision in decisions.items() if decision.verdict == "deny"]
+            reason = "; ".join(name + (": " + detail if detail else "") for name, detail in denied)[:256]
+            return Outcome(data={"admit": not denied, "reason": reason or "guard",
                                  "extension_verdicts": extra})
 
         try:

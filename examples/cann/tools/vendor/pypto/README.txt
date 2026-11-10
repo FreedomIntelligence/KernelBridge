@@ -2,5 +2,5 @@ Vendored subset of hw-native-sys/pypto, revision 69dbfe2cb20f36ebbb12cbab68f7a1f
 clean_sim_trace.py and ir_trace/*.py are unchanged upstream files.
 LICENSE is the unchanged upstream CANN Open Software License v2.
 provenance.json records exact download URLs and SHA256 digests.
-Local integration lives outside this directory in infra/trace_lab.py and infra/ir_bridge.py.
-Do not edit the vendored files to implement Ascend C or BiSheng adapters.
+Integration adapters are ../../trace_lab.py and ../../ir_bridge.py.
+Ascend C and BiSheng adapters are maintained in the integration layer.

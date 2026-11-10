@@ -17,3 +17,7 @@ Pi 负责模型与工具回合，LoopX 提供可选 Goal 调度。工具通过 K
 `ir_bridge.py`、`trace_lab.py` 与 `vendor/pypto` 复用现有 IR/trace 展示代码；上游版本及逐文件哈希在 `vendor/pypto/provenance.json`，许可证随目录保留。LLVM 展示比较显式选定的文本快照。Trace 清洗保留原始采集，按 core 和 PC 对照指令统计。
 
 部署采集器配置本机编译器、驱动、CANN 和 `torch_npu`。远端部署可配置直接 SSH 的 `host`、`user`、`port` 与 `identity`，或使用自有的业务工具适配器。
+
+## 与任务流程衔接
+
+基线验证通过后，Pi 可根据编译错误或性能问题选择采集工具。采集结果带源码和构建身份；解析、展示与读取工具使用 collection 内的相对路径。设备命令由 profile 配置，模型凭据通过环境变量注入。

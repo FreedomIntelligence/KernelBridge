@@ -16,7 +16,7 @@ from kernelcat_executor.contracts.profiles import AgentProfile
 from kernelcat_executor.contracts.providers import WireOptions
 from kernelcat_executor.contracts.python_modules import validate_expected_python_modules
 from kernelcat_executor.contracts.rsi import validate_policy, validate_rsi
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 
 class ProviderConfig(Contract):
@@ -71,12 +71,32 @@ class BusinessToolConfig(EvaluatorConfig):
     name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     description: str = Field(min_length=1, max_length=4096)
     files: tuple[NativeSessionSeed, ...] = Field(min_length=1, max_length=128)
+    capture_paths: tuple[str, ...] = ()
+
+    @field_validator("capture_paths")
+    @classmethod
+    def validate_capture_paths(cls, value):
+        return validate_paths(value)
+
+
+class CandidateRetention(Contract):
+    tool: str
+    source_hashes: dict[str, str] = Field(min_length=1)
+    outcome_schema: Json
+
+
+class RequiredCheck(Contract):
+    tool: str
+    before_tools: tuple[str, ...]
+    outcome_schema: Json
 
 
 class Config(Contract):
     python_modules: Json
     native_session_seed: NativeSessionSeed | None = None
     business_tools: tuple[BusinessToolConfig, ...] = Field(default=(), max_length=32)
+    candidate_retention: CandidateRetention | None = None
+    required_checks: tuple[RequiredCheck, ...] = ()
     state_dir: str = ".state"
     workspace: str = "workspace"
     writable_paths: tuple[str, ...] | None = None
@@ -92,6 +112,24 @@ class Config(Contract):
     agent_profile: AgentProfile = Field(default_factory=AgentProfile)
     self_evolution: EvolutionConfig | None = None
     pi_worker: PiWorkerConfig = Field(default_factory=PiWorkerConfig)
+
+    @model_validator(mode="after")
+    def validate_evidence_configuration(self):
+        from jsonschema import Draft202012Validator
+        tools = {tool.name: tool for tool in self.business_tools}
+        for check in self.required_checks:
+            if check.tool not in tools:
+                raise ValueError('required check must name a configured business tool')
+            Draft202012Validator.check_schema(check.outcome_schema)
+        if self.candidate_retention:
+            retention = self.candidate_retention
+            tool = tools.get(retention.tool)
+            if self.rsi or tool is None or set(tool.capture_paths) != set(retention.source_hashes):
+                raise ValueError('candidate retention requires one source-capturing tool and no RSI')
+            if self.writable_paths is None or not set(retention.source_hashes) <= set(self.writable_paths):
+                raise ValueError('retained sources must be explicitly writable task files')
+            Draft202012Validator.check_schema(retention.outcome_schema)
+        return self
 
     @field_validator("writable_paths", "readonly_paths")
     @classmethod

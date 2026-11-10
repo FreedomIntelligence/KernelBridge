@@ -14,6 +14,7 @@ import { workspaceHistoryResources } from './workspace-history.ts';
 import { createReceiptContextBinding } from '../../replay/receipt-context.ts';
 import { projectInstructions } from './context-files.mjs';
 import { workspaceTools } from './workspace-tools.mjs';
+import { withProcessEnvironment } from './environment.mjs';
 
 const SYSTEM = 'You are a kernel engineering agent. Use Pi file tools to inspect and implement the candidate. Use the configured evaluation, knowledge, and receipt tools for domain work. Treat task references as read-only. Only original evaluation receipts establish correctness or performance. After an error, inspect the returned evidence and revise the candidate.';
 
@@ -65,6 +66,10 @@ async function withAgentEnvironment(home, execute) {
 
 /** Load the locked SDK before the callback can create a legacy effect worker. */
 export async function withPreparedAgent(execute) {
+  return withProcessEnvironment({}, () => prepareAgent(execute));
+}
+
+async function prepareAgent(execute) {
   const home = await mkdtemp(join(tmpdir(), 'kernelcat-pi-'));
   let running;
   try {

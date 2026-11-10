@@ -5,9 +5,10 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
+import { withProcessEnvironment } from '../../source/apps/agent/src/harness/pi/environment.mjs';
 
 const HELP = 'Usage: node examples/cann/goal.mjs --bundle ABS --input ABS [--loopx ABS]\n'
-  + 'Consumes frozen config, task, command and TaskContract files from INPUT. Starts one bounded managed SDK Trial.\n'
+  + 'Consumes frozen config, task, command and TaskContract files from INPUT. Starts a bounded LoopX pursuit with managed Pi Trials.\n'
   + 'Requires the prepared provider credential in its named environment variable.\n'
   + 'Writes create-only INPUT/sdk; never automatically retries a failed invocation.\n';
 
@@ -59,11 +60,27 @@ function commandOptions(command) {
 }
 
 function validatePrepared(config, task) {
-  if (!Number.isInteger(config.policy.max_steps) || config.policy.max_steps < 1 || !config.rsi
-      || !task.seed_files?.['solution.py']) throw new Error('Expected a bounded RSI config and solution.py seed');
+  if (!Number.isInteger(config.policy.max_steps) || config.policy.max_steps < 1 || (!config.rsi && !config.candidate_retention)
+      || !task.seed_files?.['solution.py']) throw new Error('Expected bounded RSI or source-bound functional acceptance and solution.py seed');
 }
 
 export async function runGoal({ bundle, input, loopx, signal }) {
+  return withProcessEnvironment({}, () => scopedGoal({ bundle, input, loopx, signal }));
+}
+
+async function scopedGoal({ bundle, input, loopx, signal }) {
+  const names = ['PYTHONPATH', 'PYTHONDONTWRITEBYTECODE', 'PYTHONPYCACHEPREFIX'];
+  const previous = Object.fromEntries(names.map(name => [name, process.env[name]]));
+  try { return await executeGoal({ bundle, input, loopx, signal }); }
+  finally {
+    for (const name of names) {
+      if (previous[name] === undefined) delete process.env[name];
+      else process.env[name] = previous[name];
+    }
+  }
+}
+
+async function executeGoal({ bundle, input, loopx, signal }) {
   signal?.throwIfAborted();
   if (!relative(bundle, input).startsWith('..')) throw new Error('--input must be outside --bundle');
   const command = await readJson(join(input, 'command.json'));
@@ -130,8 +147,8 @@ function launchManifest(receipt, identity, config, task, contract, program) {
     session_id: `cann-task-session-${identity}`, seed: 17, goal: task.goal,
     contract_source_text: JSON.stringify(contract), program: program.bundle,
     proposal: { proposal_id: `cann-task-proposal-${identity}`, conditions: 'Pinned baseline solution.py is present',
-      operation: 'Generate, measure and optimize the declared native CANN operator',
-      expected_outcome: 'A candidate source with original independent RSI receipts, or an explicit unresolved result',
+      operation: 'Implement and validate the frozen operator task with the configured tools',
+      expected_outcome: 'A source-bound candidate with original independent acceptance receipts',
       stop_conditions: ['Configured model-turn budget exhausted or Pi finishes'], parameter_source: '{}' },
     model_route: 'primary', run_credit_limit: config.credits, trial_credit_limit: config.credits,
   };
@@ -186,19 +203,39 @@ async function advanceGoal(LoopXGoal, session, options, output, manifest, save, 
   const owner = await LoopXClient.connect(connection);
   await save('goal-sync.json', await owner.call(['sync-global', '--goal-id', goalId]));
   await save('goal-policy.json', await owner.call(['configure-goal', '--goal-id', goalId,
-    '--spawn-allowed', '--max-children', '1', '--execute']));
+    '--spawn-allowed', '--max-children', '1', '--coordination-runtime-shadow-file', '--execute']));
   await save('goal-agent.json', await owner.call(['register-agent', '--goal-id', goalId,
     '--agent-id', agentId, '--require-new', '--execute']));
+  await save('goal-authority-bootstrap.json', await owner.call(['coordination-shadow', 'bootstrap', '--goal-id', goalId, '--execute']));
   const todo = await owner.call(['todo', 'add', '--goal-id', goalId, '--role', 'agent',
-    '--text', 'Optimize the declared CANN operator with original native receipts', '--claimed-by', agentId]);
+    '--text', 'Complete the declared operator task with original native receipts', '--claimed-by', agentId]);
   await save('goal-todo.json', todo);
   const todoId = todo.todo_id;
   if (typeof todoId !== 'string') throw new Error('Original LoopX Todo response omitted todo_id');
+  await save('goal-authority-plan.json', await owner.call(['coordination-shadow', 'promote', '--goal-id', goalId,
+    '--minimum-operations', '1', '--handoff-mode-migration', 'preserve']));
+  await save('goal-authority-promote.json', await owner.call(['coordination-shadow', 'promote', '--goal-id', goalId,
+    '--reviewed-plan', join(output, 'goal-authority-plan.json'), '--execute']));
   const validator = join(output, 'validate-goal.py');
-  await writeFile(validator, VALIDATOR, { flag: 'wx', mode: 0o600 });
+  await writeFile(validator, await readFile(new URL('./validate_goal.py', import.meta.url)), { flag: 'wx', mode: 0o600 });
+  const workflow = await readJson(join(dirname(output), 'workflow.json')).catch(error => {
+    if (error.code !== 'ENOENT') throw error;
+    return { max_trials: 1, complete_on_acceptance: false };
+  });
+  const validatorArgv = [options.python, '-B', '-P', validator, options.config, output];
+  const basis = await owner.call(['goal-acceptance', 'inspect', '--goal-id', goalId]);
+  await save('goal-acceptance-before.json', basis);
+  await save('goal-acceptance-contract.json', { scope: { kind: 'selected_work', todo_ids: [todoId] },
+    objective: 'Deliver the source that passes the frozen operator task acceptance checks.', non_goals: [],
+    criteria: [{ id: 'operator-acceptance', description: 'Original source-bound correctness and task measurement receipts.',
+      validation_argv: validatorArgv, validation_timeout_seconds: 25, validation_files: [] }],
+    bindings: [{ todo_id: todoId, criterion_ids: ['operator-acceptance'] }] });
+  await save('goal-acceptance-configure.json', await owner.call(['goal-acceptance', 'configure', '--goal-id', goalId,
+    '--document', join(output, 'goal-acceptance-contract.json'), '--expected-provider-revision', basis.provider_revision,
+    '--operation-id', `acceptance-${goalId}`, '--execute']));
   const goal = await LoopXGoal.bind({ ...connection, goalId, agentId, todoId,
     applicationSessionId: session.applicationSessionId, validatorTimeoutSeconds: 30,
-    validatorArgv: [options.python, '-B', '-P', validator, options.config, output] }, session);
+    validatorArgv }, session);
   await save('goal-before.json', await goal.read());
   let observerError;
   let count = 0;
@@ -213,7 +250,17 @@ async function advanceGoal(LoopXGoal, session, options, output, manifest, save, 
     } catch (error) { observerError = error; session.interrupt('Event observer failed'); }
   });
   try {
-    const result = await goal.advance({ intentId: `cann-task-turn-${manifest.run_id}`, signal, run: { signal } });
+    const { createStageRouterNext } = await import(pathToFileURL(join(options.agent, 'src/sdk/next-trial.ts')).href);
+    const next = createStageRouterNext(session, { manifest: join(output, 'manifest.json'),
+      intentId: `pursuit-${manifest.run_id}`, trialCreditLimit: manifest.trial_credit_limit, observeGoal: () => goal.read() });
+    const turns = await goal.pursue({ first: { intentId: `cann-task-turn-${manifest.run_id}`, signal, run: { signal },
+      completionCandidate: workflow.complete_on_acceptance }, maxTurns: workflow.max_trials,
+      next: async (previous, index) => {
+        const request = await next(previous, index);
+        return 'stop' in request ? request : { ...request, signal, completionCandidate: workflow.complete_on_acceptance };
+      } });
+    await save('goal-turns.json', turns);
+    const result = { ...turns.at(-1), pursuit_status: turns.at(-1).status === 'progress' ? 'invocation_limit' : turns.at(-1).status };
     await save('result.json', result);
     if (result.turnKey) await save('goal-turn.json', await goal.inspectTurn(result.turnKey));
     await save('goal-after.json', await goal.read());
@@ -236,58 +283,6 @@ async function advanceGoal(LoopXGoal, session, options, output, manifest, save, 
   } finally { unsubscribe(); }
 }
 
-const VALIDATOR = String.raw`"""Finite independent validation of original retained owner evidence."""
-import ast
-import hashlib
-import json
-import sys
-from pathlib import Path
-from kernelcat_executor.state.runtime import RuntimeJournal
-
-config = json.loads(Path(sys.argv[1]).read_text())
-output = Path(sys.argv[2])
-manifest = json.loads((output / 'manifest.json').read_text())
-journal = RuntimeJournal(Path(config['state_dir']) / 'events.jsonl')
-snapshot = journal.snapshot()
-actions = [row for row in snapshot['actions'].values()
-           if row.get('binding', {}).get('run_id') == manifest['run_id']]
-completed = [row for row in actions if row.get('outcome', {}).get('status') == 'completed']
-audits = [row for row in completed if row['action']['tool'] == 'delegate'
-          and row['action']['arguments'].get('agent') == 'kernel-reviewer'
-          and row['action']['arguments'].get('mode') == 'read_only']
-measured = []
-for row in completed:
-    if row['action']['tool'] not in ('__rsi_record__', '__rsi_apply__'):
-        continue
-    reference = row['outcome']['data'].get('private_reference')
-    if reference is None:
-        continue
-    retained = json.loads(Path(reference['locator']).read_text())
-    if retained['kind'] == 'node' and retained['value'].get('correct') is True:
-        measured.append(retained['value'])
-assert measured, 'No original correctness-passing measured RSI candidate'
-state = journal.state(manifest['run_id'], manifest['trial_id'])
-reference = state['materialization']['result']['manifest_ref']
-source = Path(reference['locator']).read_bytes()
-assert len(source) == reference['byte_length'], 'Materialized candidate byte length changed'
-assert 'sha256:' + hashlib.sha256(source).hexdigest() == reference['digest'], 'Materialized candidate digest changed'
-files = [f for f in json.loads(source)['files'] if f['path'] == 'solution.py']
-assert len(files) == 1, 'Expected one native source candidate'
-tree = ast.parse(files[0]['text'])
-names = {target.id for statement in tree.body if isinstance(statement, ast.Assign)
-         for target in statement.targets if isinstance(target, ast.Name)}
-assert {'project_json_src', 'host_tiling_src', 'host_operator_src', 'kernel_src',
-        'python_bind_src', 'model_src'} <= names, 'Retained program is not a native six-source candidate'
-def source_digest(value):
-    canonical = json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
-    return hashlib.sha256(canonical.encode()).hexdigest()
-actual_digest = source_digest(files)
-# Correctness must bind these exact native bytes, never a Torch-only fallback.
-assert any(node['source_digest'] == actual_digest and node['retained_source_digest'] == actual_digest
-           for node in measured), 'Materialized candidate has no matching correct original RSI measurement'
-assert not state['pending_effect_ids'], 'Original effects remain unresolved'
-print(json.dumps({'ok': True, 'audit_receipts': len(audits), 'correct_measured_nodes': len(measured)}))
-`;
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) try {
   const args = argumentsFor(process.argv.slice(2));

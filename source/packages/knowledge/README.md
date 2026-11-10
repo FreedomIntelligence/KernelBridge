@@ -3,7 +3,7 @@
 
 `kernelcat-knowledge` 提供 `kernelcat_knowledge`，管理不可变来源字节、来源/证据目录、校验、检索和经审阅的发布。Python、`kcwiki` 和 MCP 使用同一有限应用 `api.application.WikiApplication`。导入包或传输模块不会打开数据库、定位语料或启动服务。
 
-安装统一见[根 README](../../README.md)，可选 MCP 依赖须显式选择；这里不重复维护安装命令。与 KernelCat、LoopX 的接入关系及日常检索流程见 [KernelBridge](../../docs/customer/KERNELBRIDGE_README.md)。Knowledge 不自行调度 Agent 或授予实验预算。
+安装统一见[根 README](../../../README.md)，可选 MCP 依赖须显式选择；这里不重复维护安装命令。与 KernelCat、LoopX 的接入关系及日常检索流程见 [KernelBridge](../../../kernelbridge/README.md)。Knowledge 不自行调度 Agent 或授予实验预算。
 
 ## 使用前准备
 
@@ -12,7 +12,7 @@
 实际启动要求（控制台示例显式设置 `PYTHONDONTWRITEBYTECODE=1`，防止在准入包内留下缓存）：
 
 - 根安装流程选择的不可变普通 Python 源文件部署；不允许产品字节码缓存、符号链接包或自定义 loader。
-- 独立审阅的 `ExpectedPythonModules`，精确包含 `kernelcat_knowledge` 一个模块。它不同于 Worker 的四包 binding，权威格式见 [Python 模块绑定合同](../../contracts/execution/v1/python-modules.md)。
+- 独立审阅的 `ExpectedPythonModules`，精确包含 `kernelcat_knowledge` 一个模块。它不同于 Worker 的四包 binding，权威格式见 [Python 模块绑定合同](../executor/src/kernelcat_executor/contracts/python_modules.py)。
 - 独立 CLI/MCP 必须指定新的绝对 `--startup-report` 文件名。父目录先创建，位于所有准入包树之外；报告 create-only，不覆盖、不自动建父目录、不写 stdout。缺少目录、路径冲突或权限失败均在业务 store/server 构造前停止。`--help` 保持无效果。
 
 以下命令可从仓库根目录运行，使用所选环境的入口；所有 `/absolute/...` 都是需替换的路径模板。计划、请求等相对文件路径由调用方 cwd 决定，推荐使用绝对路径。
@@ -49,7 +49,7 @@ PYTHONDONTWRITEBYTECODE=1 KERNELCAT_WIKI_ROOT=/absolute/wiki/engine kcwiki-mcp \
   --host 127.0.0.1 --port 3000
 ```
 
-该命令启动 streamable HTTP 服务，详细工具和兼容边界见 [MCP 说明](src/kernelcat_knowledge/api/mcp/README.md)。启动不安装包。结构合同检查另有真实入口：
+该命令启动 streamable HTTP 服务，详细工具和兼容边界见 [MCP 说明](src/kernelcat_knowledge/api/mcp/server.py)。启动不安装包。结构合同检查另有真实入口：
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 kcwiki-validate-contracts --repo-root /absolute/wiki/engine
@@ -110,7 +110,7 @@ reference = catalog.resolve("task:user-fusion", "1", "sha256:" + "0" * 64)
 <a id="retained-consumer-views-and-retraction"></a>
 ## 保留视图与撤回
 
-有限 API 详见 [Knowledge runtime 协议](../../docs/protocols/knowledge-runtime.md)，请求/回执使用生成的 `knowledge_runtime` 类型。Runtime validator 使用生成 schema，卡片/来源/证据校验仍由原管理方负责。`control_status()` 是只读，包括初始化前；显式 capture/retraction 可在 `artifacts/kcwiki/retained` 写元数据与不可变 blob。Control header 绑定规范资源根，拒绝在另一个规范根打开副本。
+有限 API 详见 [Knowledge runtime 协议](../../../kernelbridge/README.md)，请求/回执使用生成的 `knowledge_runtime` 类型。Runtime validator 使用生成 schema，卡片/来源/证据校验仍由原管理方负责。`control_status()` 是只读，包括初始化前；显式 capture/retraction 可在 `artifacts/kcwiki/retained` 写元数据与不可变 blob。Control header 绑定规范资源根，拒绝在另一个规范根打开副本。
 
 以下请求是协议形状示例；consumer 与 Journal 身份必须来自可信装配，不能把示例字符串当作真实执行权限：
 
@@ -167,7 +167,7 @@ CLI 管理子命令须接在上文完整 `kcwiki --repo-root ... --expected-pyth
 
 Capture/retraction/reference JSON 上限 32 KiB，JSON 递归失败在 capture 准入前返回 `INVALID_JSON`/退出 2。普通 CLI 没有 Journal delivery callback，`reconcile` 返回 `TRUSTED_FENCE_DELIVERY_REQUIRED` 及当前状态；可信调用方可注入 `api.cli.run`，没有 ACK-file/provider-loader 选项。MCP 不增加发布/控制权限。旧 root 读及 `snapshot create` 审计 manifest 保持独立。
 
-托管 Worker 的 v1/v2 账户仍拒绝 Knowledge；新 v3 `multi_trial` 账户可由原 Worker/Executor 管理方固定 authority、capture/install 并绑定只读工具，详见[架构](../../docs/ARCHITECTURE.md)与 [Executor](../executor/README.md)。单独 Knowledge fixture 不代表该产品接入已经验收。
+托管 Worker 的 v1/v2 账户仍拒绝 Knowledge；新 v3 `multi_trial` 账户可由原 Worker/Executor 管理方固定 authority、capture/install 并绑定只读工具，详见[架构](../../../kernelbridge/README.md)与 [Executor](../executor/README.md)。单独 Knowledge fixture 不代表该产品接入已经验收。
 
 Capture 限额：4096 active 卡、16384 dependency member、16384 artifact；每 metadata/artifact 16 MiB，规范记录+artifact 总计 64 MiB。元数据扫描至多 16384 文件/行、64 MiB 输入，目录枚举 16384 entry；source selector/reference 至多 16384。任何超限拒绝整个视图。查询/投影/raw 输出保持原限额。
 
@@ -193,7 +193,7 @@ Capture 限额：4096 active 卡、16384 dependency member、16384 artifact；�
 <a id="component-checks"></a>
 ## 组件检查
 
-通过[根安装及检查流程](../../README.md)和 [CI](../../docs/CI.md)使用冻结部署及 dispatcher 指定的组件 cwd/导入根；不要用临时源码导入命令替代组件 gate。测试覆盖原文件系统完整性、重复/冲突、selector、发布、跨入口锁、中立 manifest 和冷导入，显式提供资源根。Fixture 证明存储/应用合同，不证明检索质量、模型质量或 kernel 性能。
+安装与检查见[根 README](../../../README.md)和[交付记录](../../../validation/DELIVERY_GUIDE.md)。Knowledge 使用显式资源根，检索与读取按配置的来源权限执行。
 
 <a id="responsibility-layout"></a>
 ## 代码职责
@@ -292,6 +292,6 @@ Knowledge composition、CLI alias、MCP cache 都需要准入；产品 launcher 
 
 Provenance 读用既有 raw 限额，单 selection 至多 4096 行/1 MiB。当前 loader 读整个有界卡，每页成本 O(卡 claims+所引 evidence+所选来源字节)，调用内缓存 selection。Import 单遍字段，按来源/行保留重复 trial ID，manifest 查找有索引。Atlas 最多 53 个排序的 canonical identity，唯一 alias 为 `conv2d -> conv_2d`。
 
-该边界提供历史 KB00 查询，完整 KB01 work-order/implementation anchor 及旧 `intent.py` 等价仍未完成；历史生产命令、发布 backend、Git release 未改变。
+该接口提供固定算子历史查询。Work-order 和实现锚点由调用方的数据源提供，发布与版本管理使用各自的显式接口。
 
 `campaign-history/v2` 用 LF 物理行/CRLF 行尾读取 raw evidence，保留 JSON 字符串内 Unicode separator，要求 whole-file source scope。已注册 source subrange、旧 campaign/native selector 保持原语义；两个 campaign recipe 版本验证历史 claim 都要求绑定 campaign rule。Worker atlas 文件边界在准入/读前验证每个 entry 和 source identity/type，后部坏条目不能触发前部发布；整个批次发布仍非原子操作。

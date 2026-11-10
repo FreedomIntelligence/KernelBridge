@@ -38,5 +38,10 @@
       "codemode": false
     }
   },
-  "loopx": "{bundle}/runtime/venv/bin/loopx"
+  "loopx": "{bundle}/runtime/venv/bin/loopx",
+  "goal": {
+    "enabled": true,
+    "max_trials": 3,
+    "complete_on_acceptance": true
+  }
 }

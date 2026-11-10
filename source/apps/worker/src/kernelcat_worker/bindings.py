@@ -271,8 +271,10 @@ def build(config: Config, base: Path, task: Task, *,
     workspace = Workspace(workspace_path)
     writable_paths = (tuple(config.rsi["source_paths"]) if config.rsi is not None
                       else config.writable_paths)
-    guards = (*guards, WorkspaceGuard(workspace.root, writable_paths, config.readonly_paths))
+    from kernelcat_worker.candidate_retention import RequiredChecksGuard
     store = AgentJournal(state_dir / "events.jsonl")
+    guards = (*guards, WorkspaceGuard(workspace.root, writable_paths, config.readonly_paths),
+              RequiredChecksGuard(store, task.id, config.required_checks))
     store.initialize(config.credits, config.policy)
     artifacts = RuntimeArtifacts(state_dir / "runtime-artifacts")
     records = Records(store, artifacts, task.id)

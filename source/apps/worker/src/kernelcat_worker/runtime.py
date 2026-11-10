@@ -25,6 +25,7 @@ from kernelcat_executor.state.runtime_store import RuntimeStore
 
 from kernelcat_worker.bindings import _build_proposers, _preflight, _version_inputs
 from kernelcat_worker.business_tools import configured_tools
+from kernelcat_worker.candidate_retention import RequiredChecksGuard, retained_business_bundle
 from kernelcat_worker.configuration import Config
 from kernelcat_worker.knowledge import KnowledgeReadSurface, knowledge_tools
 from kernelcat_worker.managed_input import enqueue_managed_input
@@ -179,6 +180,7 @@ class RuntimeService:
         writable_paths = (tuple(self.config.rsi["source_paths"]) if self.config.rsi is not None
                           else self.config.writable_paths)
         guards = (WorkspaceGuard(workspace.root, writable_paths, self.config.readonly_paths),
+                  RequiredChecksGuard(store, task.id, self.config.required_checks),
                   *((SourceGuard(self.config.rsi["source_paths"]),) if self.config.rsi is not None else ()))
         gateway = Gateway(store, tools, task.scope, guards)
         specifications = gateway.specifications()
@@ -389,6 +391,10 @@ class RuntimeService:
                 records = Records(self.store, self.artifacts, preparation["task"]["id"])
                 materialize = partial(retained_bundle, self.workspace, records=records,
                                       source_paths=self.config.rsi["source_paths"])
+            elif self.config.candidate_retention is not None:
+                preparation = owner.preparation(self.store.actor["run_id"], self.store.actor["trial_id"])
+                materialize = partial(retained_business_bundle, self.workspace, store=self.store,
+                    artifacts=self.artifacts, task_id=preparation['task']['id'], retention=self.config.candidate_retention)
             return owner.snapshot(params, self.store, self.gateway, materialize)
         if method == "adopt_candidate":
             owner = self._managed_owner()

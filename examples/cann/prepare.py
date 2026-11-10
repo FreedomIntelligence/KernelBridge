@@ -9,7 +9,7 @@ import subprocess
 import uuid
 from urllib.parse import unquote, urlparse
 from task_bundle import load_bundle
-from goal_inputs import task_contract, local_rsi
+from goal_inputs import task_contract, local_rsi, native_runtime
 
 BUNDLE = Path(__file__).resolve().parents[2]
 
@@ -31,7 +31,7 @@ def expand(value, variables):
     return value
 
 
-def prepare(task_path, profile_path, output, mode, session_seed=None):
+def prepare(task_path, profile_path, output, mode=None, session_seed=None, session_only=False):
     output = Path(output).absolute()
     if output.resolve() != output:
         raise ValueError('output must not traverse symlinks')
@@ -42,6 +42,7 @@ def prepare(task_path, profile_path, output, mode, session_seed=None):
         raise FileExistsError('preserve the original attempt; output already exists')
     raw = json.loads(Path(task_path).read_text())
     sigmoid = raw.get('contract', {}).get('suite') == 'CANNBench Season 1 Sigmoid, 20 cases'
+    mode = mode or ('optimize' if sigmoid else raw.get('mode', 'generate'))
     if sigmoid:
         if mode != 'optimize': raise ValueError('Sigmoid reproduction uses Goal mode')
         compiled = raw
@@ -55,14 +56,34 @@ def prepare(task_path, profile_path, output, mode, session_seed=None):
     instruction = (BUNDLE / 'examples/cann/instructions/AGENTS.md').read_text()
     appendix = ('# Current operator task\n\n' + compiled['goal'] + '\n\n'
                 + 'The frozen contract and reference files define inputs, precision and acceptance.\n'
-                + 'Select diagnostics and evidence tools from the active tool registry supplied by this deployment.\n'
-                + 'Use run_experiment for paired validation and unprofiled performance measurements.\n')
+                + '\n## Code generation workflow\n\n'
+                + '1. Read the task, reference, initial implementation and existing receipts. Identify the required output and acceptance checks.\n'
+                + '2. Check the configured device/compiler/runtime and the baseline evidence before attributing failures to a candidate.\n'
+                + '3. State a short implementation plan. Make a coherent, small change with Pi file tools.\n'
+                + '4. Compile and test through the active registered device tools. Read the original error, fix its cause, and rerun affected checks.\n'
+                + '5. Use IR/profiler or knowledge tools when a concrete question calls for them.\n'
+                + '6. Before finishing, match the delivered source hash to passing receipts. Any subsequent edit needs validation again.\n'
+                + '7. Report the exact candidate, checks, result and remaining work. A turn limit is a stop reason, not successful completion.\n\n'
+                + ('Use run_experiment for paired validation and unprofiled performance measurements. After rejection, read the restored source before editing again.\n'
+                   if mode == 'optimize' else
+                   'Use evaluate(candidate="solution.py") for native compilation, correctness and timing. Finish after a passing receipt for the final candidate.\n'))
     compiled['seed_files'].update({'AGENTS.md': instruction, 'AGENTS.task.md': appendix})
     profile = json.loads(Path(profile_path).read_text())
-    allowed = {'schema_version', 'python', 'node', 'expected_python_modules', 'config', 'loopx', 'task_contract_file', 'npu_environment', 'npu_python', 'diagnostics'}
+    allowed = {'schema_version', 'python', 'node', 'expected_python_modules', 'config', 'loopx', 'task_contract_file', 'npu_environment', 'npu_python', 'diagnostics', 'goal', 'checks'}
     if set(profile) - allowed or profile.get('schema_version') != 'kernelbridge.cann-profile/v1':
         raise ValueError('unsupported or unknown CANN profile field')
     profile = expand(profile, {'bundle': str(BUNDLE), 'run': str(output)})
+    goal_policy = profile.get('goal', {})
+    if not isinstance(goal_policy, dict) or set(goal_policy) - {'enabled', 'max_trials', 'complete_on_acceptance'}:
+        raise ValueError('goal supports enabled, max_trials and complete_on_acceptance')
+    use_goal = goal_policy.get('enabled', True) and not session_only
+    max_trials = goal_policy.get('max_trials', 3)
+    if type(use_goal) is not bool or type(max_trials) is not int or not 1 <= max_trials <= 100:
+        raise ValueError('goal requires boolean enabled and max_trials in 1..100')
+    if type(goal_policy.get('complete_on_acceptance', True)) is not bool:
+        raise ValueError('complete_on_acceptance must be a boolean')
+    if mode == 'optimize' and not use_goal:
+        raise ValueError('Performance optimization uses LoopX Goal')
     for name in ('python', 'node', 'expected_python_modules'):
         if not Path(profile[name]).is_absolute() or not Path(profile[name]).is_file():
             raise ValueError(name + ' must select an existing absolute installed file')
@@ -79,10 +100,13 @@ def prepare(task_path, profile_path, output, mode, session_seed=None):
         session_seed = Path(session_seed).resolve()
         config['native_session_seed'] = {'path': str(session_seed), 'sha256': hashlib.sha256(session_seed.read_bytes()).hexdigest()}
         compiled['id'] = 'continued-' + uuid.uuid4().hex
+        if not sigmoid:
+            compiled['seed_files']['solution.py'] = compiled['seed_files']['reference/native-template.py']
     config.setdefault('pi_worker', {}).update(node=profile['node'], root=str(BUNDLE / 'source/apps/agent'))
     request.update(reference=str(output / 'inputs/reference.py'), jobs=str(output / 'evaluations'))
     request.pop('workspace', None); request.pop('candidate', None)
     contract = None
+    rsi_text = None
     diagnostic_text = None
     if profile.get('diagnostics', False):
         from diagnostic_tools import tools as diagnostic_tools
@@ -91,20 +115,42 @@ def prepare(task_path, profile_path, output, mode, session_seed=None):
         pins = diagnostic_config['adapter_files']
         config['business_tools'] = [*config.get('business_tools', []), *diagnostic_tools(
             [*diagnostic_config['adapter_argv'], '--diagnostics'], pins)]
-    if mode == 'generate':
+    if mode == 'generate' and not use_goal:
         if config.get('rsi'):
             raise ValueError('generate requires an ordinary evaluator; use optimize for RSI')
-        config.setdefault('evaluator', {'argv': [profile['python'], str(BUNDLE / 'examples/cann/evaluate.py'), str(output / 'inputs/evaluation.json')],
-            'parameters': {'type': 'object', 'properties': {'candidate': {'type': 'string'}}, 'required': ['candidate'], 'additionalProperties': False},
-            'credits': 10, 'timeout': 1800,
-            'env_allowlist': ['PATH', 'LD_LIBRARY_PATH', 'ASCEND_HOME_PATH', 'ASCEND_OPP_PATH', 'PYTHONPATH']})
-    else:
-        if config.get('evaluator') or not profile.get('loopx') or not Path(profile['loopx']).is_file():
-            raise ValueError('Goal mode needs the installed loopx executable and a paired RSI evaluator')
+        if not config.get('evaluator'):
+            request['_runtime'] = native_runtime({**profile, '_python_path': python_path})
+            config['evaluator'] = {'argv': [request['_runtime']['python_real'], str(BUNDLE / 'examples/cann/evaluate.py'), str(output / 'inputs/evaluation.json')],
+                'parameters': {'type': 'object', 'properties': {'candidate': {'type': 'string'}}, 'required': ['candidate'], 'additionalProperties': False},
+                'credits': 10, 'timeout': 1800, 'env_allowlist': []}
+    elif mode == 'optimize':
+        if config.get('evaluator'):
+            raise ValueError('Performance goals use RSI and registered check tools')
         if not config.get('rsi'):
             config['rsi'], rsi_text = local_rsi({**profile, '_reference': reference, '_python_path': python_path}, output, request, 'sigmoid' if sigmoid else 'native')
         else:
             rsi_text = None
+    if use_goal:
+        if not profile.get('loopx') or not Path(profile['loopx']).is_file():
+            raise ValueError('Goal mode needs the installed loopx executable')
+        if mode == 'generate' and (config.get('evaluator') or config.get('rsi')):
+            raise ValueError('Functional goals use operator_evaluate as a business tool')
+        if not sigmoid and profile.get('checks', True):
+            from evaluation_tools import configure
+            baseline = compiled['seed_files']['reference/native-template.py']
+            request['_baseline'] = str(output / 'inputs/baseline.py')
+            selected_tools = {tool['name'] for tool in config.get('business_tools', [])}
+            required_tools = {'baseline_check', 'operator_check'} | ({'operator_evaluate'} if mode == 'generate' else set())
+            if not required_tools <= selected_tools:
+                request['_runtime'] = native_runtime({**profile, '_python_path': python_path})
+            configure(config, output, request, reference, baseline, functional=mode == 'generate')
+            appendix += '\nBefore editing or evaluating a candidate, call baseline_check(). Use operator_check() for compile/correctness feedback before longer measurements.\n'
+        if mode == 'generate':
+            if not config.get('candidate_retention'):
+                raise ValueError('Functional Goal requires source-bound operator_evaluate retention')
+            compiled['goal'] = compiled['goal'].replace('evaluate(candidate="solution.py")', 'operator_evaluate()')
+            appendix = appendix.replace('evaluate(candidate="solution.py")', 'operator_evaluate()')
+        compiled['seed_files']['AGENTS.task.md'] = appendix
         if profile.get('task_contract_file'):
             contract = json.loads(Path(profile['task_contract_file']).read_text())
         elif sigmoid:
@@ -127,11 +173,15 @@ def prepare(task_path, profile_path, output, mode, session_seed=None):
         with (output / name).open('x') as stream:
             json.dump(value, stream, ensure_ascii=False, indent=2); stream.write('\n')
     save('task.json', compiled); save('config.json', config); save('config.redacted.json', config)
+    save('workflow.json', {'mode': mode, 'goal': use_goal, 'max_trials': max_trials,
+        'complete_on_acceptance': goal_policy.get('complete_on_acceptance', True)})
     save('input-manifest.json', inputs); save('inputs/evaluation.json', request)
     save('instruction-manifest.json', {'loader': 'Pi DefaultResourceLoader.agentsFilesOverride',
         'files': {name: {'sha256': hashlib.sha256(text.encode()).hexdigest(), 'bytes': len(text.encode())}
                   for name, text in [('AGENTS.md', instruction), ('AGENTS.task.md', appendix)]}})
     (output / 'inputs/reference.py').write_text(reference)
+    if not sigmoid:
+        (output / 'inputs/baseline.py').write_text(compiled['seed_files']['reference/native-template.py'])
     for name in inputs['inputs']:
         (output / 'inputs/source' / name).write_bytes((Path(task_path).parent / name).read_bytes())
     command = {'argv': [profile['node'], str(BUNDLE / 'source/apps/agent/src/main.ts'), 'run', '--python', profile['python'],
@@ -150,6 +200,7 @@ def prepare(task_path, profile_path, output, mode, session_seed=None):
     return {'output': str(output), 'bundle': str(BUNDLE), 'python': profile['python'],
             'expectedPythonModules': profile['expected_python_modules'], 'pythonPath': python_path,
             'loopx': profile.get('loopx'), 'mode': mode,
+            'goal': use_goal,
             'localRsi': str(output / 'inputs/rsi.json') if mode == 'optimize' and rsi_text else None}
 
 
@@ -157,7 +208,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('task', 'profile', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
-    parser.add_argument('--mode', choices=['generate', 'optimize'], default='optimize')
+    parser.add_argument('--mode', choices=['generate', 'optimize'])
+    parser.add_argument('--session-only', action='store_true')
     parser.add_argument('--session-seed', type=Path)
     args = parser.parse_args()
-    print(json.dumps(prepare(args.task, args.profile, args.output, args.mode, args.session_seed)))
+    print(json.dumps(prepare(args.task, args.profile, args.output, args.mode, args.session_seed, args.session_only)))

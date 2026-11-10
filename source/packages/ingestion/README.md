@@ -3,7 +3,7 @@
 
 `kernelcat-ingestion` 提供 `kernelcat_ingestion`，根据已审阅的 `SourcePlan` 执行一次有界采集和解析。它管理来源解释与派生快照；Executor 管理效果准入、预留和回执；Knowledge 管理不可变原文字节、来源与证据目录。
 
-安装统一见[根 README](../../README.md)。库通过注入的有限 effect/evidence 端口工作，不创建 Journal、Gateway、Knowledge 应用或具体供应商；导入不会创建文件、数据库、设备作业或模型请求。它不负责 Agent 循环、调度和知识卡发布。
+安装统一见[根 README](../../../README.md)。库通过注入的有限 effect/evidence 端口工作，不创建 Journal、Gateway、Knowledge 应用或具体供应商；导入不会创建文件、数据库、设备作业或模型请求。它不负责 Agent 循环、调度和知识卡发布。
 
 <a id="commands-and-checks"></a>
 ## 先检查计划，再显式采集
@@ -31,7 +31,7 @@ python -B -P -m kernelcat_worker ingest \
   --state /absolute/ingestion-state --wiki-root /absolute/corpus
 ```
 
-这里的 `python` 必须指向根安装流程选择的不可变普通 Python 源文件部署。Binding 独立准备，精确绑定 `kernelcat_worker`、`kernelcat_executor`、`kernelcat_knowledge`、`kernelcat_ingestion` 四包；当前 Executor checkout 的资源布局不满足直接源码准入，不能用临时 `PYTHONPATH` 绕过。详见 [Python 绑定合同](../../contracts/execution/v1/python-modules.md)和 [CI 部署说明](../../docs/CI.md)。
+这里的 `python` 必须指向根安装流程选择的不可变普通 Python 源文件部署。Binding 独立准备，精确绑定 `kernelcat_worker`、`kernelcat_executor`、`kernelcat_knowledge`、`kernelcat_ingestion` 四包；当前 Executor checkout 的资源布局不满足直接源码准入，不能用临时 `PYTHONPATH` 绕过。详见 [Python 绑定合同](../executor/src/kernelcat_executor/contracts/python_modules.py)和 [CI 部署说明](../../../validation/DELIVERY_GUIDE.md)。
 
 报告父目录须已存在，报告使用新的绝对文件名并位于所有准入包目录之外；导出为 create-only，不覆盖、不自动建父目录。`init` 必须提供 `--startup-report`，用于显式创建新的外部 corpus；`collect` 可选导出报告，以上示例仍显式保留它。`--state` 和 corpus 都必须位于源码 checkout 之外，采集使用已初始化的 corpus。不要对已有来源库重复执行初始化，也不要改写历史状态指纹来恢复。
 
@@ -94,9 +94,9 @@ Worker 将自身、Executor、Knowledge 实现身份与 Pipeline 的 `runtime_di
 <a id="responsibility-layout"></a>
 ## 代码结构和验证
 
-`plans.py` 定义计划与解析值对象；`sources` 采集，`parsers` 解释固定字节，`pipeline.py` 组合一次有限操作，`snapshots.py` 保存可重建派生对象，`ports.py` 保留注入边界。旧 `schema.py`、`store.py` 已退役，无导入别名；字段、来源 ID、selector、预算和不可变安装规则不变。
+`plans.py` 定义计划与解析值对象；`sources` 采集，`parsers` 解释固定字节，`pipeline.py` 组合一次有限操作，`snapshots.py` 保存可重建派生对象，`ports.py` 保留注入边界。公开模块按来源采集、解析、计划和存储职责组织。
 
-按 [CI](../../docs/CI.md) 的 dispatcher 在组件实际 cwd 和导入根下运行检查；根目录 `make check` 覆盖 host。不要以临时源码导入命令替代冻结部署准入。既有测试覆盖 replay、篡改、parent receipt、请求/字节配额、损坏、固定 Git 与 UNKNOWN。`smoke(output, commands=...)` 使用离线 fixture 检查重开后的报告/回执身份，真实 Gateway 测试还核对重放不修改 Journal。Fixture 不证明目标验证、模型质量或加速。
+使用[根 README 的回归命令](../../../README.md#独立安装与开发)验证交付。Ingestion 的有限 API 保留原来源身份、请求/字节配额和回执；`smoke(output, commands=...)` 提供离线导入夹具。
 
 <a id="pinned-operator-history"></a>
 ## 固定算子历史

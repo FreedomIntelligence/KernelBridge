@@ -46,7 +46,7 @@ def load_bundle(path, mode='generate'):
     path = Path(path).absolute()
     author_text = read_local(path.parent, path.name)
     author = json.loads(author_text)
-    if set(author) != {'schema_version', 'goal', 'case_file', 'baseline_file'}:
+    if set(author) - {'schema_version', 'goal', 'case_file', 'baseline_file', 'mode'} or not {'schema_version', 'goal', 'case_file', 'baseline_file'} <= set(author):
         raise ValueError('expected the CANN authoring task schema; use task.compiled.json with runTask directly')
     if author['schema_version'] != 'kernelbridge.cann-task/v1':
         raise ValueError('unsupported CANN task schema')

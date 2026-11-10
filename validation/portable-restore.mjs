@@ -64,7 +64,8 @@ test('export cannot turn failed Goal or pending effects into acceptance', async 
       await writeFile(join(source, 'sdk/state.json'), JSON.stringify({ pending_effect_ids: pending }));
       const output = join(temp, 'export'); await exportRun(source, output, { html: false });
       const acceptance = JSON.parse(await readFile(join(output, 'acceptance.json')));
-      assert.equal(acceptance.accepted, status === 'progress' && pending.length === 0);
+      // Validator status alone cannot recover the identity of the delivered source.
+      assert.equal(acceptance.accepted, false);
     } finally { await rm(temp, { recursive: true, force: true }); }
   }
 });
@@ -72,6 +73,7 @@ test('export cannot turn failed Goal or pending effects into acceptance', async 
 test('missing credential retains failure and manifest before any model starts', async () => {
   const temp = await mkdtemp(join(tmpdir(), 'missing-credential-'));
   const old = process.env.PYTHONPATH;
+  const oldDontWrite = process.env.PYTHONDONTWRITEBYTECODE;
   try {
     await writeFile(join(temp, 'config.json'), JSON.stringify({ providers: { primary: { api_key_env: 'KB_TEST_ABSENT_CREDENTIAL' } } }));
     delete process.env.KB_TEST_ABSENT_CREDENTIAL;
@@ -79,5 +81,6 @@ test('missing credential retains failure and manifest before any model starts', 
     assert.ok(JSON.parse(await readFile(join(temp, 'failure.json'))).error.includes('KB_TEST'));
     assert.ok(JSON.parse(await readFile(join(temp, 'manifest.json'))).files.some(x => x.path === 'failure.json'));
     assert.equal(process.env.PYTHONPATH, old);
+    assert.equal(process.env.PYTHONDONTWRITEBYTECODE, oldDontWrite);
   } finally { await rm(temp, { recursive: true, force: true }); }
 });

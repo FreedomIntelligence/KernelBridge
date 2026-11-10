@@ -32,10 +32,8 @@ def task_contract(task, reference):
     return contract
 
 
-def local_rsi(profile, output, request, kind='native'):
-    cfg = {'kind': kind, 'state': str(output / 'evaluations'), 'soc': request['soc'], 'device': request['device']}
-    if kind == 'sigmoid': cfg['suite'] = str(ROOT / 'examples/cann/sigmoid-optimization/suite')
-    else: cfg.update(reference=request['reference'], operator=request['operator'], atol=request['atol'], rtol=request['rtol'])
+def native_runtime(profile):
+    """Freeze the same interpreter and vendor environment for every local NPU tool."""
     environment_names = ('PATH', 'LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH', 'ASCEND_HOME_PATH',
                          'ASCEND_OPP_PATH', 'ASCEND_AICPU_PATH', 'ASCEND_TOOLKIT_HOME',
                          'TBE_IMPL_PATH', 'PYTHONPATH', 'TMPDIR', 'CMAKE_PREFIX_PATH', 'ASC_DIR',
@@ -52,7 +50,15 @@ def local_rsi(profile, output, request, kind='native'):
     npu_python = profile.get('npu_python', profile['python'])
     if not Path(npu_python).is_absolute() or not Path(npu_python).is_file():
         raise ValueError('npu_python must be an existing absolute Python executable')
-    cfg.update(python=npu_python, python_real=str(Path(npu_python).resolve()), environment=environment)
+    return dict(python=npu_python, python_real=str(Path(npu_python).resolve()), environment=environment)
+
+
+def local_rsi(profile, output, request, kind='native'):
+    cfg = {'kind': kind, 'state': str(output / 'evaluations'), 'soc': request['soc'], 'device': request['device']}
+    if kind == 'sigmoid': cfg['suite'] = str(ROOT / 'examples/cann/sigmoid-optimization/suite')
+    else: cfg.update(reference=request['reference'], operator=request['operator'], atol=request['atol'], rtol=request['rtol'])
+    cfg.update(native_runtime(profile))
+    npu_python = cfg['python']
     text = json.dumps(cfg, indent=2) + '\n'
     path = output / 'inputs' / profile.get('_config_name', 'rsi.json')
     python = Path(npu_python).resolve()
