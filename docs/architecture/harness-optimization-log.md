@@ -410,3 +410,53 @@ notification, and Esc followed by a new working prompt. Evidence is retained in
 `handle-wire-parallel/scenario.json`. Original retention replay checks remain
 recorded above. Fresh input equivalence is
 `harness-trials/handle-wire-input-equivalence.json`.
+
+### Repaired stream-cap comparison — three clean trials completed
+
+Runtime `c6c56d2`; inputs `handle-wire-{max,min,matmul}-01`. Original
+Journal audits, observer outcomes and per-call observations are retained in
+each directory. Index: `.validation/handle-wire-summary.json`.
+
+| Task | Parent / child calls | Reported tokens | Seconds | Original remote jobs | E1 / E3 / H |
+| --- | --- | --- | --- | --- | --- |
+| max | 20 / 0 | 571,475 | 174.39 | 2, both host build failures | no / no / no |
+| min | 20 / 0 | 506,216 | 216.82 | 0 | no / no / no |
+| Cube | 20 / 0 | 505,512 | 173.90 | 1, host build failure | no / no / no |
+
+All three reached the explicit call ceiling, with no unknown usage, pending
+admissions, response-limit failures or unsafe-handle abort. No compaction or
+review calls occurred. Total reported usage is 1,583,203 tokens; this is not a
+billing estimate. There are no NPU timings or speedup values to report.
+
+Max wrote at call 9, froze at 10, launched at 11, collected at 12 and checked F
+at 13. It explicitly used the original missing-header error in C at 14, edited
+at 15, froze at 16 and launched a changed source at 17. Its second F at 18
+still failed. Call 19 guessed an unavailable standalone build-log path; call
+20 read only the first 8,192 of 11,913 receipt characters. There was no third
+candidate. Two E launches plus one E collection are two jobs, not three.
+
+Min's J request at call 8 was rejected before a candidate existed; no diagnostic
+driver ran. It wrote at 11 and made API/algorithm edits at 13 and 15. Absolute
+paths from the canonical workspace failed in isolated bash, whereas later
+relative-path commands worked. The call-19 script constructed a proposed change
+but wrote back the original bytes; exit zero was not an applied modification.
+It never froze or launched a candidate. Cube wrote at 11, edited at 12, removed
+a disallowed outer docstring at 15, froze at 17, launched at 18, collected at
+19 and received its failed F at 20.
+
+Automatic collection was considered for all three original builds, but IR
+reported no compiler recipe and profiling had no runnable kernel. Actual
+IR/profiler capture, diagnostic-artifact reads and diagnostic-driven kernel
+optimization are all unestablished. Max did use compiler error feedback; that
+is distinct from using IR or profiler.
+
+**Next hypothesis:** stabilize the native compiler's common header interface.
+Max and the non-scatter Cube task both used a basename tiling include and failed
+in host code generation. Max's conditional rewrite passed that stage but then
+failed in host target compilation. The adapter currently locates either valid
+generated header layout but only supports extra include roots for the kernel
+CMake target. A common, recorded include search contract must cover SDK internal
+host code generation, host compilation and device compilation without changing
+candidate bytes, algorithms, oracle, baseline or measurement. Use a fresh remote
+deployment namespace so historical compiler sources remain intact. Remaining-
+call telemetry and automatic-diagnostic feedback remain separate unapplied drafts.
