@@ -3,6 +3,28 @@ import assert from 'node:assert/strict';
 import { createHostActions } from '../../source/apps/agent/src/harness/pi/host-actions.mjs';
 import { loadInteractiveMode } from '../../source/apps/agent/src/harness/pi/interactive-patch.mjs';
 
+test('startup control receipts do not suppress the isolated initial task or replay it', async () => {
+  const state = { workspace_mode: 'isolated', inputs: {
+    detach: { input_id: 'detach', kind: 'control', status: 'completed' },
+  } };
+  const accepted = [];
+  const client = { subscribe: () => () => {}, async observe() {},
+    async state() { return structuredClone(state); }, async call() { return {}; },
+    async input(text, options) {
+      const receipt = { input_id: options.inputId, text, kind: options.kind, status: 'queued' };
+      state.inputs[receipt.input_id] = receipt; accepted.push(receipt); return receipt;
+    },
+  };
+  const actions = createHostActions(client, {});
+  await actions.bind({ restored: false, hello: { goal: 'the declared task only' }, manifest: {},
+    session: { sessionManager: { getBranch: () => [] } } });
+  assert.equal(await actions.initial(), 'the declared task only');
+  assert.equal(await actions.initial(), undefined);
+  assert.equal(accepted.length, 1);
+  assert.equal(actions.inputs.consume('the declared task only').input_id, accepted[0].input_id);
+  actions.dispose();
+});
+
 test('input after Pi stops streaming queues through the host settlement boundary once', async () => {
   const { InteractiveMode } = await loadInteractiveMode();
   let observe;
