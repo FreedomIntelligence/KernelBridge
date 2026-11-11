@@ -8,7 +8,7 @@ export class ApplicationSession {
     this.client = client;
     this.applicationSessionId = client.applicationSessionId;
     // Qualification is reported separately from the presence of an implementation.
-    this.capabilities = Object.freeze({ events: true, tokenStreaming: false, nativeFork: false, persistentNativeSession: false });
+    this.capabilities = Object.freeze({ events: true, tokenStreaming: true, nativeFork: true, persistentNativeSession: true });
   }
   static async create(options) { return new ApplicationSession(await startApplication(options)); }
   static async attach(identity, options) { return new ApplicationSession(await attachApplication(identity, options)); }

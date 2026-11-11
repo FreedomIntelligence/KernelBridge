@@ -102,11 +102,17 @@ class SubagentConfig(Contract):
     timeout: int = Field(ge=1, le=1800, default=120)
 
 
+class GoalReviewConfig(Contract):
+    enabled: bool = False
+    context_bytes: int = Field(ge=4096, le=1048576, default=131072)
+
+
 class Config(Contract):
     python_modules: Json
     native_session_seed: NativeSessionSeed | None = None
     business_tools: tuple[BusinessToolConfig, ...] = Field(default=(), max_length=32)
     subagents: SubagentConfig = Field(default_factory=SubagentConfig)
+    goal_review: GoalReviewConfig = Field(default_factory=GoalReviewConfig)
     candidate_retention: CandidateRetention | None = None
     required_checks: tuple[RequiredCheck, ...] = ()
     state_dir: str = ".state"

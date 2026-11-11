@@ -80,6 +80,7 @@ Complete feature implementation precedes these tests. The dedicated native PTY s
 ```sh
 PYTHONPATH="$PWD/.validation/ui-test-deps" /absolute/venv/bin/python -B validation/tui/advanced_scenario.py --output /absolute/new-advanced-run
 PYTHONPATH="$PWD/.validation/ui-test-deps" /absolute/venv/bin/python -B validation/tui/subagent_cancel_scenario.py --output /absolute/new-child-cancel-run
+PYTHONPATH="$PWD/.validation/ui-test-deps" /absolute/venv/bin/python -B validation/tui/goal_review_scenario.py --output /absolute/new-goal-review-run
 node --test validation/tui/session-discovery.mjs
 /absolute/venv/bin/python -B -m unittest discover -s validation -p test_subagents.py -v
 /absolute/venv/bin/python -B -m unittest discover -s validation -p test_operator_pipeline.py -v

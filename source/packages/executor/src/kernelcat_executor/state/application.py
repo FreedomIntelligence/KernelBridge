@@ -258,7 +258,18 @@ class ApplicationJournal:
                                and entry.get("seq", -1) > goal.get("start_seq", -1)
                                and data.get("completion_kind") == "codegen" and action.get("tool") in {"finish_goal", "update_goal"}
                                and isinstance(data.get("summary"), str) and bool(data["summary"].strip()))
-                    if not codegen and (not evidence or evidence["task_version"] != state["task_version"]):
+                    reviewed = False
+                    if (state.get("workspace_mode") == "project" and goal["status"] == "active"
+                            and data.get("completion_kind") == "review" and entry.get("terminal")
+                            and entry.get("seq", -1) > goal.get("start_seq", -1)
+                            and action.get("tool") == "__propose__"
+                            and action.get("id", "").startswith(state["task"]["id"] + "/goal-review/" + goal["goal_id"] + "/")):
+                        from kernelcat_executor.state.goal_progress import review_verdict
+                        try:
+                            reviewed = review_verdict(entry["outcome"]) == {"status": "met", "summary": data.get("summary")}
+                        except (ValueError, KeyError):
+                            pass
+                    if not codegen and not reviewed and (not evidence or evidence["task_version"] != state["task_version"]):
                         raise Conflict("Goal completion requires current original acceptance evidence")
                 emit("goal", {**goal, **data, **({"ended_at_ns": time.time_ns()} if data["status"] in {"completed", "failed"} else {})})
             elif method == "call_intent":

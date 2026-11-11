@@ -90,6 +90,7 @@ export async function startCodegen(options, settings, submission) {
     policy: { context_bytes: 2097152, ...settings.config.policy, routes: settings.routes }, providers: settings.providers,
     readonly_paths: [], pi_worker: { node: process.execPath, root: agentRoot, timeout: 86400 } };
   config.subagents = settings.config.subagents ?? {};
+  config.goal_review = settings.config.goal_review ?? {};
   if (settings.config.business_tools?.length || settings.config.operator_infra || settings.config.operator_pipeline) {
     const frozen = join(output, 'operator-tools-input.json');
     await save(frozen, { business_tools: settings.config.business_tools, operator_infra: settings.config.operator_infra,

@@ -30,6 +30,7 @@ export function createHostActions(control, effects) {
   let consecutiveErrors = 0;
   let compactions = 0;
   const forkHints = new Set();
+  let shownReview;
   const suggestFork = async (reason, key) => {
     if (!state || state.fork_policy?.enabled || state.fork_policy?.suggest === false || forkHints.has(key)) return;
     forkHints.add(key);
@@ -48,6 +49,10 @@ export function createHostActions(control, effects) {
   };
   const refresh = async () => {
     state = await control.state();
+    if (state.goal_review && state.goal_review.action_id !== shownReview) {
+      shownReview = state.goal_review.action_id;
+      showProductFeedback(context, `Goal 复核：${state.goal_review.status} · ${state.goal_review.summary}`);
+    }
     syncTools();
     for (const receipt of Object.values(state.inputs ?? {})) {
       if (receipt.initiator === 'loopx' && receipt.kind === 'policy') policyInputs.add(receipt.text);

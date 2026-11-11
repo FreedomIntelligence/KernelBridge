@@ -4,6 +4,12 @@ Status: local deterministic acceptance passed on macOS, Node 22.19.0 and Python 
 
 Original artifacts: `.validation/tui-20261110-final/` in the checkout. The portable [result index](results/local-20261110.json) records check exits, durations and original-artifact SHA256 values. Reproduce with the [self-contained runner](README.md).
 
+## Fresh Goal review follow-up
+
+The optional fresh completion evaluator is now implemented for project Goals, closing the limitation noted in the earlier operator/session acceptance below. It assesses original receipts in a separate tool-free model request, shares all existing usage limits, preserves completed evidence, and honors a user pause or replaced objective. It does not certify NPU performance. Ordinary startup and ordinary prompts do not trigger it. The persistent SDK now advertises its locally qualified streaming, native-fork and persistent-session capabilities; the legacy finite SDK retains its separate flags.
+
+Eight reviewer tests passed (original evidence/usage, deduplication, malformed verdict, pause, replacement, unknown effect, forged completion and completion-request gating). A real native Pi PTY passed five flows including continue-then-complete and pause during the reviewer request. The 39 JavaScript tests and TypeScript/managed-continuation checks passed. Original artifacts are `.validation/goal-review-unit-r3.log`, `.validation/goal-review-pty-r3/` and `.validation/goal-review-npm-r1.log`; these use a local provider fixture, not a live NPU. The later requested scatter campaigns require eager NPU comparison and are recorded separately from this functional acceptance.
+
 ## Operator workflow and session follow-up
 
 The [operator/session result index](results/operators-20261110.json) records the final implementation hashes and original local evidence. Features were implemented before new tests; failures discovered during acceptance were repaired and the affected checks rerun. The full regression batch and subsequent targeted runs are combined evidence, not one simultaneous run of every historical test.

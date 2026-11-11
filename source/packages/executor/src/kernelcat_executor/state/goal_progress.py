@@ -1,4 +1,20 @@
 """Goal progress is derived from original receipts, never a second budget ledger."""
+import json
+
+
+def review_verdict(outcome):
+    if outcome.get("status") != "completed":
+        raise ValueError("Goal reviewer did not return a completed model receipt")
+    blocks = outcome.get("data", {}).get("content", [])
+    if not blocks or any(block.get("type") != "text" for block in blocks):
+        raise ValueError("Goal reviewer must return text without tools")
+    value = json.loads("\n".join(block["text"] for block in blocks))
+    if (not isinstance(value, dict) or set(value) != {"status", "summary"}
+            or value["status"] not in {"met", "continue", "blocked"}
+            or not isinstance(value["summary"], str) or not value["summary"].strip()
+            or len(value["summary"]) > 4096):
+        raise ValueError("Goal reviewer returned an invalid verdict")
+    return value
 
 def token_count(usage):
     def number(key):

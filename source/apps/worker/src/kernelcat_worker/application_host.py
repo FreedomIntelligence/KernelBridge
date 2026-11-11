@@ -403,6 +403,8 @@ class ApplicationHost:
         state["host_pid"] = os.getpid()
         state["workspace_mode"] = self.config.workspace_mode
         state["subagent_config"] = self.config.subagents.model_dump()
+        state["goal_review"] = next((item for item in reversed(state["configurations"])
+            if item.get("operation") == "goal_review" and item.get("goal_id") == (state["goal"] or {}).get("goal_id")), None)
         state["fork_policy"] = (state.get("goal") or self.descriptor["goal_defaults"]).get("fork_policy", {})
         state["cwd"] = self.owner.workspace_policy["root"]
         route = self.owner.gateway.store.policy().routes[0]
@@ -447,6 +449,9 @@ class ApplicationHost:
 
     def finish_codegen_goal(self, action):
         from kernelcat_executor.contracts.models import Outcome
+        if self.config.goal_review.enabled:
+            return Outcome(data={"completed": False, "review_pending": True,
+                "summary": action.arguments["summary"], "device_acceptance": False})
         self.journal.command("goal_outcome", {"status": "completed", "completion_kind": "codegen",
             "action_id": action.id, "summary": action.arguments["summary"]})
         return Outcome(data={"completed": True, "summary": action.arguments["summary"], "device_acceptance": False})
@@ -476,6 +481,24 @@ class ApplicationHost:
         queued = [item for item in state["inputs"].values() if item["status"] == "queued" and item["kind"] != "control"]
         if queued:
             return {"action": queued[0].get("transition_operation", "input"), "receipt": queued[0]}
+        if (self.config.goal_review.enabled and self.config.workspace_mode == "project"
+                and state["goal"] and state["goal"]["status"] == "active"
+                and not state["calls"] and not state["pending_effect_ids"]):
+            latest = max((item for item in state["inputs"].values() if item["kind"] != "control"
+                and item["status"] == "completed" and item["completed_seq"] > state["goal"]["start_seq"]),
+                key=lambda item: item["completed_seq"], default=None)
+            if latest:
+                from kernelcat_worker.application_goal_review import review
+                from kernelcat_executor.contracts.models import BudgetExceeded
+                try:
+                    review(self, connection, state, latest)
+                except BudgetExceeded:
+                    if self.journal.state()["goal"]["status"] == "active":
+                        self.journal.command("goal_outcome", {"status": "budget_limit", "reason": "review_budget"})
+                    return {"action": "wait", "reason": "review_budget"}
+                except ModelAdmissionStopped:
+                    return {"action": "wait", "reason": "review_admission_stopped"}
+                state = self.status()
         decision = recommend(state)
         if decision["action"] == "stop":
             self.journal.command("goal_outcome", {"status": "budget_limit", "reason": decision["reason"]})
