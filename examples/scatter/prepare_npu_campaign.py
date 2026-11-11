@@ -13,7 +13,7 @@ import uuid
 
 HERE = Path(__file__).resolve().parent
 NATIVE_INTERFACE = HERE.parent / 'cann/native-interface.md'
-NATIVE_INTERFACE_VERSION = 'kernelbridge.native-six-source-interface/v1'
+NATIVE_INTERFACE_VERSION = 'kernelbridge.native-six-source-interface/v2'
 
 
 def save(path, value):

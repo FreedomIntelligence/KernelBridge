@@ -616,8 +616,8 @@
       "sha256": "8b753b3f64fefda655c88dd4fb8605d86174a8ee69db59b093780df1ef766336"
     },
     "docs/architecture/harness-optimization-log.md": {
-      "bytes": 29420,
-      "sha256": "c314b863a062a459cd942467a6e8ee7b911afb0ced5ef1ade831cce0a609114f"
+      "bytes": 32230,
+      "sha256": "70ed7fb33e4ae29219ab158479d6bdcfcc7bb8b1e47a38f81bb7928a970bbfe2"
     },
     "docs/architecture/harness-trial-results.md": {
       "bytes": 2898,
@@ -760,8 +760,8 @@
       "sha256": "f4b2c23bf97d8f03c2d38f8111340802348347d199f2ccda44ab680be5067c6c"
     },
     "examples/cann/native-interface.md": {
-      "bytes": 12371,
-      "sha256": "fc7eaeb64e9a91e11bff7ea13b5a51a9aaa71d7901e28b2921446f51790f7556"
+      "bytes": 13198,
+      "sha256": "a629ccf7d5743374c88d4e4c1f09b293685f1a5701df421e0ebe11654a59f729"
     },
     "examples/cann/native-template.py": {
       "bytes": 6115,
@@ -1197,7 +1197,7 @@
     },
     "examples/scatter/prepare_npu_campaign.py": {
       "bytes": 11383,
-      "sha256": "8e0c1b37dc7cef7cb8fd0f80baa4083399c39e796a4ecc04f6b6f65917ddda49"
+      "sha256": "8c27babf6e2eb156d3d41d9d9b4c9f37a2f32d3dff56cac8537e3c905db0a84b"
     },
     "examples/scatter/reference.py": {
       "bytes": 1570,
@@ -2336,8 +2336,8 @@
       "sha256": "f3acfcf2af4491728d555b91ef9892c10f0334b4d585c9d6be40527307a9b45d"
     },
     "source/packages/executor/src/kernelcat_executor/backends/ascend/compiler.py": {
-      "bytes": 6516,
-      "sha256": "f70ca80e1906f2251a06951d08fbd0899fba19ca20ecac664b41a05a6e50c734"
+      "bytes": 8674,
+      "sha256": "38780e1ce497cb1cc80012dc1695582451d3ab97c7b221a960f5138faf7f5e65"
     },
     "source/packages/executor/src/kernelcat_executor/backends/ascend/runtime.py": {
       "bytes": 1746,
@@ -4184,12 +4184,16 @@
       "sha256": "8b9e574975c664631ceefccc327db99b784593821c65daf6334ce14cd62870e5"
     },
     "validation/test_native_compiler.py": {
-      "bytes": 4654,
-      "sha256": "3a72bfe9414e6937b8f9330b205ea605b4935c5ecda162c951b70a423caa9e6f"
+      "bytes": 4663,
+      "sha256": "81c9771f0253ab7b8020dc20e847d2a2f02d7a41465a71a976cb7a291c88da84"
     },
     "validation/test_native_failure.py": {
       "bytes": 2403,
       "sha256": "a6bedb63d4a10cc86ab923a6c73a69579759228f6711e7c71b86184402cd9c44"
+    },
+    "validation/test_native_include_contract.py": {
+      "bytes": 10808,
+      "sha256": "7c65e5631eeeae1fb60e32ff3a6cb7e625d7a8135158daef5afb388735611ccd"
     },
     "validation/test_native_interface.py": {
       "bytes": 5704,
