@@ -235,8 +235,10 @@ into one experiment:
   equally to the independent Cube task.
 - Successful reference output was replaced by a 209-byte receipt stub after a
   few turns despite ample model context. Max spent calls 6/7/10–15 recovering or
-  paging the reference; a receipt fetch returned 29,707 characters with source
-  duplicated in content and structured data. This is a context-retention issue,
+  paging the reference; the receipt's declared total was 29,707 characters with
+  source duplicated in content and structured data. The observed pages were
+  2,048, 8,192 and 8,192 characters, not one full 29,707-character delivery.
+  This is a context-retention issue,
   not simply a model ignoring previously available text.
 - The enforced 20-call limit and remaining allowance were absent from actual
   model requests. A trusted telemetry patch is kept as an unapplied private
@@ -249,3 +251,66 @@ operator implementation, tile size, algorithm or case-specialized advice. Keep
 the model, oracle, measurement, scheduling, context policy and call accounting
 unchanged. Fresh trials may start only after the original Cube identity is
 confirmed inactive and the document integration passes local qualification.
+
+### Compiler interface variant 2 — completed, unsuccessful
+
+Mechanism frozen at `ae36f2f`: one source-versioned compiler interface document,
+shared by scatter and Cube, plus task-declared ABI names. Six local tests passed;
+no candidate, kernel implementation or operator-specific optimization was
+provided. Input equivalence is preserved in
+`.validation/harness-trials/native-interface-input-equivalence.json`.
+
+| Task / fresh trial directory under `.validation/harness-trials` | Calls | Reported tokens | Observed stages | Elapsed seconds | E3 / speedup |
+| --- | --- | --- | --- | --- | --- |
+| max / `native-interface-max-01/run` | 20 | 380,805 | A B C | 133.20 | no / unavailable |
+| min / `native-interface-min-01/run` | 20 | 394,606 | A B C; premature J rejected | 153.27 | no / unavailable |
+| Cube / `native-interface-matmul-01/run` | 20 | 386,932 | A B C | 163.36 | no / unavailable |
+
+All observers saw the shared model-call limit and normal CLI exit. No trial
+reached D/E/F/G/H or produced a device timing. Max's 22 model-tool calls all
+succeeded; lack of tool errors did not imply useful optimization progress.
+Min made 25 calls: 23 completed, and two failed (an incorrect artifact path and
+J before any frozen candidate). Its explicit `npu-ir` call at model call 12
+returned `Bind contract and freeze candidate first`, so no IR driver ran and no
+diagnostic artifact was read. These are failed clean optimization trials.
+
+For max and min, the full ABI read at model call 3 appeared verbatim in actual
+requests 4 and 5. At request 6 it became a 209-character receipt stub. Max spent
+requests 9–20 on read-only bash exploration. Min used eleven `read_receipt`
+calls paging ABI/benchmark records. The original grounding max wires were only
+53–79 KiB despite a configured 2 MiB context-byte allowance. The model's 1M-token
+context window, this input-byte allowance, and the provider's 1 MiB response
+stream limit are distinct limits.
+
+Retain the interface documentation as an accurate description of the installed
+compiler; do not claim improved success or fewer calls. **Hypothesis 3:**
+unconditional age-based replacement causes avoidable rereading. The existing
+policy stubs successful outputs of at least 8 KiB after two assistant turns even
+without byte pressure. Change only retention: measure the owner-composed model
+input (system, protected facts, tools and messages), then reduce eligible old
+successful outputs only when approaching its authoritative byte limit. Preserve
+immutable receipt references, recent exchanges, failed/unknown/protected results,
+and the original hard limit. Do not combine Goal-count visibility, stream limits,
+diagnostic defaults or receipt pagination changes. Test the same three tasks
+with the interface documentation and all evaluation contracts unchanged.
+
+Context-retention qualification caught an initial compatibility error before any
+formal trial: native `bashExecution`/extension messages are not plain provider
+messages. The corrected implementation uses Pi's pinned `convertToLlm`, maps
+receipt and reference-anchor indexes to the converted messages, and verifies
+the complete model-visible prefix. It preserves shell, custom, fork and compact
+content, including Pi's deliberate exclusion of context-hidden shell messages.
+
+Final local qualification: 15 directed checks (including both original-session
+replays) passed; full npm/type/managed checks passed 86 tests with two optional
+replay skips, both executed successfully in the directed run. Python discovery
+ran 187 tests: 185 passed, one optional skip, one portable-import error; the two
+portable replay tests passed after the native conversion fix. These are separate
+runs, not a single all-green discovery. Final PTY evidence passed codegen's ten
+checks (35 ordinary turns, 48 provider requests), advanced's eleven checks, and
+parallel/background's eight checks. Paths are
+`.validation/context-retention-codegen-r3`, `context-retention-advanced-r2`, and
+`context-retention-parallel-r2`. The initial codegen failure is retained; advanced
+r1 was interrupted by the observer and is not classified as a product failure.
+The subsequent advanced run naturally completed the large output and compaction.
+No real-model context-retention trial had started during this qualification.

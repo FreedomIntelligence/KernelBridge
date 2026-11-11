@@ -2,7 +2,7 @@
 import type { ContextSource, JsonObject } from "./context.ts";
 import type { ReplayPluginConfiguration, RsiSourceCommit } from "./rsi.ts";
 import type { ContextCommit } from "./runtime.ts";
-export const SCHEMA_SHA256 = "8044ec283bb4ff239fda049dbaa6c87d05dc6b01857f21035520ede7ec13b63e";
+export const SCHEMA_SHA256 = "0cd2de2dffdebd9d32c49f88b59f2ec3a47f752850cc7d548058f1f8e10c0ce3";
 export const SCHEMA = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kernelcat.local/contracts/execution/v1/harness.schema.json",
@@ -352,7 +352,8 @@ export const SCHEMA = {
             "no_immutable_reference",
             "short_result",
             "duplicate_delivery",
-            "immutable_reference"
+            "immutable_reference",
+            "within_budget"
           ]
         }
       },
@@ -753,7 +754,7 @@ export interface ReplayResultMetadata {
 export interface ReplayCleanupDecision {
   readonly index: number;
   readonly action: "keep" | "remove" | "replace";
-  readonly reason: "user" | "non_result" | "unpaired_or_pending" | "recent" | "unproven_or_unsuccessful" | "reference_anchor" | "no_immutable_reference" | "short_result" | "duplicate_delivery" | "immutable_reference";
+  readonly reason: "user" | "non_result" | "unpaired_or_pending" | "recent" | "unproven_or_unsuccessful" | "reference_anchor" | "no_immutable_reference" | "short_result" | "duplicate_delivery" | "immutable_reference" | "within_budget";
 }
 
 export interface ReplayCleanupReport {

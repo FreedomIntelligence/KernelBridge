@@ -59,7 +59,7 @@ function sourceSnapshot(value: unknown): SelectionContext {
 }
 
 /** Covers JSON bytes and Python's extra zero in negative one-digit exponents. */
-function encodedBytes(value: unknown): number {
+export function encodedBytes(value: unknown): number {
   const text = canonicalKey(value);
   let exponentPadding = 0;
   function visit(item: unknown): void {

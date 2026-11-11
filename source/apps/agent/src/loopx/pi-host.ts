@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { controlledContext } from "./context-control.ts";
+import { createContextControl } from "./context-control.ts";
 import { fork } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { delimiter, dirname } from "node:path";
@@ -141,7 +141,8 @@ class PiProcess {
   async run(client: EffectRpc, directory: string, options: HarnessOptions = {}): Promise<Record<string, unknown>> {
     if (this.phase !== "ready") throw new Error("Prepared Pi process can execute only once");
     this.onEvent = options.onEvent;
-    this.rpc = controlledContext(controlledRsi(controlledModels(client)), directory);
+    const contextControl = createContextControl(directory);
+    this.rpc = contextControl.wrap(controlledRsi(controlledModels(client, contextControl.project)));
     this.phase = "running";
     await send(this.child, { type: "start" });
     return await this.result.promise;

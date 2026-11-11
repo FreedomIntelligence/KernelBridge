@@ -19,7 +19,7 @@ function content(value: Message["content"]): string | JsonObject[] {
   });
 }
 
-function message(value: Message): JsonObject {
+export function harnessMessage(value: Message): JsonObject {
   const projected = { role: value.role, content: content(value.content) };
   return value.role === "toolResult" ? { ...projected,
     toolCallId: value.toolCallId, toolName: value.toolName, isError: value.isError,
@@ -37,7 +37,7 @@ export function projectHarness(context: TranscriptContext): HarnessInput {
   const projection = {
     schema_version: "kernelcat.pi-harness/v1", adapter: "pi@1.5.0",
     system_prompt: getCurrentSystemPrompt(context.messages),
-    messages: context.messages.filter((item) => item.role !== "system").map(message),
+    messages: context.messages.filter((item) => item.role !== "system").map(harnessMessage),
     tools,
   };
   return validatedSnapshot(projection, validate, "Effective Pi input");

@@ -6,7 +6,7 @@ import { ApplicationClient } from './client.mjs';
 import { WorkerLease } from './worker-lease.mjs';
 import { controlledModels } from '../loopx/model-control.ts';
 import { controlledRsi } from '../loopx/rsi-control.ts';
-import { controlledContext } from '../loopx/context-control.ts';
+import { createContextControl } from '../loopx/context-control.ts';
 import { withPreparedAgent } from '../harness/pi/sdk.mjs';
 import { createHostActions } from '../harness/pi/host-actions.mjs';
 import { runInteractive } from '../harness/pi/interactive-driver.mjs';
@@ -25,10 +25,11 @@ export async function runApplicationWorker(directory, ticket, { interactive = fa
     // Streaming observations must not delay or disconnect command replies.
     observer = await ApplicationClient.connect(directory);
     actions = createHostActions(control, lease, { observer });
-    const rpc = controlledContext(controlledRsi(controlledModels(lease), async () => {
+    const contextControl = createContextControl(scratch);
+    const rpc = contextControl.wrap(controlledRsi(controlledModels(lease, contextControl.project), async () => {
       const state = await control.state();
       return state.trials.at(-1)?.rsi_context;
-    }), scratch);
+    }));
     return await withPreparedAgent(async run => {
       await recoverApplication(lease);
       return run(rpc, {
