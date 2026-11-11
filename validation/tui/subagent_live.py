@@ -15,6 +15,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--launcher', type=Path, default=ROOT / 'kernelagent')
+    parser.add_argument('--start-at', choices=('simple', 'explicit', 'background'), default='simple',
+                        help='Run only the remaining phases after an independently verified earlier phase.')
     args = parser.parse_args()
     output = args.output.resolve(); output.mkdir(parents=True, exist_ok=False)
     project = output / 'project'; project.mkdir()
@@ -76,22 +78,26 @@ def main():
         binding = json.loads((run / 'application.json').read_text()); client = Client(Path(binding['host_directory']))
         client.socket.settimeout(120)
         assert client.call('status')['model_turns'] == 0
-        children, _ = send('simple', '读取 README.md，只说项目包含哪两个子目录。')
-        assert not children, children
-        checks.append('simple_lookup_stays_in_parent')
-        children, running = send('automatic', '请完整审查两个相互独立的子系统 contract/ 与 recovery/：分别核对文档契约和实现，查找遗漏或风险，引用具体文件，最后合并成一份报告。每块都需要独立梳理。不要改文件或运行设备。')
-        assert children and running, children
-        assert all(row['status'] == 'completed' and row['tool_calls'] > 0 for row in children), children
-        checks.append('natural_task_automatically_routes_to_readonly_child')
-        children, running = send('explicit', '启动两个子代理：一个梳理 contract/ 的算子开发契约，一个梳理 recovery/ 的原任务恢复流程。分别返回 README 中的标识词和实现是否符合契约，引用文件。最后由你汇总，不要修改文件。')
-        assert len(children) == 2 and running, children
-        assert all(row['status'] == 'completed' and row['tool_calls'] > 0 for row in children), children
-        merged = '\n'.join(row['summary'] for row in children)
-        assert 'CONTRACT_ORCHID' in merged and 'RECOVERY_CEDAR' in merged, merged
-        checks.append('two_explicit_children_read_original_files_and_return_evidence')
-        children, _ = send('disabled_by_user', '这次不要启动任何子代理。请你自己读取 recovery/implementation.py，简述缺失 handle 时返回什么。')
-        assert not children, children
-        checks.append('user_no_delegation_constraint_respected')
+        if args.start_at == 'simple':
+            children, _ = send('simple', '读取 README.md，只说项目包含哪两个子目录。')
+            assert not children, children
+            checks.append('simple_lookup_stays_in_parent')
+            children, running = send('automatic', '请完整审查两个相互独立的子系统 contract/ 与 recovery/：分别核对文档契约和实现，查找遗漏或风险，引用具体文件，最后合并成一份报告。每块都需要独立梳理。不要改文件或运行设备。')
+            assert children and running, children
+            assert all(row['status'] == 'completed' and row['tool_calls'] > 0 for row in children), children
+            checks.append('natural_task_automatically_routes_to_readonly_child')
+        if args.start_at != 'background':
+            children, running = send('explicit', '启动两个子代理：一个梳理 contract/ 的算子开发契约，一个梳理 recovery/ 的原任务恢复流程。'
+                '分别读取各自 README 和 implementation.py，返回 README 第一处冒号前的大写校验码（完整保留下划线，不是普通技术关键词）及实现是否符合契约，引用文件。'
+                '必须让各子代理最终报告逐字包含自己读到的校验码，每份报告不超过200字。最后由你汇总，不要修改文件。')
+            assert len(children) == 2 and running, children
+            assert all(row['status'] == 'completed' and row['tool_calls'] > 0 for row in children), children
+            merged = '\n'.join(row['summary'] for row in children)
+            assert 'CONTRACT_ORCHID' in merged and 'RECOVERY_CEDAR' in merged, merged
+            checks.append('two_explicit_children_read_original_files_and_return_evidence')
+            children, _ = send('disabled_by_user', '这次不要启动任何子代理。请你自己读取 recovery/implementation.py，简述缺失 handle 时返回什么。')
+            assert not children, children
+            checks.append('user_no_delegation_constraint_respected')
         # New evidence was never in the earlier parent conversation. Both child
         # receipts and the parent's final synthesis must contain these markers.
         markers = ['BACKGROUND_CONTRACT_' + uuid.uuid4().hex[:8], 'BACKGROUND_RECOVERY_' + uuid.uuid4().hex[:8]]

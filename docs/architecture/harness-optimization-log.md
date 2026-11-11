@@ -75,3 +75,25 @@ source snapshot, full suite, and calibrated positive pairing. The total model
 call ceiling remains unchanged: parent, compaction, child, and review all count;
 separate role counts/tokens are telemetry, not extra allowance. This applies to
 any declared operator contract, not only scatter. Qualification tests are pending.
+
+### Startup qualification failure (zero model calls)
+
+At frozen commit `8410053`, `--goal-from-task --on-detach continue` created an
+active Goal but no model call. The on-detach control receipt made the TUI's
+initial-input guard believe a task input already existed. The observer recorded
+zero model calls and zero device jobs in
+`.validation/harness-trials/baseline-max-01/run`. That session was paused and its
+CLI closed; it is a startup preflight failure, not a completed baseline trial.
+The generic guard now ignores control-only history while still preventing
+replay of a queued/applied task. A regression exercises exactly-once initial
+submission after a control receipt. This is functional readiness, not a claimed
+optimization improvement. The fresh performance session uses a new run directory.
+
+Local qualification: Node 65/65 and TUI Python 35/35 passed before this startup
+fix; the new startup regression and existing settlement/observer tests pass 3/3.
+The full Python discovery ran 162 entries: 155 passed, two skipped, and five
+imports lacked Torch in the strict runtime environment. Those five are being
+rerun with the existing local Torch test dependencies; no packages are installed
+or device results substituted. Enhanced parallel PTY passed all eight checks,
+including foreground independence, original background notifications, Esc
+cancellation, and immediate next input.

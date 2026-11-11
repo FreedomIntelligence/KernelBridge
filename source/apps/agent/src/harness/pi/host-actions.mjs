@@ -497,7 +497,7 @@ export function createHostActions(control, effects, { observer = control } = {})
       }
       await refresh();
       const queued = Object.values(state.inputs).filter(recoverable);
-      if (!queued.length && !governed.restored && Object.keys(state.inputs).length === 0 && state.workspace_mode !== 'project') {
+      if (!queued.length && !governed.restored && !Object.values(state.inputs).some(item => item.kind !== 'control') && state.workspace_mode !== 'project') {
         queued.push(await inputs.accept(governed.hello.goal, 'prompt', 'tui'));
       }
       if (queued.length) {

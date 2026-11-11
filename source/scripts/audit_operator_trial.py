@@ -106,7 +106,9 @@ def audit(run):
             reads.append({'action_id': identity, 'run': args.get('run'), 'path': args.get('path'),
                 'offset': args.get('offset', 0), 'status': outcome.get('status', 'pending')})
         calls.append(item)
-    goals = [row['data'] for row in events if row['kind'] == 'application/goal']
+    goals = [row['data']['goal'] if row['kind'] == 'application/created' else row['data']
+             for row in events if row['kind'] == 'application/goal'
+             or row['kind'] == 'application/created' and row['data'].get('goal')]
     evidence = [row['data'] for row in events if row['kind'] == 'application/evidence']
     promoted = [row for row in evidence if row.get('evidence_tier') == 'E3']
     return {'schema_version': 'kernelbridge.operator-trial-audit/v1', 'run': str(run),
