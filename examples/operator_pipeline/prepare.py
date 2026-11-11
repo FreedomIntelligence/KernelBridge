@@ -42,6 +42,7 @@ def prepare(profile, output, python):
     tool_timeout = max(3600, driver_seconds + diagnostic_seconds + 30)
     shutil.copyfile(Path(__file__).with_name('pipeline.py'), output / 'pipeline.py')
     shutil.copyfile(Path(__file__).with_name('diagnostic_policy.py'), output / 'diagnostic_policy.py')
+    shutil.copyfile(Path(__file__).with_name('qualification.py'), output / 'qualification.py')
     (output / 'config.json').write_text(json.dumps(config, indent=2) + '\n')
     pins = [{'path': str(p), 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()} for p in sorted(output.iterdir())]
     string = {'type': 'string', 'minLength': 1}

@@ -9,6 +9,7 @@ import { createInterface } from 'node:readline';
 import { ApplicationClient } from './client.mjs';
 import { loadCodegenCredentials } from './credentials.mjs';
 import { projectInfo } from './project-info.mjs';
+import { prepareOperatorTask } from './operator-task.mjs';
 
 const agentRoot = fileURLToPath(new URL('../../', import.meta.url));
 const bundleRoot = resolve(agentRoot, '../../..');
@@ -97,21 +98,23 @@ export async function startApplication(options) {
   const task = JSON.parse(await readFile(taskPath, 'utf8'));
   const configPath = resolve(options.config);
   const config = JSON.parse(await readFile(configPath, 'utf8'));
-  const defaults = { max_trials: options.maxTrials ?? null,
-    max_model_turns: options.maxModelTurns ?? null,
-    token_budget: options.goalTokenBudget ?? null,
-    max_forks: options.maxForks ?? null,
-    fork_policy: options.forkPolicy ?? { enabled: true, minimum_observations: 3, cooldown_turns: 3 } };
+  const application = config.application ?? {};
+  const defaults = { max_trials: options.maxTrials ?? application.max_trials ?? null,
+    max_model_turns: options.maxModelTurns ?? application.max_model_turns ?? null,
+    token_budget: options.goalTokenBudget ?? application.token_budget ?? null,
+    max_forks: options.maxForks ?? application.max_forks ?? null,
+    fork_policy: options.forkPolicy ?? application.fork_policy ?? { enabled: true, minimum_observations: 3, cooldown_turns: 3 } };
   for (const key of ['max_trials', 'max_model_turns', 'max_forks', 'token_budget']) {
     if (defaults[key] !== null && (!Number.isSafeInteger(defaults[key]) || defaults[key] < (key === 'max_forks' ? 0 : 1))) throw new Error(`Invalid Goal ${key}`);
   }
   const forkPolicy = defaults.fork_policy;
   if (typeof forkPolicy.enabled !== 'boolean' || !Number.isSafeInteger(forkPolicy.minimum_observations) || forkPolicy.minimum_observations < 2
       || !Number.isSafeInteger(forkPolicy.cooldown_turns) || forkPolicy.cooldown_turns < 1) throw new Error('Invalid automatic fork policy');
-  if (!['pause', 'continue'].includes(options.onDetach ?? 'pause')) throw new Error('Invalid on-detach policy');
+  const onDetach = options.onDetach ?? application.on_detach ?? 'pause';
+  if (!['pause', 'continue'].includes(onDetach)) throw new Error('Invalid on-detach policy');
   const goal = options.sessionOnly !== false ? null : {
     goal_id: `goal-${randomUUID()}`, objective: task.goal, status: 'active', task_version: 1,
-    on_detach: options.onDetach ?? 'pause', ...defaults,
+    on_detach: onDetach, ...defaults,
   };
   const descriptor = { schema_version: 'kernelbridge.application-host/v1', application_session_id: identity,
     host_directory: directory, output, task: taskPath, config: configPath, goal, goal_defaults: defaults,
@@ -130,7 +133,8 @@ export async function launchApplication(descriptor, environment = {}) {
   const configBytes = await readFile(descriptor.config);
   if (createHash('sha256').update(configBytes).digest('hex') !== descriptor.config_sha256) throw new Error('Frozen session configuration changed');
   const config = JSON.parse(configBytes.toString('utf8'));
-  if (config.workspace_mode === 'project') await loadCodegenCredentials(config.providers);
+  // Both codegen and isolated profiles declare env names, never credential bytes.
+  await loadCodegenCredentials(config.providers ?? {});
   const logfile = await open(join(descriptor.output, 'logs/host.log'), 'a', 0o600);
   let child;
   try {
@@ -171,13 +175,18 @@ export async function attachApplication(identity, { restart = false } = {}) {
 }
 
 export async function prepareApplication({ task, profile, output, sessionOnly = true, onDetach }) {
+  output = resolve(output);
   const expand = value => typeof value === 'string' ? value.replaceAll('{bundle}', bundleRoot).replaceAll('{run}', resolve(output))
     : Array.isArray(value) ? value.map(expand) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, expand(item)])) : value;
   const selected = expand(JSON.parse(await readFile(profile, 'utf8')));
+  if (!sessionOnly && selected.goal?.enabled === false) throw new Error('--goal-from-task requires goal.enabled');
   const python = selected.python;
   if (!python) throw new Error('Profile must select an installed Python executable');
   // Task/profile preparation validates and freezes evaluator inputs without dispatch.
-  const result = await new Promise((accept, reject) => {
+  const authored = JSON.parse(await readFile(task, 'utf8'));
+  const result = authored.schema_version === 'kernelbridge.operator-task/v1'
+    ? await prepareOperatorTask({ task: authored, selected, output, agentRoot })
+    : await new Promise((accept, reject) => {
     const child = spawn(python, ['-B', join(bundleRoot, 'examples/cann/prepare.py'), '--task', resolve(task),
       '--profile', resolve(profile), '--output', resolve(output), '--application-host', ...(sessionOnly ? ['--session-only'] : [])], { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';

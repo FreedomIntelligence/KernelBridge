@@ -1,54 +1,61 @@
 # Feature-index scatter max/min
 
-`ascend_sources.py` generates native Ascend C max/min implementations. The device
-campaign uses finite FP32 `src[N,F]`, int64 `index[N]`, reduction along dimension 0,
-33 output groups, values-only output, and zero for empty groups. This is a bounded
-contract, not the complete `torch_scatter` API (for example, it does not return argmax).
+The clean trial implements finite FP32 `src[N,F]`, int64 `index[N]`, dim-0
+reduction into 33 output groups, values only, and zero for empty groups. This
+bounded contract does not include the complete `torch_scatter` API or argmax.
+The existing `ascend_sources.py` is an example implementation and is deliberately
+not supplied to, or readable by, a clean optimization trial.
 
-`npu_eager.py` provides a Torch NPU eager composition using a broadcast group mask
-and `amax`/`amin`. A backend which silently sends `scatter_reduce` to the CPU is
-not an NPU baseline. The driver checks both candidate and eager outputs against
-an independent CPU per-group oracle before timing. Oracle work is outside timing.
+`npu_eager.py` is the frozen full-NPU broadcast-mask plus `amax`/`amin` comparator.
+The independent CPU oracle checks all six cases and is excluded from timing.
+CPU fallback does not qualify as an NPU baseline.
 
-Prepare each operator separately after deploying the `npu_*.py` helpers
-and `../operator_pipeline/diagnostic_policy.py` to the remote
-profile's tools directory:
+Prepare an empty trial after deploying the pinned `npu_*.py` helpers and
+`../operator_pipeline/diagnostic_policy.py` to the authorized remote profile:
 
 ```sh
 python3 -B examples/scatter/prepare_npu_campaign.py \
-  --output /path/to/campaign-max --mode max --device 0 \
+  --output /path/to/trial-max --mode max --device 0 \
   --transport /path/to/authorized_transport.py \
-  --remote-root /path/to/remote/campaign --python /path/to/python
-node examples/scatter/run_npu_campaign.mjs \
-  --campaign /path/to/campaign-max --config /path/to/model-config.json
+  --remote-root /path/to/remote/campaign --python /path/to/python \
+  --runtime-profile /path/to/runtime-profile.json
+./kernelagent tui --task /path/to/trial-max/task.json \
+  --profile /path/to/trial-max/profile.json --output /path/to/new-run \
+  --goal-from-task --on-detach continue
 ```
 
-Use a separate output directory and `--mode min` for min. The transport module
-exports `run(argv, cwd=None, stdin=b'', timeout=...)`, returning `returncode` and
-byte strings `stdout`/`stderr`. Its credentials stay outside tracked files.
-The remote profile provides the Python environment, CANN environment and frozen
-executor deployment expected by `npu_enter.py`.
+The runtime profile declares `python`, `node`, `expected_python_modules`, model
+providers and policy under `config`. Use credential environment names; private
+credentials stay outside task/profile files. Preparation seeds only readonly
+contract, workflow and ABI documents. The model must create `candidate.py`.
+Use independent output directories and `--mode min` for min.
 
-The runner makes 20 model-led optimization attempts per operator. Each requested
-round edits the six-source `candidate.py`, freezes the source, and calls `npu_trial`
-once. Compilation and correctness failures remain failed rounds. Unknown dispatch
-outcomes are unresolved and cannot be replaced with a new launch. Recover the
-original handle, then resume the same campaign:
+One trial is capped at **20 actual model calls**, including compaction, children
+and review. Child calls and tokens are reported separately within that total.
+It is not twenty externally prompted candidate edits. The harness receives all
+A-J tools and chooses the steps itself. E creates one original native job;
+F/G/J project that job's full-suite checks, original ABBA samples and diagnostics.
+Only one device job executes at a time. Unknown outcomes retain the original
+handle and require recovery, never a replacement launch.
+
+Scatter retains three ABBA blocks and the original pooled-six median speedup.
+Separate eager/eager AAAA blocks calibrate noise using the same device, inputs
+and measurement settings. H requires full F correctness, GM greater than one,
+and paired log improvement above the calibrated threshold. Every regressing
+case/family remains in the receipt. E4 platform acceptance is separate.
+
+An optional read-only observer launches exactly that CLI and records the original
+Journal without steering the model or writing a candidate:
 
 ```sh
-/path/to/python -B examples/scatter/npu_trial.py \
-  /path/to/campaign-max/trial-config.json --recover 7
+python3 -B examples/scatter/run_operator_trial.py \
+  --task /path/to/trial-max/task.json --profile /path/to/trial-max/profile.json \
+  --output /path/to/new-run
+python3 -B source/scripts/audit_operator_trial.py /path/to/new-run \
+  --output /path/to/audit.json
 ```
 
-Each correct candidate is measured on the same device in three ABBA groups:
-eager, candidate, candidate, eager. Both sides include output allocation. Timing
-and source hashes, original process handles, driver/baseline identities and
-diagnostic artifacts are retained. Failure or a nonpositive pair invokes the
-shared diagnostic policy; configured profile rounds also collect trace evidence.
-Unavailable IR or profiling is reported explicitly.
-
-`progress.json` records all original results. `best-observed.py` is the fastest
-observed correct candidate versus eager. Its ranking across rounds is not a
-paired comparison against the preceding incumbent and is not an official score.
-The runner continues from the best observed correct source while keeping failed
-variants. No implicit Goal, Trial budget, or token budget is created.
+The audit separates automatic diagnostic capture, explicit J calls and artifact
+reads. IR export failure is reported as unavailable. Tool availability alone is
+not evidence that the agent called, read or used it. An observer timeout preserves
+the original session and does not authorize another job.

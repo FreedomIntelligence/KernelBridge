@@ -20,7 +20,7 @@ class GoalProgressTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.store = Journal(Path(self.directory.name) / 'events.jsonl')
         self.store.initialize(None, Policy())
-        task = {'id': 'task', 'goal': 'code', 'contract': {}}
+        task = {'id': 'task', 'goal': 'code', 'scope': 'code', 'contract': {}}
         self.store.register_task(task)
         self.app = ApplicationJournal(self.store, 'app')
         self.app.command('create', {'task': task, 'workspace_mode': 'project', 'goal': None})
@@ -49,8 +49,36 @@ class GoalProgressTests(unittest.TestCase):
         self.model('compact', 5)
         with self.assertRaises(BudgetExceeded): self.model('denied', 1)
         usage = goal_usage(list(self.store._events(self.store.events())), self.app.state()['goal'])
-        self.assertEqual(usage, {'model_turns': 3, 'tokens': 20, 'usage_unknown_calls': 0})
+        self.assertEqual({key: usage[key] for key in ('model_turns', 'tokens', 'usage_unknown_calls')},
+                         {'model_turns': 3, 'tokens': 20, 'usage_unknown_calls': 0})
         self.assertEqual(self.store.snapshot()['reserved'], 0)
+
+    def test_shared_twenty_calls_include_children_compaction_and_review(self):
+        self.store = Journal(Path(self.directory.name) / 'capped-events.jsonl')
+        self.store.initialize(None, Policy())
+        task = {'id': 'task', 'goal': 'code', 'scope': 'code', 'contract': {}}
+        self.store.register_task(task)
+        self.app = ApplicationJournal(self.store, 'capped')
+        self.app.command('create', {'task': task, 'workspace_mode': 'project', 'goal': None,
+                                   'goal_defaults': {'max_model_turns': 20}})
+        lease = self.app.command('acquire', {'worker_id': 'worker', 'mode': 'headless'})['lease']
+        self.store.bind_application_lease('capped', 'worker', lease['lease_epoch'])
+        self.control('set', objective='strict trial')
+        child = 'task/delegate/worker/leaf'
+        self.store.register_task({'id': child, 'goal': 'child', 'scope': 'child', 'contract': {}})
+        for index in range(20):
+            role = index % 4
+            identity = ('task/compact/' if role == 1 else 'task/goal-review/' if role == 3 else 'model-') + str(index)
+            action = Action(id=identity, task=child if role == 2 else 'task', tool='__propose__')
+            self.store.admit(action, 1, self.store.policy()); self.store.started(action)
+            self.store.settle(action, Outcome(data={'usage': {'total_tokens': index + 1}}), 0)
+        with self.assertRaises(BudgetExceeded): self.model('twenty-first', 1)
+        usage = goal_usage(list(self.store._events(self.store.events())), self.app.state()['goal'])
+        self.assertEqual(usage['model_turns'], 20)
+        self.assertEqual(usage['tokens'], 210)
+        self.assertEqual({role: value['model_turns'] for role, value in usage['by_role'].items()},
+                         dict.fromkeys(('parent', 'compact', 'child', 'review'), 5))
+        self.assertEqual(sum(value['tokens'] for value in usage['by_role'].values()), 210)
 
     def test_new_objective_has_new_identity_and_accounting(self):
         first = self.control('set', objective='one', token_budget=1)['goal']
@@ -101,7 +129,7 @@ class GoalProgressTests(unittest.TestCase):
         host.capture_source = lambda: {'source_sha256': 'a' * 64, 'snapshot_kind': 'conversation_only', 'files': []}
         def state():
             value = self.app.state(); value['goal']['max_forks'] = 1
-            return dict(value, pending_effect_ids=[], budget={'limit': None, 'spent': 0, 'reserved': 0})
+            return dict(value, pending_effect_ids=[], subagents=[], budget={'limit': None, 'spent': 0, 'reserved': 0})
         host.status = state
         connection = SimpleNamespace(worker=self.lease)
         params = {'operation': 'clone', 'pi_session_id': 'native', 'entry_id': 'entry'}

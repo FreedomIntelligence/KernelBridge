@@ -17,6 +17,7 @@ import traceback
 
 from npu_eager import scatter_eager
 from npu_diagnostics import collect_ir
+from npu_candidate_audit import audit_wrapper, audit_native_binding
 try:
     from diagnostic_policy import assess_diagnostics, diagnostic_reason
 except ModuleNotFoundError:
@@ -88,18 +89,22 @@ def run(args):
     shutil.copyfile(__file__, job / 'driver.py')
     shutil.copyfile(Path(__file__).with_name('npu_eager.py'), job / 'npu_eager.py')
     shutil.copyfile(Path(__file__).with_name('npu_diagnostics.py'), job / 'npu_diagnostics.py')
+    shutil.copyfile(Path(__file__).with_name('npu_candidate_audit.py'), job / 'npu_candidate_audit.py')
     request = {'mode': args.mode, 'source_sha256': source_sha, 'device': args.device, 'soc': args.soc,
                'warmup': args.warmup, 'repeats': args.repeats, 'pairs': args.pairs,
                'baseline': 'torch_npu_eager_broadcast_mask_reduce', 'baseline_sha256': digest(Path(__file__).with_name('npu_eager.py')),
                'driver_sha256': digest(__file__), 'diagnostic_driver_sha256': digest(Path(__file__).with_name('npu_diagnostics.py')),
-               'profile': bool(args.profile)}
+               'candidate_audit_sha256': digest(Path(__file__).with_name('npu_candidate_audit.py')), 'profile': bool(args.profile)}
     (job / 'request.json').write_text(json.dumps(request, indent=2) + '\n')
     status = {'status': 'running', **request, 'started_at_ns': time.time_ns()}
     policy = {'on_failure': True, 'on_regression': True, 'required': bool(args.profile), 'scope': 'npu_diagnostic'}
     profiler_error = None
+    noise = None
     (job / 'status.json').write_text(json.dumps(status))
     try:
         parsed = sources(job / 'candidate.py')
+        audit = {'wrapper': audit_wrapper(parsed['model_src'], call_name='run'),
+                 'binding': audit_native_binding(parsed['python_bind_src'])}
         build = job / 'build'
         shutil.copytree(Path(compiler.__file__).parent / 'templates/CppExtension', build / 'CppExtension')
         settings = BuildSettings('scatter_' + args.mode, build, args.soc, args.device)
@@ -108,7 +113,21 @@ def run(args):
         model = runtime.context['ModelNew']().eval()
         cases = suite(torch, args.mode, runtime.device)
         timings = []
+        environment = {'torch': torch.__version__, 'torch_npu': torch_npu.__version__, 'device': torch.npu.get_device_name(args.device)}
         with torch.no_grad():
+            # Independent null comparison; candidate timing and its original ABBA arms remain unchanged.
+            noise = {'schema_version': 'kernelbridge.noise-calibration/v1', 'protocol': 'independent_eager_aaaa',
+                     **{key: request[key] for key in ('pairs', 'warmup', 'repeats', 'device', 'baseline_sha256', 'driver_sha256', 'source_sha256')},
+                     'environment': environment, 'cases': []}
+            for case in cases:
+                baseline_call = lambda: scatter_eager(case['src'], case['index'], 33, args.mode)
+                if not torch.equal(baseline_call().cpu(), case['expected']):
+                    raise ValueError('Eager correctness failed before calibration: ' + case['id'])
+                arms = [{'pair': pair, 'position': position, 'arm': 'eager', 'input_sha256': case['input_sha256'],
+                         'us': measure(baseline_call, torch, args.warmup, args.repeats)}
+                        for pair in range(args.pairs) for position in range(4)]
+                noise['cases'].append({'id': case['id'], 'input_sha256': case['input_sha256'], 'arms': arms})
+            (job / 'noise.json').write_text(json.dumps(noise, indent=2, allow_nan=False) + '\n')
             for case in cases:
                 candidate_call = lambda: model(case['src'], case['index'])
                 baseline_call = lambda: scatter_eager(case['src'], case['index'], 33, args.mode)
@@ -121,8 +140,8 @@ def run(args):
                     raise ValueError('Eager correctness failed: ' + case['id'])
                 arms = []
                 for pair in range(args.pairs):
-                    for name, fn in [('eager', baseline_call), ('candidate', candidate_call), ('candidate', candidate_call), ('eager', baseline_call)]:
-                        arms.append({'pair': pair, 'arm': name, 'us': measure(fn, torch, args.warmup, args.repeats)})
+                    for position, (name, fn) in enumerate([('eager', baseline_call), ('candidate', candidate_call), ('candidate', candidate_call), ('eager', baseline_call)]):
+                        arms.append({'pair': pair, 'position': position, 'arm': name, 'input_sha256': case['input_sha256'], 'us': measure(fn, torch, args.warmup, args.repeats)})
                 medians = {name: statistics.median(row['us'] for row in arms if row['arm'] == name) for name in ['eager', 'candidate']}
                 timings.append({'id': case['id'], 'input_sha256': case['input_sha256'], 'correct': True, 'arms': arms,
                                 **medians, 'speedup': medians['eager'] / medians['candidate']})
@@ -139,13 +158,16 @@ def run(args):
                         torch.npu.synchronize(); profiler.step()
                 except Exception as error:
                     profiler_error = str(error)
-        result = {**status, 'status': 'completed', 'correct': True, 'cases': timings,
+        result = {**status, 'status': 'completed', 'correct': True, 'cases': timings, 'audit': audit,
                   'geomean_speedup': statistics.geometric_mean(row['speedup'] for row in timings),
-                  'environment': {'torch': torch.__version__, 'torch_npu': torch_npu.__version__, 'device': torch.npu.get_device_name(args.device)},
+                  'environment': environment,
                   'build_outputs': [{'path': str(item.path), 'sha256': item.sha256} for item in compiled.files]}
         runtime.close()
     except Exception as error:
         result = {**status, 'status': 'failed', 'error': type(error).__name__, 'message': str(error), 'traceback': traceback.format_exc()}
+    if noise is not None and (job / 'noise.json').is_file():
+        result['noise_calibration'] = noise
+        result['noise_calibration_sha256'] = digest(job / 'noise.json')
     ir_error = None
     triggered = diagnostic_reason(policy, failed=result['status'] != 'completed',
                                   regression=any(row['speedup'] <= 1 for row in result.get('cases', [])))

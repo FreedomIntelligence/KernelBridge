@@ -31,17 +31,34 @@ def goal_usage(events, goal):
     start = goal.get("start_seq", -1)
     admitted = {row["action"]["id"]: row for row in events if row["kind"] == "admitted"
                 and row.get("seq", -1) > start and row["action"]["tool"] == "__propose__"}
+    groups = {name: {'model_turns': 0, 'tokens': 0, 'usage_unknown_calls': 0, 'pending_calls': 0}
+              for name in ('parent', 'compact', 'child', 'review')}
+    def category(action):
+        if '/compact/' in action['id']:
+            return 'compact'
+        if '/goal-review/' in action['id']:
+            return 'review'
+        return 'child' if action['task'].endswith('/leaf') else 'parent'
+    for row in admitted.values():
+        group = groups[category(row['action'])]
+        group['model_turns'] += 1
+        group['pending_calls'] += 1
     tokens = 0
     unknown = 0
     for row in events:
         if row["kind"] == "settled" and row.get("action_id") in admitted:
             outcome = row["outcome"]
+            group = groups[category(admitted[row['action_id']]['action'])]
+            group['pending_calls'] -= 1
             usage = outcome.get("data", {}).get("usage") or outcome.get("details", {}).get("usage")
             if isinstance(usage, dict) and usage:
                 tokens += token_count(usage)
+                group['tokens'] += token_count(usage)
             else:
                 unknown += 1
-    return {"model_turns": len(admitted), "tokens": tokens, "usage_unknown_calls": unknown}
+                group['usage_unknown_calls'] += 1
+    return {"model_turns": len(admitted), "tokens": tokens, "usage_unknown_calls": unknown,
+            'by_role': groups, 'counting': 'all_model_calls_including_compact_child_review'}
 
 
 def continuation_has_progress(events, receipt):

@@ -11,12 +11,12 @@ import math
 import os
 from pathlib import Path
 import re
-import statistics
 import subprocess
 import sys
 import time
 import zipfile
 from diagnostic_policy import diagnostic_reason, verify_record
+from qualification import aggregate, qualify
 
 
 def encoded(value):
@@ -75,7 +75,7 @@ class Pipeline:
 
     def path(self, value):
         path = Path(value).resolve(strict=True)
-        if not any(path.is_relative_to(Path(root)) for root in [*self.config['read_roots'], str(self.root)]):
+        if not any(path.is_relative_to(Path(root)) for root in [*self.config['read_roots'], str(self.root), str(Path.cwd())]):
             raise ValueError('Source outside configured read roots')
         if not path.is_file() or path.stat().st_size > 32 * 1024 * 1024:
             raise ValueError('Source must be a bounded regular file')
@@ -139,7 +139,7 @@ class Pipeline:
         for path, expected in driver['files'].items():
             if sha(path) != expected: raise ValueError('Configured driver changed')
         folder.mkdir()
-        request = {'source': source, 'role': role, 'contract': contract, 'handle': handle,
+        request = {'action_id': getattr(self, 'action_id', None), 'source': source, 'role': role, 'contract': contract, 'handle': handle,
                    'binding': self.binding() if binding is None else binding, 'output': str(folder)}
         if recovery is not None: request['recovery'] = recovery
         if trigger is not None: request['trigger'] = trigger
@@ -323,7 +323,7 @@ class Pipeline:
             trigger = diagnostics.get('trigger') or {}
             if trigger.get('binding') == binding and any(report.get('status') == 'unknown' for report in diagnostics.get('reports', [])):
                 next_actions = [step('J', None, {}, 'Original diagnostic is unresolved; recover its existing evidence before further device work.', status='blocked')]
-            elif s['stage'] == 'J' or (check and not check['passed']) or (s.get('pair') and s['pair']['speedup'] <= 1) or (
+            elif s['stage'] == 'J' or (check and not check['passed']) or (s.get('pair') and (s['pair']['speedup'] <= 1 or s['pair'].get('qualification', {}).get('qualified') is False)) or (
                     last.get('status') == 'failed' and last.get('stage') in {'F', 'G'} and last.get('source') == s['candidate']['sha256']):
                 next_actions = [step('C', 'pipeline_plan', {'stage': 'C'}, 'Read the returned IR/profiler/trace artifacts and failed or regressing cases, then revise the hypothesis.',
                                      required_arguments=['record'], diagnostic_reports=diagnostics.get('reports', []))]
@@ -393,6 +393,9 @@ class Pipeline:
             s['stage'] = args['stage']; s[args['stage']] = args['record']; return args['record']
         if tool == 'pipeline_freeze':
             if not s.get('C'): raise ValueError('Record the implementation hypothesis first')
+            if self.config.get('candidate_source') == 'workspace' and any(
+                    not Path(path).resolve().is_relative_to(Path.cwd()) for path in args['files'].values()):
+                raise ValueError('Candidate files must originate in the isolated current workspace')
             source = self.freeze(args['files'], output / 'source')
             s.update(candidate=source, check=None, pair=None, stage='D', origin=args['origin'])
             return source
@@ -447,6 +450,7 @@ class Pipeline:
                           and sorted(data.get('case_ids', [])) == sorted(case['id'] for case in s['contract']['suite'])
                           and data.get('oracle_sha256') == s['contract']['oracle']['files']['sha256'])
                 s['check'] = {'binding': self.binding(), 'passed': passed, 'receipt': str(output / 'driver/receipt.json'),
+                              'action_id': getattr(self, 'action_id', None),
                               'scope': data.get('scope', 'unspecified')}
                 s['pair'] = None
             if stage == 'E' and driver['kind'] == 'collect' and collection:
@@ -475,32 +479,38 @@ class Pipeline:
                 raise ValueError('ABBA requires identical full cases, environment, measurement and correct arms')
             if ids != {case['id'] for case in s['contract']['suite']}:
                 raise ValueError('ABBA omitted declared cases')
-            medians = []
-            for result in results:
-                values = {}
-                for case, samples in result['cases'].items():
-                    if not isinstance(samples, list) or not samples or any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in samples):
-                        raise ValueError('Timing samples must be positive finite measurements')
-                    values[case] = statistics.median(samples)
-                medians.append(values)
-            ratios = {case: (medians[0][case] + medians[3][case]) / (medians[1][case] + medians[2][case]) for case in sorted(ids)}
+            ratios = aggregate(results, s['contract']['measurement'])
+            qualification = qualify(results, s['contract'], self.binding(), source['files'], baseline['files'], ratios)
             overall = math.exp(sum(math.log(r) for r in ratios.values()) / len(ratios))
             families = {}
             for case in s['contract']['suite']:
                 families.setdefault(case.get('family', 'all'), []).append(ratios[case['id']])
             s['pair'] = {'binding': self.binding(), 'speedup': overall, 'cases': ratios,
+                         'action_id': getattr(self, 'action_id', None),
                          'regressions': [case for case, ratio in ratios.items() if ratio < 1],
                          'families': {name: math.exp(sum(map(math.log, values)) / len(values)) for name, values in families.items()},
                          'environment': env, 'receipts': [str(output / ('arm-' + str(i)) / 'receipt.json') for i in range(4)]}
+            if qualification is not None: s['pair']['qualification'] = qualification
             s['stage'] = 'G'; return s['pair']
         if tool == 'pipeline_promote':
             self.check_passed(); pair = s['pair']
             self.required_diagnostics_passed()
             if s['baseline'] and (not pair or pair['binding'] != self.binding() or pair['speedup'] <= 1):
                 raise ValueError('Promotion requires a positive complete paired result against the selected baseline')
+            if s['contract']['measurement'].get('require_noise') is True and (
+                    not pair or pair.get('qualification', {}).get('qualified') is not True):
+                raise ValueError('Promotion requires an independently calibrated complete pair above measured noise')
             s.update(incumbent=source, stage='H')
+            normalized_contract = copy.deepcopy(s['contract'])
+            normalized_contract['oracle']['files'] = s['contract']['oracle']['files']['files']
+            receipt_paths = [s['check']['receipt'], *(pair['receipts'] if pair else [])]
             return {'incumbent': source, 'bootstrap': s['baseline'] is None, 'speedup': pair['speedup'] if pair else None,
-                    'scope': s['check']['scope'], 'baseline_selection': 'Call pipeline_baseline(selection="incumbent") before the next iteration'}
+                    'scope': s['check']['scope'], 'baseline_selection': 'Call pipeline_baseline(selection="incumbent") before the next iteration',
+                    'promotion_evidence': {'contract': normalized_contract, 'source_files': source['files'],
+                        'baseline_files': s['baseline']['files'] if s['baseline'] else None,
+                        'binding': self.binding(), 'check': s['check'], 'pair': pair,
+                        'receipts': {path: sha(path) for path in receipt_paths},
+                        'promotion_action_id': getattr(self, 'action_id', None)}}
         if tool == 'pipeline_archive':
             self.check_passed()
             if s['incumbent'] != source: raise ValueError('Archive only the accepted source')
@@ -515,6 +525,7 @@ class Pipeline:
         raise ValueError('Unknown pipeline tool')
 
     def apply(self, action):
+        self.action_id = action['id']
         identity = hashlib.sha256(action['id'].encode()).hexdigest()
         output = self.root / identity
         # No implicit rerun after a lost reply. The outer Journal recovers the
@@ -549,7 +560,10 @@ class Pipeline:
         self.state['receipts'].append({'run': identity, 'tool': action['tool'], 'status': status,
                                        'manifest_sha256': sha(output / 'manifest.json')})
         save(self.root / ('event-%08d.json' % len(self.state['receipts'])), {'parent': self.chain, 'body': self.state, 'sha256': digest(self.state)})
-        return {'status': status, 'data': {'run': identity, 'result': result if len(encoded(result)) < 16000 else 'Read result.json with pipeline_read',
+        return {'status': status, 'data': {'run': identity, 'manifest_sha256': sha(output / 'manifest.json'),
+                                         'result': result if len(encoded(result)) < 16000 else 'Read result.json with pipeline_read',
+                                         **({'promotion_evidence': result['promotion_evidence']}
+                                            if action['tool'] == 'pipeline_promote' and status == 'completed' else {}),
                                          'workflow': self.workflow()}}
 
 

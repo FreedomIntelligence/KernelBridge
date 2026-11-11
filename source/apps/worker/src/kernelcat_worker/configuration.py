@@ -114,12 +114,24 @@ class GoalReviewConfig(Contract):
     context_bytes: int = Field(ge=4096, le=1048576, default=131072)
 
 
+class ApplicationConfig(Contract):
+    max_trials: int | None = Field(ge=1, default=None)
+    # A shared hard ceiling: parent, compaction, child and review model calls.
+    max_model_turns: int | None = Field(ge=1, default=None)
+    token_budget: int | None = Field(ge=1, default=None)
+    max_forks: int | None = Field(ge=0, default=None)
+    fork_policy: Json | None = None
+    on_detach: Literal['pause', 'continue'] = 'pause'
+    complete_on_acceptance: bool = True
+
+
 class Config(Contract):
     python_modules: Json
     native_session_seed: NativeSessionSeed | None = None
     business_tools: tuple[BusinessToolConfig, ...] = Field(default=(), max_length=32)
     subagents: SubagentConfig = Field(default_factory=SubagentConfig)
     goal_review: GoalReviewConfig = Field(default_factory=GoalReviewConfig)
+    application: ApplicationConfig = Field(default_factory=ApplicationConfig)
     candidate_retention: CandidateRetention | None = None
     required_checks: tuple[RequiredCheck, ...] = ()
     state_dir: str = ".state"

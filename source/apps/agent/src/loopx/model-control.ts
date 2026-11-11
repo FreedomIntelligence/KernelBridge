@@ -49,13 +49,24 @@ async function modelTurn(rpc: EffectRpc, request: ModelTurnRequest, native: bool
 export function controlledModels(rpc: EffectRpc): EffectRpc {
   let native: boolean | undefined;
   // Concurrent delegations each hold their own permit and admitted route order.
-  const children = new Map<string, { readonly permit: string; readonly routes: readonly string[] }>();
+  type Child = { readonly permit: string; readonly routes: readonly string[];
+    settlement?: { readonly request: string; readonly result: Promise<Record<string, unknown>> } };
+  const children = new Map<string, Child>();
+
+  async function stoppedChild(child: Child): Promise<Record<string, unknown>> {
+    // Only an acknowledged settlement closes a permit. An uncertain reply
+    // still rejects through the original promise and fences the transport.
+    const result = await child.settlement!.result;
+    const outcome = result.outcome as { status: string; data?: { reason?: string } };
+    return { failed: true, stop: true, reason: outcome.data?.reason ?? "child_closed", receipt: child.permit };
+  }
 
   async function childTurn(params: Readonly<Record<string, unknown>>): Promise<Record<string, unknown>> {
     const request = validatedSnapshot(params, validateChild, "Child model turn");
     const child = children.get(request.permit);
     if (!child) throw new Error("Child model turn has no live owner permit");
     for (const route of child.routes) {
+      if (child.settlement) return stoppedChild(child);
       const reply = await rpc.call("child_model", { permit: child.permit, route });
       if (reply.stop === true || reply.failed !== true) return reply;
     }
@@ -78,6 +89,10 @@ export function controlledModels(rpc: EffectRpc): EffectRpc {
         return await modelTurn(rpc, validatedSnapshot(params, validateTurn, "Model turn"), native);
       }
       if (method === "child_model_turn") return await childTurn(params);
+      if (method === "child_tool" && typeof params.permit === "string") {
+        const child = children.get(params.permit);
+        if (child?.settlement) return stoppedChild(child);
+      }
       if (method === "plugin_begin") {
         const permission = await rpc.call(method, params);
         if (permission.cached === true) return permission;
@@ -87,8 +102,30 @@ export function controlledModels(rpc: EffectRpc): EffectRpc {
         const { routes: _routes, ...execution } = permission;
         return execution;
       }
+      if (method === "plugin_settle" && typeof params.permit === "string") {
+        const child = children.get(params.permit);
+        if (child) {
+          const request = canonicalKey(params);
+          if (child.settlement) {
+            if (child.settlement.request !== request) throw new Error("Child settlement differs from its original request");
+            return child.settlement.result;
+          }
+          const result = Promise.resolve().then(async () => {
+            const reply = await rpc.call(method, params);
+            const outcome = reply.outcome as { status?: unknown } | undefined;
+            if (!outcome || !["completed", "failed"].includes(String(outcome.status))) {
+              throw new Error("Child settlement is unresolved; inspect its original receipt");
+            }
+            return reply;
+          });
+          // Keep the original result, including rejection, for late Pi work.
+          // Deleting here turns a known cancellation into a transport failure
+          // and can prevent another child's admitted effect from settling.
+          child.settlement = { request, result };
+          return result;
+        }
+      }
       const result = await rpc.call(method, params);
-      if (method === "plugin_settle" && typeof params.permit === "string") children.delete(params.permit);
       return result;
     },
   };
