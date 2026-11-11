@@ -2,6 +2,44 @@
 
 Status: local deterministic acceptance passed on macOS, Node 22.19.0 and Python 3.12. The implementation was completed before test authoring. Device qualification was initially deferred. The later supplied SLAI transport now reaches the authorized NPU target, and device discovery completed. Scatter optimization rounds and eager-NPU qualification are still pending; the discovered torch scatter_reduce fallback to CPU is not an NPU baseline.
 
+## TUI and subagent redesign follow-up (2026-11-11)
+
+Scope and design: [TUI and subagent redesign](../../docs/architecture/tui-subagent-redesign.md). Branch `feat/tui-subagent-redesign`, merged to `main`. Implementation preceded the new checks; failures found during acceptance were repaired and the affected checks rerun. Results below are combined from the recorded runs, not one simultaneous run. Local fixture replies are not live model or device acceptance; the DeepSeek row is a real, billable model run.
+
+| Check | Observed result |
+| --- | --- |
+| Python unit tests (`test_subagents`, `test_workspace_discovery`, `tui/test_authority`) | 38 passed: concurrent delegation batch plan, mixed replies keep the source-order chain, no default per-child limits, tester commands without host credentials, worker edits only its worktree branch, Claude Code-style definition files, reasoning stream, credential-prefix holdback |
+| JavaScript | 39 passed (including TypeScript and managed-continuation checks); session discovery and presentation 9 passed (tool rows, delegate progress, footer, exploration grouping) |
+| Concurrent subagents PTY (`subagent_parallel.py`, default `regular` mode) | 7 checks passed: two children visible together; Journal shows the second child admitted before the first settled; reports via Ctrl+O without receipt JSON; `/agents` types and runs; tool rows; background child notifies and the parent continues; Esc cancels both children and the parent continues. Also passed with `KERNELBRIDGE_TUI_MODE=regular` before the default changed, and in `fullscreen` during development (those earlier artifacts were removed to free disk space) |
+| Existing PTY regressions | `advanced_scenario` 11 checks, `subagent_cancel_scenario` 4, `codegen_edges` 2, `resume_default_home` 7, `goal_review_scenario` 5 and `pty_scenario` passed; `interaction_scenario` passed after pinning `fullscreen`; `codegen_scenario` (35 turns) passed 10 checks (35 additional turns, 48 local model requests; idle start, command gate, compaction/new, interrupt, opt-in Goal, provider failure, resume without replay) with `--timeout-seconds 600`; two earlier attempts timed out while concurrent workloads drove the host load average to 27–117 (per-step 90 s and the 10 s status socket), not on a product assertion |
+| Live DeepSeek subagents (`subagent_live.py`) | 5 checks passed. For "audit two independent subsystems" the model launched two `kernel-reviewer` children in one reply and their model calls overlapped in the Journal; the explicit two-child request also ran concurrently; a simple lookup stayed in the parent; "no subagents" was respected; no file changed |
+
+Original artifacts: `.validation/redesign-r4/` (regression batch), `.validation/redesign-r5/` (interaction and live reruns), `.validation/subagent-parallel-r9/`, `.validation/subagent-parallel-regular-r1/` and `.validation/redesign-r8-codegen/`.
+
+Failures found and repaired during this follow-up:
+
+- **Startup race**: input submitted before startup finished was sent twice, which caused `Pi input has no durable host receipt`.
+- **Stream delay**: streaming held back a full credential length of text.
+- **Delegation chain**: independent delegate calls formed a source-order chain, so the second child could not start before the first settled.
+- **Connection blocking**: the host connection reader blocked on a running effect.
+- **Shared admission context**: concurrent requests could record each other's call id.
+- **Schema timing**: the `delegate` schema changed after the Gateway sealed it.
+- **Executor blocking**: long child commands blocked the executor thread.
+- **Checkpoint blocking**: a background child blocked conversation checkpoints.
+- **Goal pause race**: `/goal pause` could withdraw an automatic continuation that Pi had already accepted, which surfaced as a transport failure. The continuation now stops without calling the model.
+
+Test and prompt updates:
+
+- **Delegation prompt**: the first live run reviewed both subsystems without delegating; the guidance was strengthened.
+- **Outdated assertions**: scenarios that asserted the old tool-row text, the old `/subagents` text or Pi's `v1.5.0` header were updated.
+- **Fullscreen pin**: `interaction_scenario.py` now pins `fullscreen`, because it exercises in-app history scrolling.
+
+Not claimed:
+
+- NPU or device results, Linux qualification, or feature-for-feature parity with Claude Code or Codex.
+- Background children surviving their interactive worker: a background child ends with that worker and is recorded as interrupted.
+- Copying untracked files into worktrees: `kernel-worker` requires a Git project and snapshots tracked changes only.
+
 Original artifacts: `.validation/tui-20261110-final/` in the checkout. The portable [result index](results/local-20261110.json) records check exits, durations and original-artifact SHA256 values. Reproduce with the [self-contained runner](README.md).
 
 ## Default session history follow-up
