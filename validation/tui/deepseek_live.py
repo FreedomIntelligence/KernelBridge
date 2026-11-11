@@ -44,7 +44,7 @@ def main():
             binding = json.loads((run / 'application.json').read_text())
             client = Client(Path(binding['host_directory']))
             state = client.call('status')
-            assert 'v1.5.0' in ui.text() and 'controlled' not in ui.text()
+            assert 'KernelBridge' in ui.text() and 'controlled' not in ui.text()
             assert 'Trial' not in ui.text() and '预算' not in ui.text()
             if phase == 'initial':
                 assert state['model_turns'] == 0 and not state['inputs'] and state['budget']['spent'] == 0

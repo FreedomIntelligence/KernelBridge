@@ -35,7 +35,9 @@ def main():
     threading.Thread(target=provider.serve_forever, daemon=True).start()
     options = prepare(output, args.deployment.resolve(), f'http://127.0.0.1:{provider.server_port}/v1', name='ui')
     registry = Path('/tmp').resolve() / ('kb-ui-' + hashlib.sha256(str(output).encode()).hexdigest()[:10])
-    env = {**os.environ, 'TERM': 'xterm-256color', 'PI_OFFLINE': '1', 'KERNELBRIDGE_DEMO': '1',
+    # This scenario exercises in-app history scrolling, which only the
+    # fullscreen mode provides; the default regular mode uses terminal scrollback.
+    env = {**os.environ, 'TERM': 'xterm-256color', 'PI_OFFLINE': '1', 'KERNELBRIDGE_DEMO': '1', 'KERNELBRIDGE_TUI_MODE': 'fullscreen',
         'PYTHONPATH': str(args.deployment.resolve() / 'unpacked'),
         'KERNELBRIDGE_TEST_KEY': 'fixture-key-not-a-real-credential', 'KERNELBRIDGE_SESSIONS': str(registry)}
     master, slave = pty.openpty()
@@ -86,7 +88,7 @@ def main():
         host_pid = state()['host_pid']
         until(lambda: recorded('Read, edit x = 1 to x = 2, and evaluate the local fixture.'))
         until(lambda: 'fixture turn 3' in text() and '预算 15/200' in text())
-        assert 'Jump to latest' not in text(), text()
+        assert '回到最新消息' not in text(), text()
         assert b'<inline:' not in transcript
         assert b'Initializing workspace history' not in transcript
         assert b'Invocation stopped by host' not in transcript
@@ -112,7 +114,7 @@ def main():
         assert state()['goal']['status'] == 'cleared'
 
         os.write(master, b'\x1b[1;5H')
-        until(lambda: 'Jump to latest' in text())
+        until(lambda: '回到最新消息' in text())
         save('history-screen')
         count = state()['model_turns']
         os.write(master, b'/subagents-load-profile\r')
@@ -122,11 +124,11 @@ def main():
         save('rejected-command-screen')
         os.write(master, b'\x15/latest\r')
         until(lambda: recorded('/latest'))
-        until(lambda: 'Jump to latest' not in text())
+        until(lambda: '回到最新消息' not in text())
         os.write(master, b'\x1b[1;5H')
-        until(lambda: 'Jump to latest' in text())
+        until(lambda: '回到最新消息' in text())
         send('从历史位置提交中文输入')
-        until(lambda: '从历史位置提交中文输入' in text() and 'Jump to latest' not in text())
+        until(lambda: '从历史位置提交中文输入' in text() and '回到最新消息' not in text())
         save('submitted-screen')
 
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 48, 0, 0))

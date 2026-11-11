@@ -297,8 +297,17 @@ export function createHostActions(control, effects) {
       if (error.code !== 'ENOENT') throw error;
       native_checkpoint = await governed.checkpoint();
     }
-    await control.call('transition', { input_id: receipt.input_id, status: 'applied',
-      pi_session_id: manager.getSessionId(), entry_id: entryId, ...(native_checkpoint ? { native_checkpoint } : {}) });
+    try {
+      await control.call('transition', { input_id: receipt.input_id, status: 'applied',
+        pi_session_id: manager.getSessionId(), entry_id: entryId, ...(native_checkpoint ? { native_checkpoint } : {}) });
+    } catch (error) {
+      // A pause or clear can withdraw an automatic input after Pi accepted it
+      // but before its model call. The following model_turn then stops without
+      // calling the provider; this is not a transport failure.
+      const current = (await control.state()).inputs?.[receipt.input_id];
+      if (current && ['interrupted', 'failed'].includes(current.status)) return;
+      throw error;
+    }
     runningInputs.add(receipt.input_id);
   }
 

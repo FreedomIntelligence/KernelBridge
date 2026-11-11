@@ -29,6 +29,7 @@ def main():
     parser.add_argument('--launcher', type=Path)
     parser.add_argument('--deployment', type=Path)
     parser.add_argument('--turns', type=int, default=35)
+    parser.add_argument('--timeout-seconds', type=float, default=90, help='per-condition deadline on a loaded workstation')
     args = parser.parse_args()
     if not args.launcher and not args.deployment: parser.error('--launcher or --deployment is required')
     output = args.output.resolve(); output.mkdir(parents=True, exist_ok=False)
@@ -68,7 +69,8 @@ def main():
             except OSError: return
             transcript.extend(data); stream.feed(data)
             if b'\x1b[6n' in data: os.write(master, b'\x1b[1;1R')
-    def until(predicate, timeout=90):
+    def until(predicate, timeout=None):
+        timeout = timeout or args.timeout_seconds
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             pump()
@@ -103,9 +105,9 @@ def main():
         idle()
         application = next(home.glob('runs/*/application.json'))
         directory = Path(json.loads(application.read_text())['host_directory'])
-        client = Client(directory)
+        client = Client(directory); client.socket.settimeout(args.timeout_seconds)
         assert not CodegenProvider.requests and not state()['inputs'] and state()['budget']['spent'] == 0
-        assert 'v1.5.0' in text() and 'ctrl+o' in text(), text()
+        assert 'KernelBridge' in text() and 'ctrl+o' in text() and 'Pi can explain' not in text(), text()
         assert '预算' not in text() and 'Trial' not in text() and 'workspace history' not in text()
         capture('idle'); checks.append('native_pi_idle_zero_execution')
         send('/new')
@@ -167,8 +169,8 @@ def main():
         original = state()['application_session_id']; count = len(CodegenProvider.requests)
         quit(); client.close(); client = None
         launch(['--continue'])
-        until(lambda: 'v1.5.0' in text() and 'local-codegen' in text())
-        client = Client(directory); idle()
+        until(lambda: 'KernelBridge' in text() and 'local-codegen' in text())
+        client = Client(directory); client.socket.settimeout(args.timeout_seconds); idle()
         assert state()['application_session_id'] == original and len(CodegenProvider.requests) == count
         send('Resume keeps this project and the conversation.')
         capture('resumed'); checks.append('resume_no_replay')

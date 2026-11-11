@@ -83,7 +83,8 @@ class SubagentEffect:
 
     def _specification(self) -> ToolSpec:
         guidance = (
-            "Use proactively for independent codebase exploration or a focused second review when delegation saves main-context work. "
+            "Use proactively: when a request covers two or more independent components, investigations, reviews or test runs, "
+            "launch one child per part in the same reply (they run concurrently) instead of doing all of them yourself. "
             "Respect user/project instructions that disable delegation; handle trivial lookups directly. "
             if self.settings.get("policy", "auto") == "auto" else
             "Use only when the user or applicable project instructions explicitly request delegation. "
