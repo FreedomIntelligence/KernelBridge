@@ -412,6 +412,29 @@ class ExecutionSession:
             raise InDoubt(proposal_id + "/batch")
         return ToolBatchPlan.model_validate_json(canonical(outcome.data))
 
+    def _delegation_plan(self, turn: AssistantTurn, task: Task, proposal_id: str,
+                         state: Json) -> ToolBatchPlan | None:
+        """Record independent delegate calls so their children may overlap.
+
+        Only hosts that run child model calls concurrently opt in. A reply that
+        mixes delegate with any other tool keeps its source-order chain.
+        """
+        if not getattr(self, "concurrent_delegation", False) or len(turn.tool_calls) < 2:
+            return None
+        if any(call.name != "delegate" for call in turn.tool_calls):
+            return None
+        calls = turn_actions(turn, task.id, proposal_id)
+        if any(a.id in state["actions"] or a.id in state.get("requests", {}) for a in calls):
+            return None
+        plan = ToolBatchPlan(execution_mode="delegation", max_workers=min(32, len(calls)))
+        data = plan.model_dump(mode="json")
+        outcome = self.gateway.internal(Action(id=proposal_id + "/batch", task=task.id,
+            tool="__tool_batch__", arguments=data, parents=(proposal_id,)), 0,
+            lambda: Outcome(data=data))
+        if outcome.status != "completed":
+            raise InDoubt(proposal_id + "/batch")
+        return ToolBatchPlan.model_validate_json(canonical(outcome.data))
+
     def _parallel_dispatch(self, calls: tuple[Action, ...], step: int,
                            plan: ToolBatchPlan) -> BatchResult:
         if not self.gateway.parallel_safe(calls):

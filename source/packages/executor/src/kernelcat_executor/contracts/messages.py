@@ -37,7 +37,9 @@ class ToolBatchPlan(Contract):
     """A host-authored scheduling decision, not part of the provider response."""
 
     schema_version: Literal["kernelcat.tool-batch/v1"] = "kernelcat.tool-batch/v1"
-    execution_mode: Literal["parallel"] = "parallel"
+    # "parallel": Gateway-dispatched concurrent leaves (batch RPC).
+    # "delegation": independent delegate calls, each through its plugin permit.
+    execution_mode: Literal["parallel", "delegation"] = "parallel"
     max_workers: int = Field(ge=1, le=32)
 
 

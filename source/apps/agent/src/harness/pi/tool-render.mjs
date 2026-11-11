@@ -222,7 +222,7 @@ export function updateSubagentProgress(children = []) {
   }
 }
 
-const REASONS = { step_limit: '模型调用上限', tool_limit: '读取上限', timeout: '超时', cancelled: '已取消',
+const REASONS = { count_limit: '超出数量上限', step_limit: '模型调用上限', tool_limit: '读取上限', timeout: '超时', cancelled: '已取消',
   budget_exhausted: '预算耗尽', providers_failed: '模型调用失败', provider_unconfigured: '模型未配置',
   output_limit: '输出过长', unexpected_tool: '分析模式调用了工具', plugin_failed: '子会话失败' };
 export const reasonLabel = reason => REASONS[reason] ?? reason ?? '';

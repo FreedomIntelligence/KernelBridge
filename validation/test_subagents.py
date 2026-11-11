@@ -101,6 +101,37 @@ class SubagentTests(unittest.TestCase):
         self.assertEqual(rows[0]['outcome']['data']['mode'], 'read_only')
         self.assertEqual(child.count, 2)
 
+    def test_delegate_only_reply_records_independent_delegation_batch(self):
+        effect = SubagentEffect(SubagentConfig().model_dump(exclude={'enabled'}))
+        calls = [('delegate', {'agent': 'kernel-scout', 'description': 'A', 'task': 'Inspect A'}),
+                 ('delegate', {'agent': 'kernel-reviewer', 'description': 'B', 'task': 'Inspect B'})]
+        session, _, replay = self.session([calls], extra_tools=[effect])
+        session.concurrent_delegation = True
+        child = Child([('read_file', {'path': 'reference/spec.txt'})]); session.child_proposers = {'primary': child}
+        self.assertEqual(session.run(self.task)['status'], 'finished')
+        actions = self.store.snapshot()['actions']
+        batch = next(row for key, row in actions.items() if key.endswith('/batch'))
+        self.assertEqual(batch['outcome']['data']['execution_mode'], 'delegation')
+        delegates = sorted((row for row in actions.values() if row['action']['tool'] == 'delegate'), key=lambda row: row['action']['id'])
+        self.assertEqual([row['outcome']['status'] for row in delegates], ['completed', 'completed'])
+        proposal = delegates[0]['action']['parents'][0]
+        self.assertTrue(all(tuple(row['action']['parents']) == (proposal, proposal + '/batch') for row in delegates))
+        spent = self.store.snapshot()['spent']
+        session.run(self.task)
+        self.assertEqual(self.store.snapshot()['spent'], spent)
+        replay._boundary()
+
+    def test_mixed_reply_keeps_source_order_chain(self):
+        effect = SubagentEffect(SubagentConfig().model_dump(exclude={'enabled'}))
+        calls = [('read_file', {'path': 'reference/spec.txt'}),
+                 ('delegate', {'agent': 'kernel-scout', 'task': 'Inspect A'})]
+        session, _, replay = self.session([calls], extra_tools=[effect])
+        session.concurrent_delegation = True
+        session.child_proposers = {'primary': Child()}
+        session.run(self.task)
+        self.assertFalse(any(key.endswith('/batch') for key in self.store.snapshot()['actions']))
+        replay._boundary()
+
     def test_forged_write_never_changes_workspace(self):
         result, rows, _, _ = self.run_child([('write_file', {'path': 'solution.py', 'text': 'bad'})])
         self.assertFalse((self.workspace.root / 'solution.py').exists())

@@ -5,7 +5,7 @@ import { InputQueue } from '../../application/input-queue.mjs';
 import { workspaceTools } from './workspace-tools.mjs';
 import { goalSummary, statePresentation, installProductUI, showProductFeedback, workingMessage } from './product-ui.mjs';
 import { updateSubagentProgress } from './tool-render.mjs';
-import { agentsPanel } from './agents-panel.mjs';
+import { agentsPanel, BUILTIN_AGENTS } from './agents-panel.mjs';
 import { COMMAND_POLICY_VERSION, PRODUCT_COMMANDS, PRODUCT_COMMAND_NAMES, parseGoalCommand, COMMAND_HELP } from './command-policy.mjs';
 import { sessions } from '../../application/host.mjs';
 import { sessionPicker } from '../../application/session-picker.mjs';
@@ -434,14 +434,13 @@ export function createHostActions(control, effects) {
       if (command === '/latest') return { action: 'handled' };
       if (command === '/subagents' || command === '/agents') {
         const current = await refresh();
-        const config = current.subagent_config ?? {};
-        if (config.enabled === false) return { action: 'handled', message: '子代理已在配置中关闭（subagents.enabled=false）。' };
-        const policy = `${config.policy === 'explicit' ? '仅明确请求时启动' : '自动分工'} · 每次回复最多 ${config.max_per_turn ?? 4} 个 · 会话总数${config.max_total == null ? '不限' : ' ' + config.max_total}`
-          + ` · 每个最多 ${config.max_steps ?? 20} 次模型 / ${config.tool_limit ?? 64} 次读取`;
+        if (current.subagent_config?.enabled === false) return { action: 'handled', message: '子代理未启用。' };
+        const types = current.subagent_types?.length ? current.subagent_types : BUILTIN_AGENTS;
         if (!interactive || !context?.ui.custom) {
-          return { action: 'handled', message: [policy, ...(current.subagents ?? []).map(child => `${child.agent} · ${child.status} · ${child.summary || child.task}`)].join('\n') };
+          return { action: 'handled', message: [...types.map(type => `${type.name} · ${type.description}`),
+            ...(current.subagents ?? []).map(child => `${child.agent} · ${child.status} · ${child.summary || child.task}`)].join('\n') };
         }
-        await context.ui.custom((tui, _theme, _keybindings, done) => agentsPanel(current.subagents ?? [], policy, done,
+        await context.ui.custom((tui, _theme, _keybindings, done) => agentsPanel(current.subagents ?? [], types, done,
           () => tui.requestRender(), () => tui.terminal.rows));
         return { action: 'handled' };
       }

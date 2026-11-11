@@ -77,8 +77,21 @@ async function runtimeServices(options, dependencies, provider, factories, repla
     settingsManager, resourceLoader, diagnostics: [] };
 }
 
-function bindTurnCheckpoint(session, controller, continuation, replay, rsiRpc) {
+/** Only a reply made entirely of delegate calls runs its tools concurrently. */
+function delegateBatches(session) {
+  const state = session.agent.state;
+  const descriptor = Object.getOwnPropertyDescriptor(state, 'tools');
+  if (!descriptor?.set || !descriptor.get) throw new Error('Pi agent tool state is not configurable');
+  const mark = tools => tools.map(tool => tool.name === 'delegate' ? tool : { ...tool, executionMode: 'sequential' });
+  Object.defineProperty(state, 'tools', { configurable: true, enumerable: true,
+    get: descriptor.get, set(next) { descriptor.set.call(state, mark(next)); } });
+  state.tools = descriptor.get.call(state);
+  session.agent.toolExecution = 'parallel';
+}
+
+function bindTurnCheckpoint(session, controller, continuation, replay, rsiRpc, parallelDelegation = false) {
   session.agent.toolExecution = 'sequential';
+  if (parallelDelegation) delegateBatches(session);
   const finalize = session.agent.finishTurn;
   session.agent.finishTurn = async (turn, signal) => {
     await finalize?.(turn, signal);
@@ -100,7 +113,9 @@ export async function createGovernedRuntime(client, home, dependencies, options 
   let nativeRuntime;
   let unsubscribe;
   try {
-    const rpc = serialRpc(client);
+    // Persistent hosts run child model calls on their own threads; give each
+    // delegation permit an ordered lane so independent children overlap.
+    const rpc = serialRpc(client, { childLanes: options.persistent === true });
     const hello = await rpc.call('hello', { native_replay: true });
     const native = hello.native_harness?.schema_version === 'kernelcat.pi-harness/v1';
     if (hello.native_harness !== undefined && (!native || hello.native_harness.adapter !== 'pi@1.5.0' ||
@@ -210,7 +225,7 @@ export async function createGovernedRuntime(client, home, dependencies, options 
         // tools so session restore cannot activate an ungoverned second entry.
         excludeTools: ['subagent', 'subagents_enable', 'subagent_supervisor', 'contact_supervisor', 'intercom'],
         customTools: tools, ...(native ? {} : { tools: ['kernelcat_effect'] }) });
-      bindTurnCheckpoint(created.session, controller, continuation, replay, rsi ? rpc : undefined);
+      bindTurnCheckpoint(created.session, controller, continuation, replay, rsi ? rpc : undefined, options.persistent === true);
       return { ...created, services, diagnostics: [] };
     }
     nativeRuntime = await sdk.createAgentSessionRuntime(createRuntime, { cwd, agentDir,

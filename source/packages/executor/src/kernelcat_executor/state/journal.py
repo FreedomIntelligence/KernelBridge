@@ -8,6 +8,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -43,10 +44,23 @@ class Journal:
     def __init__(self, path: Path) -> None:
         self.path = path
         self._application_lease: tuple[str, str, int] | None = None
-        self._application_context: Json = {}
+        # Admission provenance (call id, input, trial). The host executor binds
+        # the shared value; helper threads it spawns inherit it. A concurrent
+        # child-model thread binds a thread-local override so it never stamps
+        # another request's call id into its admitted events.
+        self._shared_context: Json = {}
+        self._context_local = threading.local()
 
-    def bind_application_context(self, context: Json) -> None:
-        self._application_context = json.loads(canonical(context))
+    @property
+    def _application_context(self) -> Json:
+        return getattr(self._context_local, "value", self._shared_context)
+
+    def bind_application_context(self, context: Json, *, local: bool = False) -> None:
+        value = json.loads(canonical(context))
+        if local:
+            self._context_local.value = value
+        else:
+            self._shared_context = value
 
     def application_state(self) -> Json | None:
         if self._application_lease is None:

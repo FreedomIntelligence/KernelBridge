@@ -7,7 +7,7 @@ agent on its own. Conversational scheduling is exclusively in the Pi SDK.
 from __future__ import annotations
 
 from concurrent.futures import Future
-from threading import Thread
+from threading import RLock, Thread
 from typing import Any
 
 from kernelcat_executor.contracts.context import (
@@ -55,6 +55,15 @@ from kernelcat_executor.operations.turns import CallCancelled, execute_calls
 SCOUT_TOOLS = frozenset({"read_file", "load_skill", "read_receipt", "read_learned_skill", "finish"})
 
 
+class ChildRun:
+    """One delegate action: its Gateway dispatch thread and the plugin-side effects."""
+    def __init__(self, action: Action, index: int) -> None:
+        self.action, self.index = action, index
+        self.thread: Thread | None = None
+        self.result: Future[Outcome] = Future()
+        self.effects: DelegatedEffects | None = None
+
+
 class ExecutionRPC:
     """A finite, task-scoped effect protocol. The owner is a Pi process handle."""
     def __init__(self, owner: Any, task: Task, *, retry: ModelRetry | None = None) -> None:
@@ -82,10 +91,12 @@ class ExecutionRPC:
                            if owner.role != "scout" or s.name in SCOUT_TOOLS)
         self.allowed = {s.name for s in self.specs}
         self.remote: Any = None
-        self.remote_thread: Thread | None = None
-        self.remote_result: Future[Outcome] | None = None
-        self.remote_action: Action | None = None
-        self.child: DelegatedEffects | None = None
+        # Live delegations keyed by permit (the delegate action id). Several
+        # delegate calls from one model reply may run concurrently; results are
+        # recorded in reply order once every earlier call has settled.
+        self.children: dict[str, ChildRun] = {}
+        self.child_results: dict[int, tuple[Action, Outcome]] = {}
+        self.child_lock = RLock()
         self.harness: HarnessInput | None = None
         self.harness_tools: dict[str, Json] = {}
         self.native_leaves = frozenset(self.allowed) - {"delegate", "finish"}
@@ -311,7 +322,8 @@ class ExecutionRPC:
                                "reason": "finish must be the only tool call in its turn"}
                 self.prepared = False
                 return {"stop": True, "result": self.result}
-            self.plan = self.owner._batch_plan(turn, self.task, identity, state)
+            self.plan = (self.owner._batch_plan(turn, self.task, identity, state)
+                         or self.owner._delegation_plan(turn, self.task, identity, state))
             self.calls = turn_actions(turn, self.task.id, identity, parallel=self.plan is not None)
             self.text = turn.text
         else:
@@ -325,7 +337,7 @@ class ExecutionRPC:
             raise Conflict("model requested a tool outside this worker role")
         self.outcomes = []
         self.prepared, self.active = False, True
-        return {"proposal_id": identity, "text": self.text, "parallel": self.plan is not None,
+        return {"proposal_id": identity, "text": self.text, "parallel": self._gateway_batch(),
                 "calls": [self.wire(a) for a in self.calls], "usage": proposal.data.get("usage", {})}
 
     def _provider_failed(self, identity: str, policy: Policy) -> Json:
@@ -352,6 +364,9 @@ class ExecutionRPC:
     def wire(action: Action) -> Json:
         return {"id": "kc_" + digest(action.id), "name": action.tool, "arguments": action.arguments}
 
+    def _gateway_batch(self) -> bool:
+        return self.plan is not None and self.plan.execution_mode == "parallel"
+
     def _pending(self, params: Json) -> Action:
         index = len(self.outcomes)
         if not self.active or index >= len(self.calls):
@@ -365,7 +380,7 @@ class ExecutionRPC:
         action = self._pending(params)
         if native_name(action.tool, self.native_leaves):
             raise Conflict("native execution requires its sealed invocation protocol")
-        if self.remote_thread is not None or action.tool == "delegate":
+        if self.children or action.tool == "delegate":
             raise Conflict("delegation requires its protected plugin protocol")
         batch = execute_calls((action,), lambda a: self.owner._dispatch(a, self.step),
                               self.owner._observe, self.owner._cancelled)
@@ -391,7 +406,7 @@ class ExecutionRPC:
         return {"action_id": action.id, "outcome": outcome.model_dump(mode="json")}
 
     def batch(self, params: Json) -> Json:
-        if (not self.active or self.plan is None or self.outcomes
+        if (not self.active or not self._gateway_batch() or self.outcomes
                 or params != {"proposal_id": self.proposal_id}):
             raise Conflict("no sealed parallel batch")
         result = self.owner._parallel_dispatch(self.calls, self.step, self.plan)
@@ -406,7 +421,7 @@ class ExecutionRPC:
     def end_turn(self, params: Json) -> Json:
         checked = validate_replay(params, "EndTurnRequest")
         if (not self.active or checked["proposal_id"] != self.proposal_id
-                or len(self.calls) != len(self.outcomes) or self.remote_thread is not None):
+                or len(self.calls) != len(self.outcomes) or self.children or self.child_results):
             raise Conflict("cannot checkpoint an unfinished turn")
         result: Json | None = None
         if not self.calls:
@@ -444,7 +459,7 @@ class ExecutionRPC:
         acknowledge end_turn with that checkpoint before another model request.
         """
         self._unresolved()
-        if self.remote_thread is not None:
+        if self.children:
             raise InDoubt("delegated work must settle before interruption")
         if not self.active:
             self.prepared = False
@@ -481,7 +496,7 @@ class ExecutionRPC:
             if prior.closed:
                 raise Conflict("native invocation permit is already closed")
             return {"permit": action.id}
-        if self.remote_thread is not None or any(
+        if self.children or any(
                 not invocation.closed for invocation in self.native_invocations.values()):
             raise Conflict("another foreground invocation already owns this session")
         invocation = NativeEffects(
@@ -521,50 +536,63 @@ class ExecutionRPC:
         self.owner._observe(action, outcome)
         self.outcomes.append(outcome)
 
+    def _pending_delegate(self, params: Json) -> tuple[Action, int]:
+        """A not-yet-started delegate within the contiguous delegate run at the cursor."""
+        if not self.active:
+            raise Conflict("no pending tool call")
+        for index in range(len(self.outcomes), len(self.calls)):
+            action = self.calls[index]
+            if action.tool != "delegate":
+                break
+            if action.id in self.children or index in self.child_results:
+                continue
+            if same_json_value(params, self.wire(action)):
+                return action, index
+        raise Conflict("invalid foreground delegation")
+
     def plugin_begin(self, params: Json) -> Json:
-        action = self._pending(params)
-        if action.tool != "delegate" or self.remote_thread is not None:
-            raise Conflict("invalid foreground delegation")
-        remote = self.gateway.tools.get("delegate")
-        if remote is None or not all(hasattr(remote, n) for n in ("arm", "resolve", "clear", "started")):
-            raise Conflict("delegation effect not installed")
-        self.remote = remote
-        settings = remote.settings
-        prior_children = sum(a.tool == "delegate" for a in self.calls[:len(self.outcomes)])
-        total = sum(item["action"]["tool"] == "delegate" for item in self.store.snapshot()["actions"].values())
-        remote.denial = ("Configured subagent count reached" if prior_children >= settings["max_per_turn"]
-            or settings["max_total"] is not None and total >= settings["max_total"] else None)
-        self.remote.arm(action.id)
-        self.remote_action, self.remote_result = action, Future()
-        def dispatch() -> None:
-            assert self.remote_result is not None
-            try:
-                self.remote_result.set_result(self.owner._dispatch(action, self.step))
-            except BaseException as error:
-                self.remote_result.set_exception(error)
-        self.remote_thread = Thread(target=dispatch, name="kernelcat-delegation-effect", daemon=True)
-        self.remote_thread.start()
-        while not self.remote.started.wait(0.02):
-            if self.remote_result.done():
-                outcome = self._collect_plugin()
+        with self.child_lock:
+            action, index = self._pending_delegate(params)
+            remote = self.gateway.tools.get("delegate")
+            if remote is None or not all(hasattr(remote, n) for n in ("arm", "resolve", "clear", "done")):
+                raise Conflict("delegation effect not installed")
+            self.remote = remote
+            settings = remote.settings
+            prior_children = sum(a.tool == "delegate" for a in self.calls[:index])
+            total = sum(item["action"]["tool"] == "delegate" for item in self.store.snapshot()["actions"].values())
+            denial = ("Configured subagent count reached" if prior_children >= settings["max_per_turn"]
+                or settings["max_total"] is not None and total >= settings["max_total"] else None)
+            started = remote.arm(action.id, denial)
+            run = ChildRun(action, index)
+
+            def dispatch() -> None:
+                try:
+                    run.result.set_result(self.owner._dispatch(action, self.step))
+                except BaseException as error:
+                    run.result.set_exception(error)
+            run.thread = Thread(target=dispatch, name="kernelcat-delegation-effect", daemon=True)
+            self.children[action.id] = run
+            run.thread.start()
+        while not started.wait(0.02):
+            if run.result.done():
+                outcome = self._collect_plugin(action.id)
                 return {"cached": True, "outcome": outcome.model_dump(mode="json")}
             if self.owner._cancelled():
-                self.close()
+                self._abandon(action.id)
                 raise CallCancelled()
-        self.child = DelegatedEffects(self.owner, action, self.proposal_id)
+        run.effects = DelegatedEffects(self.owner, action, self.proposal_id)
         return {"permit": action.id, "agent": action.arguments["agent"],
                 "task": action.arguments["task"], "timeout_ms": settings["timeout"] * 1000,
                 "tool_limit": settings["tool_limit"],
                 "routes": list(self.store.policy().routes),
-                "mode": self.child.mode, "max_steps": self.child.max_steps}
-
+                "mode": run.effects.mode, "max_steps": run.effects.max_steps}
 
     def _child(self, params: Json) -> DelegatedEffects:
-        if (self.remote_thread is None or self.remote_action is None or self.child is None
-                or params.get("permit") != self.remote_action.id
-                or self.remote_result is None or self.remote_result.done()):
-            raise Conflict("child request has no live delegation permit")
-        return self.child
+        with self.child_lock:
+            run = self.children.get(params.get("permit"))
+            if run is None or run.effects is None or run.result.done():
+                raise Conflict("child request has no live delegation permit")
+            return run.effects
 
     def child_model(self, params: Json) -> Json:
         child = self._child(params)
@@ -579,15 +607,13 @@ class ExecutionRPC:
         return child.tool(params["call"])
 
     def plugin_settle(self, params: Json) -> Json:
-        if (self.remote_thread is None or self.remote_action is None
-                or set(params) != {"permit", "status", "text"}
-                or params["permit"] != self.remote_action.id or params["status"] not in {"completed", "failed", "cancelled"}
+        if (set(params) != {"permit", "status", "text"} or params["status"] not in {"completed", "failed", "cancelled"}
                 or not isinstance(params["text"], str) or len(params["text"].encode()) > 65536):
             raise Conflict("invalid child settlement")
         child = self._child(params)
-        # Child model/read RPCs and settlement share the host's serial effect
-        # queue. A cancellation may discard a reply in Pi, but cannot discard
-        # its original receipt or turn an unknown effect into a known failure.
+        # Child model/read RPCs and settlement share the child's ordered lane.
+        # A cancellation may discard a reply in Pi, but cannot discard its
+        # original receipt or turn an unknown effect into a known failure.
         for item in self.store.snapshot()["actions"].values():
             if item["action"]["task"] == child.task.id and (
                     not item.get("terminal") or item.get("outcome", {}).get("status") == "unknown"):
@@ -607,35 +633,53 @@ class ExecutionRPC:
                 "reason": child.failure or "plugin_failed", "model_receipt": child.receipt,
                 "agent": child.action.arguments["agent"], "steps": child.step + 1, "tool_calls": child.tool_count,
                 "advisory": True})
-        self.remote.resolve(outcome)
-        settled = self._collect_plugin()
+        self.remote.resolve(params["permit"], outcome)
+        settled = self._collect_plugin(params["permit"])
         return {"outcome": settled.model_dump(mode="json")}
 
-    def _collect_plugin(self) -> Outcome:
-        assert self.remote_thread is not None and self.remote_result is not None
-        self.remote_thread.join()
+    def _flush_children(self) -> None:
+        """Record settled delegations in reply order; later ones wait for earlier ones."""
+        while len(self.outcomes) in self.child_results:
+            action, outcome = self.child_results.pop(len(self.outcomes))
+            self.owner._observe(action, outcome)
+            self.outcomes.append(outcome)
+
+    def _collect_plugin(self, identity: str) -> Outcome:
+        run = self.children[identity]
+        assert run.thread is not None
+        run.thread.join()
         try:
-            result = self.remote_result.result()
+            result = run.result.result()
             if result.status == "unknown":
                 raise InDoubt("delegation has unknown effects")
-            self.owner._observe(self.remote_action, result)
-            self.outcomes.append(result)
+            with self.child_lock:
+                self.child_results[run.index] = (run.action, result)
+                self._flush_children()
             return result
         finally:
-            if not self.remote.future.done():
-                self.remote.resolve(Outcome(status="unknown"))
-            self.remote.clear()
-            self.remote_thread, self.remote_result, self.remote_action = None, None, None
+            if not self.remote.done(identity):
+                self.remote.resolve(identity, Outcome(status="unknown"))
+            self.remote.clear(identity)
+            with self.child_lock:
+                self.children.pop(identity, None)
+
+    def _abandon(self, identity: str, reason: str | None = None) -> None:
+        run = self.children.get(identity)
+        if run is None:
+            return
+        if not self.remote.done(identity):
+            self.remote.resolve(identity, Outcome(status="unknown", data={"reason": reason} if reason else {}))
+        if run.thread is not None:
+            run.thread.join()
+        self.remote.clear(identity)
+        with self.child_lock:
+            self.children.pop(identity, None)
 
     def close(self) -> None:
         for invocation in self.native_invocations.values():
             invocation.close()
-        if self.remote_thread is not None:
-            if not self.remote.future.done():
-                self.remote.resolve(Outcome(status="unknown", data={"reason": "Pi worker interrupted"}))
-            self.remote_thread.join()
-            self.remote.clear()
-            self.remote_thread, self.remote_result, self.remote_action = None, None, None
+        for identity in list(self.children):
+            self._abandon(identity, "Pi worker interrupted")
 
     def handle(self, method: str, params: Json) -> Json:
         if method in {"prepare_turn", "complete"} and params:
@@ -699,7 +743,7 @@ class ExecutionRPC:
                 if not inputs:
                     self.result = self.last_result
             return rsi.status(self.step, self.result is not None)
-        if self.active and (len(self.calls) != len(self.outcomes) or self.remote_thread is not None):
+        if self.active and (len(self.calls) != len(self.outcomes) or self.children):
             raise Conflict("RSI effects require settled model tools")
         if method in {"rsi_adapter", "rsi_apply"} and not self.active:
             raise Conflict("RSI evaluation requires an active, settled model turn")

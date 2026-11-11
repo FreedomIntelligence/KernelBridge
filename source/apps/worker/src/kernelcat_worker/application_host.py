@@ -39,6 +39,22 @@ REQUEST_VALIDATOR = Draft202012Validator(HOST_SCHEMA)
 MAX_FRAME = 16 * 1024 * 1024
 
 
+def delegation_context(method, params, context):
+    """Attribute delegate/child effects to their own Pi call, not the last bound one.
+
+    Concurrent delegate calls share one worker connection; its bound context
+    names whichever tool call Pi announced last.
+    """
+    from kernelcat_executor.contracts.models import digest
+    if method == "plugin_begin" and isinstance(params.get("id"), str):
+        return {**context, "tool_call_id": params["id"], "tool_name": "delegate",
+                "tool_arguments": params.get("arguments")}
+    if method in {"child_model", "child_tool", "plugin_settle"} and isinstance(params.get("permit"), str):
+        trimmed = {key: value for key, value in context.items() if key != "tool_arguments"}
+        return {**trimmed, "tool_call_id": "kc_" + digest(params["permit"]), "tool_name": "delegate"}
+    return context
+
+
 def peer_uid(connection: socket.socket) -> int:
     if sys.platform.startswith("linux"):
         return struct.unpack("3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))[1]
@@ -140,6 +156,9 @@ class ApplicationHost:
                     "required": ["status", "summary"], "additionalProperties": False}), self.update_codegen_goal)
             owner = build(config, config_path.parent, task, probe_versions=False, external_context=True, startup=startup,
                           extra_tools=(finish_goal, get_goal, update_goal) if config.workspace_mode == "project" else (transition,))
+            # This host runs child model calls on their own threads, so
+            # independent delegate calls from one reply may overlap.
+            owner.concurrent_delegation = True
             self.owner, self.task, self.config = owner, task, config
             self.evaluator = evaluator_identity(config, Path(self.descriptor["task"]))
             self.journal = ApplicationJournal(owner.gateway.store, self.identity)
@@ -160,6 +179,13 @@ class ApplicationHost:
                 if item is None:
                     break
                 connection, request, future = item
+                if request.get("method") == "child_model" and handle is not None:
+                    # A child model call waits on the provider. Run it on its own
+                    # thread so concurrent children (and their reads) proceed;
+                    # each child's requests stay ordered by its Pi lane.
+                    threading.Thread(target=self.child_effect, args=(owner, handle, connection, request, future),
+                                     name="application-child-model", daemon=True).start()
+                    continue
                 try:
                     method, params = request["method"], request.get("params", {})
                     if method == "close_scope":
@@ -189,6 +215,7 @@ class ApplicationHost:
                         frozen = self.capture_source()
                         persist(owner.gateway.store.path.parent / "checkpoints" / (frozen["source_sha256"] + ".json"), frozen)
                         admission_context.update(source_sha256=frozen["source_sha256"], evaluator_sha256=self.evaluator["sha256"])
+                    admission_context = delegation_context(method, params, admission_context)
                     owner.gateway.store.bind_application_context(admission_context)
                     if method in {"application_recovery_plan", "application_recovery_commit"}:
                         from kernelcat_worker.application_recovery import recovery_plan, commit_recovery
@@ -328,6 +355,36 @@ class ApplicationHost:
                 scope.__exit__(None, None, None)
             if owner:
                 owner.close()
+
+    def child_effect(self, owner, handle, connection, request, future):
+        """One child model call off the executor thread, with the same intent/result receipts."""
+        try:
+            method, params = request["method"], request.get("params", {})
+            self.require_worker(connection)
+            if self.recovered_epoch != connection.worker["lease_epoch"]:
+                raise Conflict("recover original receipts before starting a new effect")
+            app = self.journal.state()
+            owner.gateway.store.bind_application_context(delegation_context(method, params, {**request.get("context", {}),
+                "call_id": request.get("call_id"), "task_version": app["task_version"],
+                "trial_id": app.get("trial_id"), "goal_id": (app["goal"] or {}).get("goal_id")}), local=True)
+            call_id = request["call_id"]
+            intent = {**connection.worker, "call_id": call_id, "method": method, "params": params,
+                      **request.get("context", {})}
+            original = self.journal.command("call_intent", intent)
+            if original.get("status") == "reconciled":
+                raise Conflict("original call was reconciled; use its retained checkpoint and receipts")
+            if original.get("status") == "completed":
+                result = original["result"]
+            elif original.get("status") == "pending":
+                raise Conflict("original call is unresolved; query its receipt instead of executing again")
+            else:
+                result = handle(method, params)
+            self.journal.command("call_result", {"call_id": call_id, "result": result})
+            future.set_result(result)
+        except BaseException as error:
+            future.set_exception(error)
+        finally:
+            self.broadcast({"type": "state", "state": self.status()})
 
     def user_bash(self, connection, params):
         # The native bash wrapper is executed by Pi with an Executor-owned intent.
@@ -670,6 +727,13 @@ class ApplicationHost:
         self.journal.command("configuration", {**connection.worker, "kind": kind, "value": value})
         return {"kind": kind, "value": value}
 
+    def submit_effect(self, connection, params):
+        """Queue one effect; the executor (or a child-model thread) settles the future."""
+        self.require_worker(connection)
+        future = Future()
+        self.effects.put((connection, params, future))
+        return future
+
     def require_worker(self, connection):
         lease = self.journal.state()["lease"]
         if not connection.worker or lease != connection.worker:
@@ -778,10 +842,7 @@ class ApplicationHost:
             self.effects.put((connection, {"method": "application_admin", "params": {"operation": method, "request": params}}, future))
             return future.result()
         if method == "effect":
-            self.require_worker(connection)
-            future = Future()
-            self.effects.put((connection, params, future))
-            return future.result()
+            return self.submit_effect(connection, params).result()
         if method == "event":
             self.require_worker(connection)
             self.broadcast({"type": "harness", "event": params})
@@ -916,6 +977,15 @@ class Connection:
                             with self.host.mutex:
                                 self.host.clients.add(self)
                             result = {"application_session_id": self.host.identity}
+                        elif request.get("method") == "effect":
+                            # Do not block this reader on a running effect: a
+                            # second child's request must reach the executor
+                            # while the first child's model call is in flight.
+                            pending = self.host.submit_effect(self, request.get("params", {}))
+                            pending.add_done_callback(lambda done, identity=identity: self.emit(
+                                {"id": identity, "result": done.result()} if done.exception() is None else
+                                {"id": identity, "error": {"name": type(done.exception()).__name__, "message": str(done.exception())}}))
+                            continue
                         else:
                             result = self.host.request(self, request)
                         self.emit({"id": identity, "result": result})

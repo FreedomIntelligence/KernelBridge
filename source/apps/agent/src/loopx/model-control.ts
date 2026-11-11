@@ -48,11 +48,13 @@ async function modelTurn(rpc: EffectRpc, request: ModelTurnRequest, native: bool
 /** The Pi process supplies a transcript or permit, never a route or budget. */
 export function controlledModels(rpc: EffectRpc): EffectRpc {
   let native: boolean | undefined;
-  let child: { readonly permit: string; readonly routes: readonly string[] } | undefined;
+  // Concurrent delegations each hold their own permit and admitted route order.
+  const children = new Map<string, { readonly permit: string; readonly routes: readonly string[] }>();
 
   async function childTurn(params: Readonly<Record<string, unknown>>): Promise<Record<string, unknown>> {
     const request = validatedSnapshot(params, validateChild, "Child model turn");
-    if (!child || request.permit !== child.permit) throw new Error("Child model turn has no live owner permit");
+    const child = children.get(request.permit);
+    if (!child) throw new Error("Child model turn has no live owner permit");
     for (const route of child.routes) {
       const reply = await rpc.call("child_model", { permit: child.permit, route });
       if (reply.stop === true || reply.failed !== true) return reply;
@@ -77,16 +79,16 @@ export function controlledModels(rpc: EffectRpc): EffectRpc {
       }
       if (method === "child_model_turn") return await childTurn(params);
       if (method === "plugin_begin") {
-        if (child) throw new Error("Previous child permit is not settled");
         const permission = await rpc.call(method, params);
         if (permission.cached === true) return permission;
         if (typeof permission.permit !== "string") throw new Error("Delegation has no owner permit");
-        child = { permit: permission.permit, routes: admittedRoutes(permission.routes) };
+        if (children.has(permission.permit)) throw new Error("Delegation permit is already live");
+        children.set(permission.permit, { permit: permission.permit, routes: admittedRoutes(permission.routes) });
         const { routes: _routes, ...execution } = permission;
         return execution;
       }
       const result = await rpc.call(method, params);
-      if (method === "plugin_settle" && params.permit === child?.permit) child = undefined;
+      if (method === "plugin_settle" && typeof params.permit === "string") children.delete(params.permit);
       return result;
     },
   };

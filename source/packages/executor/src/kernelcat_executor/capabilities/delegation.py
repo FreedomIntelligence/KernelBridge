@@ -13,12 +13,13 @@ class SubagentEffect:
     The process owner must settle or abandon the rendezvous on every exit path.
     An interrupted child becomes unknown, never a fabricated successful result.
     """
+    # Gateway batches stay sequential; concurrent children use the plugin
+    # protocol, one rendezvous per delegate action.
     execution_mode = "sequential"
 
     def __init__(self, settings=None) -> None:
         self.settings = settings or {"max_per_turn": 4, "max_total": None, "max_steps": 20,
                                      "tool_limit": 64, "timeout": 600}
-        self.denial = None
         guidance = (
             "Use proactively for independent codebase exploration or a focused second review when delegation saves main-context work. "
             "Respect user/project instructions that disable delegation; handle trivial lookups directly. "
@@ -31,7 +32,7 @@ class SubagentEffect:
             "kernel-scout discovers files, searches code and traces implementations; kernel-reviewer checks a focused change or claim against evidence. "
             "Supply a self-contained task, relevant paths/constraints and expected output; children do not inherit the conversation. "
             "Default mode read_only can list/search/read project files, skills and receipts; analysis uses supplied text only. "
-            "Split independent questions into separate calls, then synthesize their results. Children run sequentially in the foreground. "
+            "Split independent questions into separate calls in the same reply; those children run concurrently. Then synthesize their results. "
             "No child may write, run shell/devices or delegate. Answers are advisory, not validation."), credits=1,
             parameters={"type": "object", "additionalProperties": False,
                 "properties": {"agent": {"type": "string", "enum": ["kernel-scout", "kernel-reviewer"]},
@@ -42,37 +43,49 @@ class SubagentEffect:
                     "max_steps": {"type": "integer", "minimum": 1, "maximum": self.settings["max_steps"]}},
                 "required": ["agent", "task"]})
         self.lock = Lock()
-        self.started = Event()
-        self.identity: str | None = None
-        self.future: Future[Outcome] | None = None
+        self.denials: dict[str, str | None] = {}
+        self.started: dict[str, Event] = {}
+        self.futures: dict[str, Future[Outcome]] = {}
 
-    def arm(self, identity: str) -> None:
+    def arm(self, identity: str, denial: str | None = None) -> Event:
         with self.lock:
-            if self.future is not None:
-                raise Conflict("one foreground delegation at a time")
-            self.identity = identity
-            self.future = Future()
-            self.started.clear()
+            if identity in self.futures:
+                raise Conflict("delegation already has a host rendezvous")
+            self.futures[identity] = Future()
+            self.started[identity] = Event()
+            self.denials[identity] = denial
+            return self.started[identity]
 
     def execute(self, action: Action) -> Outcome:
         with self.lock:
-            if self.future is None or action.id != self.identity:
+            future = self.futures.get(action.id)
+            if future is None:
                 raise Conflict("delegation has no host rendezvous")
-            if self.denial:
-                return Outcome(status="failed", data={"error": self.denial})
-            future = self.future
-            self.started.set()
+            denial = self.denials.get(action.id)
+            if not denial:
+                # A denied call settles as cached; it must never hand Pi a permit.
+                self.started[action.id].set()
+        if denial:
+            return Outcome(status="failed", data={"error": denial, "reason": "count_limit"})
         return future.result()
 
-    def resolve(self, outcome: Outcome) -> None:
+    def resolve(self, identity: str, outcome: Outcome) -> None:
         with self.lock:
-            if self.future is None or self.future.done():
+            future = self.futures.get(identity)
+            if future is None or future.done():
                 raise Conflict("delegation is not awaiting settlement")
-            self.future.set_result(outcome)
+            future.set_result(outcome)
 
-    def clear(self) -> None:
+    def done(self, identity: str) -> bool:
         with self.lock:
-            if self.future is not None and not self.future.done():
+            future = self.futures.get(identity)
+            return future is None or future.done()
+
+    def clear(self, identity: str) -> None:
+        with self.lock:
+            future = self.futures.get(identity)
+            if future is not None and not future.done():
                 raise Conflict("cannot discard an unsettled delegation")
-            self.future, self.identity = None, None
-            self.started.clear()
+            self.futures.pop(identity, None)
+            self.started.pop(identity, None)
+            self.denials.pop(identity, None)

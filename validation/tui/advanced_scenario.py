@@ -157,7 +157,9 @@ def main():
         assert any(item.get('operation') == 'fork_suggestion' for item in status()['configurations'])
         assert status()['checkpoint']['pi_session_id'] == branch
         checks.append('manual_fork_hint_without_automatic_branch')
-        send('/subagents'); send('/name advanced first')
+        ui.send('/subagents'); ui.until(lambda: 'kernel-scout' in ui.text() and '本会话（4）' in ui.text() and '超出数量上限' in ui.text())
+        os.write(ui.master, b'\x1b'); ui.until(lambda: '本会话（4）' not in ui.text())
+        send('/name advanced first')
         send('LONG_CONTEXT'); before = len(Provider.requests); send('/compact')
         compact_calls = Provider.requests[before:]
         assert 1 <= len(compact_calls) <= 2 and all(not call.get('tools') for call in compact_calls), compact_calls
