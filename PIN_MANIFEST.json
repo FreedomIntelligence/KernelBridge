@@ -4004,8 +4004,8 @@
       "sha256": "3358c4c00254e681fef0bed80223d55b4f25f13b49ea5f2f542d859224b677e5"
     },
     "source/scripts/audit_operator_trial.py": {
-      "bytes": 7670,
-      "sha256": "c86589a4498a37b8090cc18a6fdf951435b0b5fd412644414752ee8e5d023538"
+      "bytes": 7773,
+      "sha256": "37c461f0938c81ac61eb773e7e849090464b8a57f43d476787747be4299ae1b7"
     },
     "source/scripts/develop.py": {
       "bytes": 1862,
@@ -4212,8 +4212,8 @@
       "sha256": "9a2161054ef2f42865724020acba912ec23b7e5fdf0883c52c31e79b05ea1cd3"
     },
     "validation/test_operator_trial_audit.py": {
-      "bytes": 2939,
-      "sha256": "69c38838ad0eb203734d87c84f801ea54a7b7db9f31f340e9d028569fd725590"
+      "bytes": 3383,
+      "sha256": "ecdf14b9c4d0193b06fcdbd14202302d7648f36486407d90181be8c3dc36725f"
     },
     "validation/test_portable_environment.py": {
       "bytes": 9916,
