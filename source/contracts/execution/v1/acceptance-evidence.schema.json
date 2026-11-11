@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kernelcat.local/contracts/execution/v1/acceptance-evidence.schema.json",
+  "type": "object",
+  "properties": {
+    "evidence_tier": {
+      "enum": [
+        "E0",
+        "E1",
+        "E2",
+        "E3",
+        "E4"
+      ]
+    },
+    "task_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "source_sha256": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evaluator_sha256": {
+      "type": "string",
+      "minLength": 1
+    },
+    "measurement_profile_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "correct": {
+      "type": "boolean"
+    },
+    "full_suite": {
+      "type": "boolean"
+    },
+    "score": {
+      "type": "number"
+    },
+    "noise_threshold": {
+      "type": "number",
+      "minimum": 0
+    },
+    "paired_delta": {
+      "type": "number"
+    },
+    "pair_method": {
+      "enum": [
+        "ABBA",
+        "alternating",
+        null
+      ]
+    },
+    "parent_source_sha256": {
+      "type": "string"
+    },
+    "raw_data_ref": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "platform_receipt": {
+      "type": [
+        "object",
+        "string"
+      ]
+    }
+  },
+  "required": [
+    "evidence_tier",
+    "task_version",
+    "source_sha256",
+    "evaluator_sha256",
+    "measurement_profile_version",
+    "evidence_ref"
+  ],
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "evidence_tier": {
+            "enum": [
+              "E1",
+              "E2",
+              "E3"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "correct",
+          "full_suite"
+        ],
+        "properties": {
+          "correct": {
+            "const": true
+          },
+          "full_suite": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "evidence_tier": {
+            "enum": [
+              "E2",
+              "E3"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "raw_data_ref"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "evidence_tier": {
+            "const": "E3"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "paired_delta",
+          "noise_threshold",
+          "parent_source_sha256",
+          "pair_method"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "evidence_tier": {
+            "const": "E4"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "platform_receipt"
+        ]
+      }
+    }
+  ]
+}

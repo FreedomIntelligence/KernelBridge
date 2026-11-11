@@ -43,5 +43,15 @@
     "enabled": true,
     "max_trials": 3,
     "complete_on_acceptance": true
+  },
+  "application": {
+    "on_detach": "pause",
+    "max_model_turns": 120,
+    "max_forks": 2,
+    "fork_policy": {
+      "enabled": true,
+      "minimum_observations": 3,
+      "cooldown_turns": 3
+    }
   }
 }

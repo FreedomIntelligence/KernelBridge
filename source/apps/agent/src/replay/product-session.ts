@@ -35,13 +35,13 @@ export async function sessionBytes(path: string): Promise<Buffer> {
   }
 }
 
-export async function prepareProductReplay(value: unknown) {
+export async function prepareProductReplay(value: unknown, { project = false } = {}) {
   const capability = validatedSnapshot(value, wireValidator<NativeReplay>(SCHEMA.$id, "NativeReplay"), "Native replay");
   for (const path of [capability.directory, capability.workspace]) {
     if (!isAbsolute(path) || await realpath(path) !== path) throw new Error("Native replay requires canonical absolute roots");
   }
   const agentDir = join(capability.directory, "agent");
-  const history = await prepareWorkspaceHistory({ workspace: capability.workspace, agentDir,
+  const history = project ? undefined : await prepareWorkspaceHistory({ workspace: capability.workspace, agentDir,
     storageDir: join(capability.directory, "history"),
     packageDir: dirname(fileURLToPath(import.meta.resolve("pi-workspace-history/package.json"))) });
   return { capability, history, agentDir, sessions: join(capability.directory, "sessions") };
@@ -84,12 +84,23 @@ export async function snapshotProductSession(session: AgentSession, replay: Prod
   const file = session.sessionFile;
   const leaf = session.sessionManager.getLeafId();
   if (!file || leaf === null) throw new Error("Native turn has no persistent session/leaf");
-  const workspaceHistory = [...await observeWorkspaceHistory(session)];
-  const bytes = await sessionBytes(file);
-  const original = await inspectNativeSessionFile(file);
-  if (original.sessionId !== session.sessionId || original.leafId !== leaf
-      || original.cwd !== replay.capability.workspace || `sha256:${original.digest}` !== digest(bytes)) {
-    throw new Error("Native session file changed before checkpoint admission");
+  const workspaceHistory = replay.history ? [...await observeWorkspaceHistory(session)]
+    : ['Project session: conversation checkpoint only; working files are not snapshotted or restored.'];
+  let bytes: Buffer;
+  try {
+    bytes = await sessionBytes(file);
+    const original = await inspectNativeSessionFile(file);
+    if (original.sessionId !== session.sessionId || original.leafId !== leaf
+        || original.cwd !== replay.capability.workspace || `sha256:${original.digest}` !== digest(bytes)) {
+      throw new Error("Native session file changed before checkpoint admission");
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    // Pi defers its mutable JSONL until a user/assistant message. Persist real
+    // setup/custom entries through its public tree API without changing Pi's file.
+    bytes = Buffer.from([session.sessionManager.getHeader(), ...session.sessionManager.getEntries()]
+      .map(entry => JSON.stringify(entry)).join("\n") + "\n");
+    if (bytes.length > MAX_SESSION_BYTES) throw new Error("Native checkpoint exceeds 32 MiB");
   }
   const checkpoint: NativeCheckpoint = { session_id: session.sessionId, leaf_id: leaf,
     digest: digest(bytes), workspace_history: workspaceHistory };

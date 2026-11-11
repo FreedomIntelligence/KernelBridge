@@ -38,6 +38,7 @@ class NativeReplayFiles:
             if not item.get("terminal") or item["outcome"]["status"] == "unknown":
                 raise InDoubt("native restore requires reconciliation: " + item["action"]["id"])
             if (item["action"]["tool"] == "__propose__" and item["outcome"]["status"] == "completed"
+                    and not item["action"]["id"].startswith(self.task_id + "/compact/")
                     and item["action"]["id"] not in ended):
                 raise InDoubt("native restore has an uncheckpointed model turn: " + item["action"]["id"])
 

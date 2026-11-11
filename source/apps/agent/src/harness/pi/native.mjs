@@ -98,7 +98,7 @@ export function createNativeBridge(sdk, rpc, specifications, directory, sealedCa
       result = failedResult(error);
     }
     if (invocation.failure) throw invocation.failure;
-    if (builtinNames.has(definition.name)) {
+    if (builtinNames.has(definition.name) && options.includeReceiptText !== false) {
       result = { ...result, content: [...result.content,
         { type: 'text', text: `Execution receipt: ${permission.permit}` }] };
     }

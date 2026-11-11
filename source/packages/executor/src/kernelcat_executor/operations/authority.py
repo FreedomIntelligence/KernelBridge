@@ -162,11 +162,16 @@ class ExecutionRPC:
         self._unresolved()
         if self.owner._cancelled():
             self.result = {"status": "cancelled", "step": self.step}
+        if self.result is not None and self.result.get("status") == "finished" and self.owner._control.pending(self.task.id):
+            self.result = None
         if self.result is not None:
             return {"stop": True, "result": self.result}
         state = self.store.snapshot()
         policy = Policy.model_validate_json(canonical(state["policy"]))
-        if self.step >= policy.max_steps:
+        application = self.store.application_state() if hasattr(self.store, "application_state") else None
+        trial_start = (application["trials"][-1].get("start_step", 0)
+                       if application and application["trials"] else 0)
+        if policy.max_steps is not None and self.step - trial_start >= policy.max_steps:
             self.result = self.last_result or {"status": "step_limit", "steps": self.step}
             return {"stop": True, "result": self.result}
         inputs = self.owner._control.take(self.task.id, self.step, terminal=self.last_result is not None)
@@ -183,8 +188,25 @@ class ExecutionRPC:
         self.prepared = True
         prepared: Json = {"routes": list(policy.routes), "step": self.step}
         if self.owner.external_context:
-            self.context_source = source(self.task, policy, self.store.snapshot(),
+            context_task = self.task.model_copy(update={"goal": application["task"]["goal"],
+                "contract": application["task"].get("contract", {})}) if application else self.task
+            project_session = application and self.owner.workspace_policy.get("mode") == "project"
+            if project_session and (not application["goal"] or application["goal"]["status"] == "cleared"):
+                # Pi owns conversation boundaries. A fresh /new must not receive
+                # the initial task or old user requests via the authority prefix.
+                context_task = context_task.model_copy(update={"goal": "Follow the user's request in the current conversation."})
+            self.context_source = source(context_task, policy, self.store.snapshot(),
                                          self.owner.skills, agent=self.agent)
+            if project_session:
+                from kernelcat_executor.operations.control import input_identity
+                session_id = application.get("checkpoint", {}).get("pi_session_id")
+                current_ids = {input_identity(self.task.id, item["input_id"]) for item in application["inputs"].values()
+                               if item.get("pi_session_id") == session_id}
+                self.context_source["inputs"] = [{**batch, "messages": [message for message in batch["messages"]
+                    if message["id"] in current_ids]} for batch in self.context_source.get("inputs", [])]
+                self.context_source["inputs"] = [batch for batch in self.context_source["inputs"] if batch["messages"]]
+                if not self.context_source["inputs"]:
+                    self.context_source.pop("inputs")
             if isinstance(self.store, ManagedStore):
                 self.context_source["runtime"] = self.store.runtime_state()["stamp"]
             if self.owner.rsi is not None:
@@ -415,6 +437,39 @@ class ExecutionRPC:
         self.step += 1
         return {"stop": self.result is not None, "result": self.result}
 
+    def interrupt_turn(self) -> Json:
+        """Finalize only provably unstarted calls; active effects remain fenced.
+
+        The caller must persist the matching native error/recovery entries and
+        acknowledge end_turn with that checkpoint before another model request.
+        """
+        self._unresolved()
+        if self.remote_thread is not None:
+            raise InDoubt("delegated work must settle before interruption")
+        if not self.active:
+            self.prepared = False
+            return {"needs_checkpoint": False, "calls": []}
+        skipped = []
+        while len(self.outcomes) < len(self.calls):
+            action = self.calls[len(self.outcomes)]
+            call = self.wire(action)
+            receipt = self.tool_error({"call": call, "reason": "User interrupted before this tool started"})
+            skipped.append({"call": call, "receipt": receipt})
+        return {"needs_checkpoint": True, "proposal_id": self.proposal_id, "calls": skipped}
+
+    def end_failed_turn(self, params: Json) -> Json:
+        """Close a known failed model turn; a later input gets a new action ID."""
+        self._unresolved()
+        if (self.active or self.prepared or not self.failed or not self.result
+                or self.result.get("status") != "providers_failed" or set(params) != {"native_checkpoint"} or self.replay is None):
+            raise Conflict("only a settled provider failure may close this turn")
+        checkpoint = self.replay.checkpoint(params["native_checkpoint"])
+        identity = self.failed[-1]
+        self.owner._control.checkpoint(self.task.id, self.step, identity, identity, None, native_checkpoint=checkpoint)
+        self.prior, self.result, self.last_result = identity, None, None
+        self.step += 1
+        return {"status": "failed", "model_receipt": identity}
+
     def native_begin(self, params: Json) -> Json:
         checked = validate_native_begin(params)
         action = self._pending(dict(checked))
@@ -575,6 +630,10 @@ class ExecutionRPC:
             return self._rsi(method, params)
         if method == "prepare_turn":
             return self.prepare_turn()
+        if method == "interrupt_turn" and not params:
+            return self.interrupt_turn()
+        if method == "end_failed_turn":
+            return self.end_failed_turn(params)
         if method == "model":
             return self.model(params)
         if method == "tool":
@@ -615,7 +674,7 @@ class ExecutionRPC:
                 raise Conflict("rsi_status takes no parameters")
             if self.owner._cancelled():
                 self.result = {"status": "cancelled", "step": self.step}
-            if self.step >= self.store.policy().max_steps:
+            if self.store.policy().max_steps is not None and self.step >= self.store.policy().max_steps:
                 self.result = self.last_result or {"status": "step_limit", "steps": self.step}
             if self.result is None and self.last_result is not None and not self.active:
                 inputs = self.owner._control.take(self.task.id, self.step, terminal=True)

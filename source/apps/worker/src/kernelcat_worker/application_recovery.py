@@ -1,0 +1,105 @@
+"""Reconcile original receipts before restoring a native conversation boundary."""
+import re
+import json
+from pathlib import Path
+
+from kernelcat_executor.contracts.messages import AssistantTurn, turn_actions
+from kernelcat_executor.contracts.models import Action, Conflict, InDoubt, Outcome, canonical, digest
+from kernelcat_executor.operations.control import SessionControl
+
+
+def recovery_plan(host, *, cancel_unstarted=False):
+    store = host.owner.gateway.store
+    state = store.snapshot()
+    actions = state["actions"]
+    if cancel_unstarted:
+        for item in actions.values():
+            task_id = item["action"]["task"]
+            if (task_id == host.task.id or task_id.startswith(host.task.id + "/")) and not any(
+                    item.get(key) for key in ("terminal", "started", "outcome")):
+                store.cancel_unstarted(Action.model_validate(item["action"]))
+        actions = store.snapshot()["actions"]
+    pending = [key for key, item in actions.items() if not item.get("terminal")]
+    if pending and cancel_unstarted and host.owner.rsi is not None:
+        for key in pending:
+            item = actions[key]
+            if item["action"]["tool"] == "__rsi_adapter__" and item.get("started"):
+                host.owner.rsi.adapter.collect_pending(host.owner.gateway, host.task.id, key)
+        actions = store.snapshot()["actions"]
+        pending = [key for key, item in actions.items() if not item.get("terminal")]
+    if pending:
+        raise InDoubt("original effects require reconciliation: " + ", ".join(pending))
+    ended = {item["outcome"]["data"]["proposal_id"] for item in actions.values()
+             if item["action"]["tool"] == "__turn_end__" and item.get("terminal")}
+    turns = {}
+    for identity, item in actions.items():
+        action, outcome = item["action"], item.get("outcome", {})
+        if action["task"] != host.task.id or action["tool"] != "__propose__" or identity in ended or not item.get("terminal"):
+            continue
+        match = re.search(r"/step/(\d+)/model/", identity)
+        if not match:
+            continue  # Compaction is metered but is not a conversational turn.
+        step = int(match[1])
+        if outcome.get("status") != "completed":
+            if step not in turns or turns[step]["model_receipt"].get("status") != "completed":
+                turns[step] = {"step": step, "proposal_id": identity, "model_receipt": outcome,
+                               "calls": [], "parallel": False}
+            continue
+        turn = AssistantTurn.model_validate_json(canonical(outcome["data"]))
+        parallel = identity + "/batch" in actions
+        calls = turn_actions(turn, host.task.id, identity, parallel=parallel)
+        receipts = []
+        for call in calls:
+            recorded = actions.get(call.id)
+            if recorded is None and cancel_unstarted:
+                cancelled = host.owner.gateway.internal(call, 0, lambda: Outcome(status="failed", data={
+                    "unexecuted": True, "recovered": True, "reason": "Worker was lost before this call started"}))
+                recorded = {"outcome": cancelled.model_dump(mode="json"), "terminal": True}
+            if recorded is not None and (not recorded.get("terminal") or recorded["outcome"]["status"] == "unknown"):
+                raise InDoubt(call.id)
+            receipts.append({"tool_call_id": "kc_" + digest(call.id), "action_id": call.id,
+                "tool_name": call.tool, "arguments": call.arguments,
+                "outcome": recorded["outcome"] if recorded else {"status": "failed", "data": {"unexecuted": True}}})
+        turns[step] = {"step": step, "proposal_id": identity, "model_receipt": outcome,
+                       "calls": receipts, "parallel": parallel}
+    application = host.journal.state()
+    return {"turns": [turns[step] for step in sorted(turns)], "checkpoint": application.get("checkpoint"),
+            "workspace": host.owner.workspace_policy["root"], "directory": str(host.owner.replay.directory),
+            "pending_transition": application.get("pending_transition"),
+            "applied_inputs": [item["input_id"] for item in application["inputs"].values() if item["status"] == "applied"],
+            "pending_calls": [key for key, item in application["calls"].items() if item["status"] == "pending"]}
+
+
+def commit_recovery(host, connection, request):
+    plan = recovery_plan(host, cancel_unstarted=True)
+    if digest(plan) != request["plan_digest"]:
+        raise Conflict("recovery evidence changed before checkpoint commit")
+    checkpoint = host.owner.replay.checkpoint(request["checkpoint"]) if request.get("checkpoint") else None
+    if plan["turns"] and checkpoint is None:
+        raise Conflict("recovery of model turns requires a native checkpoint")
+    control = SessionControl(host.owner.gateway, host.owner.options)
+    if plan["pending_transition"]:
+        from kernelcat_worker.application_artifacts import restore_source, read_regular
+        parent = plan["pending_transition"]["parent"]
+        path = host.owner.gateway.store.path.parent / "checkpoints" / (parent["source_sha256"] + ".json")
+        policy = host.owner.workspace_policy
+        restore_source(Path(policy["root"]), json.loads(read_regular(path)), policy["writable_paths"], policy["readonly_paths"])
+        host.journal.command("configuration", {**connection.worker, "operation": "transition_aborted",
+            "transition_id": plan["pending_transition"]["transition_id"], "reason": "worker_lost_before_trial_commit"})
+        host.journal.command("checkpoint", {**parent, **connection.worker})
+    for turn in plan["turns"]:
+        parents = tuple(item["action_id"] for item in turn["calls"])
+        prior = parents[-1] if parents else turn["proposal_id"]
+        control.checkpoint(host.task.id, turn["step"], turn["proposal_id"], prior, None,
+                           parents=parents if turn["parallel"] else None, native_checkpoint=checkpoint)
+    for call_id in plan["pending_calls"]:
+        host.journal.command("call_reconciled", {"call_id": call_id, "checkpoint": checkpoint,
+            "evidence_refs": [turn["proposal_id"] for turn in plan["turns"]]})
+    if checkpoint and plan.get("checkpoint"):
+        host.journal.command("checkpoint", {**plan["checkpoint"], **connection.worker,
+            "native_checkpoint": checkpoint, "pi_session_id": checkpoint["session_id"], "entry_id": checkpoint["leaf_id"],
+            "session_file": str(host.owner.replay.directory / "checkpoints" / (checkpoint["digest"][7:] + ".jsonl"))})
+    for value in host.journal.state()["inputs"].values():
+        if value["status"] == "applied":
+            host.journal.command("transition", {**connection.worker, "input_id": value["input_id"], "status": "interrupted"})
+    return {"status": "reconciled", "checkpoint": checkpoint}

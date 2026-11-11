@@ -84,7 +84,7 @@ class Policy(Contract):
     schema_version: Literal["kernelcat.execution-policy/v2"] = "kernelcat.execution-policy/v2"
     revision: int = Field(ge=0, default=0)
     routes: tuple[str, ...] = ("primary",)
-    max_steps: int = Field(gt=0, le=10000, default=32)
+    max_steps: int | None = Field(gt=0, le=10000, default=None)
     history_items: int = Field(gt=0, le=10000, default=32)
     context_bytes: int = Field(ge=4096, le=2097152, default=65536)
     observation_bytes: int = Field(ge=512, le=65536, default=8192)

@@ -93,7 +93,7 @@ def authorize_model_retry(state: Json, task: Task, policy: Policy,
             or len(step_text) > 5):
         raise Conflict("retry receipt has no runtime step identity")
     step = int(step_text)
-    if str(step) != step_text or step >= policy.max_steps:
+    if str(step) != step_text or (policy.max_steps is not None and step >= policy.max_steps):
         raise Conflict("retry receipt is outside the current step policy")
     step_id = f"{prefix}{step}"
     if base_id != f"{step_id}/model/{route}":

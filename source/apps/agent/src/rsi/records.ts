@@ -41,6 +41,7 @@ export function stringList(value: unknown, label: string): readonly string[] {
 
 /** Incremental O(E) replay, bounded by 65,536 records and 128 MiB per task. */
 export class Records {
+  applicationBaseline?: { baseline_record_id: string; record_sequence: number };
   readonly rpc: EffectRpc;
   sequence = 0;
   private readonly byId = new Map<string, PrivateRecord>();
@@ -86,6 +87,15 @@ export class Records {
   baseline(): PrivateRecord {
     const branch = this.last("branch");
     const acceptance = this.last("acceptance");
+    const binding = this.applicationBaseline;
+    if (binding && (!acceptance || acceptance.sequence <= binding.record_sequence)
+        && (!branch || branch.sequence <= binding.record_sequence)) {
+      const baseline = this.get(binding.baseline_record_id);
+      if (!baseline || !["initial", "acceptance"].includes(baseline.kind) || baseline.sequence > binding.record_sequence) {
+        throw new Error("Application Trial does not identify an original accepted RSI baseline");
+      }
+      return baseline;
+    }
     if (branch && (!acceptance || branch.sequence > acceptance.sequence)) {
       const baseline = this.get(text(branch.value.baseline_record_id, "branch baseline"));
       if (!baseline || !["initial", "acceptance"].includes(baseline.kind) || baseline.sequence >= branch.sequence) {

@@ -1,0 +1,604 @@
+{
+  "schema_version": "kernelbridge.tui-interaction-acceptance/v1",
+  "date": "2026-11-10",
+  "status": "passed_across_recorded_runs",
+  "scope": "local scripted provider and evaluator on macOS; no NPU or live-model qualification",
+  "checks": [
+    {
+      "check": "deployment",
+      "exit_code": 0,
+      "seconds": 5.99,
+      "log": ".validation/tui-ui-regression-r2/deployment.log"
+    },
+    {
+      "check": "authority",
+      "exit_code": 0,
+      "seconds": 0.62,
+      "log": ".validation/tui-ui-regression-r2/authority.log"
+    },
+    {
+      "check": "compatibility",
+      "exit_code": 0,
+      "seconds": 2.26,
+      "log": ".validation/tui-ui-regression-r2/compatibility.log"
+    },
+    {
+      "check": "runtime",
+      "exit_code": 0,
+      "seconds": 12.5,
+      "log": ".validation/tui-ui-regression-r2/runtime.log"
+    },
+    {
+      "check": "types",
+      "exit_code": 0,
+      "seconds": 5.09,
+      "log": ".validation/tui-ui-regression-r2/types.log"
+    },
+    {
+      "check": "sdk",
+      "exit_code": 0,
+      "seconds": 6.48,
+      "log": ".validation/tui-ui-regression-r2/sdk.log"
+    },
+    {
+      "check": "long",
+      "exit_code": 0,
+      "seconds": 156.99,
+      "log": ".validation/tui-ui-regression-r2/long.log"
+    },
+    {
+      "check": "recovery",
+      "exit_code": 0,
+      "seconds": 11.53,
+      "log": ".validation/tui-ui-regression-r2/recovery.log"
+    },
+    {
+      "check": "steering",
+      "exit_code": 0,
+      "seconds": 22.69,
+      "log": ".validation/tui-ui-regression-r2/steering.log"
+    },
+    {
+      "check": "lifecycle",
+      "exit_code": 0,
+      "seconds": 39.24,
+      "log": ".validation/tui-ui-regression-r2/lifecycle.log"
+    },
+    {
+      "check": "transport",
+      "exit_code": 0,
+      "seconds": 12.8,
+      "log": ".validation/tui-ui-regression-r2/transport.log"
+    },
+    {
+      "check": "admission",
+      "exit_code": 0,
+      "seconds": 69.54,
+      "log": ".validation/tui-ui-final/admission.log"
+    },
+    {
+      "check": "pty",
+      "exit_code": 0,
+      "seconds": 38.95,
+      "log": ".validation/tui-ui-regression-r2/pty.log"
+    },
+    {
+      "check": "clean_install",
+      "exit_code": 0,
+      "log": ".validation/tui-install-ui/install.log"
+    },
+    {
+      "check": "installed_rendered_screen",
+      "exit_code": 0,
+      "per_condition_timeout_seconds": 90,
+      "scenario": ".validation/tui-ui-installed-r2/scenario.json"
+    }
+  ],
+  "python_module_digests": {
+    "kernelcat_executor": "sha256:e12eb89aecb09cf289a3f2236db6060a54a6105795d35a8953992a0c50b743f5",
+    "kernelcat_ingestion": "sha256:f39fb5fa5713b56620866622539a50027a7770950e14ef60b0c1336aa027cb54",
+    "kernelcat_knowledge": "sha256:0b878c53b7430efb1bab00b03cd9bef75b4ce171ab86adc7abcdbf2adbc27371",
+    "kernelcat_worker": "sha256:6d2dc8e808565415759eb2a31ecefec16523705e34b0ea0bf1961e1cb9454619"
+  },
+  "evidence": {
+    ".validation/tui-install-ui/bundle/runtime/expected.json": {
+      "bytes": 1543,
+      "sha256": "9609ec78fb179ccd34a1e5a76a250a878840beb592ad7deaaa88cc1dda262b67"
+    },
+    ".validation/tui-install-ui/install.log": {
+      "bytes": 9955,
+      "sha256": "c05b98655a1517687da70993f6074d7edebbe4172a290d0a1a703dab7fe03154"
+    },
+    ".validation/tui-ui-final/acceptance.json": {
+      "bytes": 8107,
+      "sha256": "370d11018867c31ee0f08fa82e3656aa871003e58a01f06b21117e87b985d227"
+    },
+    ".validation/tui-ui-final/admission.log": {
+      "sha256": "4cabb2c99277226ab094393874880a13483d6544b0f858351970f035d5c7a575",
+      "bytes": 66
+    },
+    ".validation/tui-ui-final/admission/events.jsonl": {
+      "sha256": "9182ccfbd9bbaacc8b888eefdc11f3d2246e741c85d72cf8fd62e7ede86fe16b",
+      "bytes": 344040
+    },
+    ".validation/tui-ui-final/admission/model-requests.json": {
+      "sha256": "688013a38c69fc6aaf30c49c3a00cb09a5188354562d9394acb800adc6e48957",
+      "bytes": 67640
+    },
+    ".validation/tui-ui-final/admission/scenario.json": {
+      "sha256": "36154f6e97daa49c0b9d7b6064e88fa665fdfa5bebf34977c53d31602ad237cf",
+      "bytes": 20341
+    },
+    ".validation/tui-ui-final/admission/state/events.jsonl": {
+      "sha256": "e651cd4a60e6fb4d540f53e4565a721c5177197c6defd87c7110b353d8808cde",
+      "bytes": 344380
+    },
+    ".validation/tui-ui-final/authority.log": {
+      "sha256": "1862ac22656e34de9898b612fd3cfd390352db594aad5c69ee910a3d0d142d09",
+      "bytes": 1874
+    },
+    ".validation/tui-ui-final/compatibility.log": {
+      "sha256": "c32ff388e5beb43852dae2c5148db4249f871c13aa16151380d3ee933d08cead",
+      "bytes": 4834
+    },
+    ".validation/tui-ui-final/deployment.log": {
+      "sha256": "7838e2b43cea9364cf6002b22c22451ff681a9185acecdc8a9e727ad902969e5",
+      "bytes": 270
+    },
+    ".validation/tui-ui-final/deployment/expected.json": {
+      "bytes": 1419,
+      "sha256": "ae57b62b263f3af8c6079f5f92623af74f78c8eb78605fc79c67556f437655bd"
+    },
+    ".validation/tui-ui-final/lifecycle.log": {
+      "sha256": "bab372b1a8d331eb1ed83d01bce8f5c0552069cb7c4c0dca8ae7284dd0bcddde",
+      "bytes": 408
+    },
+    ".validation/tui-ui-final/lifecycle/awaiting_user/events.jsonl": {
+      "sha256": "b47fb589cbe1a897b2e483cadb71406c81ed13a545f715933b14d54b8bb6a869",
+      "bytes": 285490
+    },
+    ".validation/tui-ui-final/lifecycle/awaiting_user/state/events.jsonl": {
+      "sha256": "a9e7e08ee1216c89a967b3924c98d93bd720ac0c8893e507a1e3e608ff3f6069",
+      "bytes": 286277
+    },
+    ".validation/tui-ui-final/lifecycle/budget/state/events.jsonl": {
+      "sha256": "088a289e1c14e5a1d962bfd73bb756c1641199fdd43e51e958ec963e9328a70d",
+      "bytes": 76687
+    },
+    ".validation/tui-ui-final/lifecycle/detach/events.jsonl": {
+      "sha256": "9ae06c5a5fcf0ee9518d40e39f3625c2eefa9c74bb4a9d45889046e07debcfef",
+      "bytes": 280202
+    },
+    ".validation/tui-ui-final/lifecycle/detach/state/events.jsonl": {
+      "sha256": "c40d01dc397b233f2f97a2dcfd2ab3de160667ec974a7b9c689eaf0bd0a19f21",
+      "bytes": 280648
+    },
+    ".validation/tui-ui-final/lifecycle/model-requests.json": {
+      "sha256": "96c54f2f807aa06d7933a2abd6cf3cf60e5cea958696abf09d98437c58fc90d2",
+      "bytes": 179564
+    },
+    ".validation/tui-ui-final/lifecycle/pause/events.jsonl": {
+      "sha256": "dbb081c729eba33c9062d13c0c04606c84fdd233f11c6dd31f2bcafda55abaf6",
+      "bytes": 281851
+    },
+    ".validation/tui-ui-final/lifecycle/pause/state/events.jsonl": {
+      "sha256": "288eb942d5431953423cd62be665d777d575fd6e8174a02852be8fef61dff1a7",
+      "bytes": 282639
+    },
+    ".validation/tui-ui-final/long.log": {
+      "sha256": "5b96773c19667cf70914cdfe390869ac61eaa635624a2288ebff537df93bf88d",
+      "bytes": 1717
+    },
+    ".validation/tui-ui-final/long/events.jsonl": {
+      "sha256": "ba147fd0495ff71b985db7294bbf1502700b0bf02738c8b28d49276441612d13",
+      "bytes": 1342269
+    },
+    ".validation/tui-ui-final/long/state/events.jsonl": {
+      "sha256": "fc68931aaa58491f0875a5f90d59558952b863d31f57d1ef63fcf40f410c696b",
+      "bytes": 1418164
+    },
+    ".validation/tui-ui-final/pty.log": {
+      "sha256": "97f28f454f7aebe60af8c1dd7afcce4dbf46df442c3d841bb11d5afe63affabf",
+      "bytes": 9244
+    },
+    ".validation/tui-ui-final/pty/events.jsonl": {
+      "sha256": "393dd41eb3e251c2af4864042fc8b16b197d8e5de997c80579a878b6fca21fe1",
+      "bytes": 210838
+    },
+    ".validation/tui-ui-final/pty/model-requests.json": {
+      "sha256": "c2978572b4968945e1438aead0829ca3ca7cd87b481109d14387c453cdf96ef9",
+      "bytes": 59673
+    },
+    ".validation/tui-ui-final/pty/pty-transcript.txt": {
+      "sha256": "c506f30a24496256c5bcaec577d32b5e5749d90985e1751f3a34888f9e8625b4",
+      "bytes": 87477
+    },
+    ".validation/tui-ui-final/pty/state/events.jsonl": {
+      "sha256": "f1ad549bbc8edb4c40f746cc2d801bf3e0ba007d55c0abff999940bc7f2449ab",
+      "bytes": 259420
+    },
+    ".validation/tui-ui-final/recovery.log": {
+      "sha256": "430d8948895df9ced76d0e663036307d62a958fc4a78ef36e812858149b5d141",
+      "bytes": 63
+    },
+    ".validation/tui-ui-final/recovery/events.jsonl": {
+      "sha256": "8e89a9cda8d0fb7dca1e44480f6117e73758491e6fa572c89d271f93a0495a17",
+      "bytes": 348849
+    },
+    ".validation/tui-ui-final/recovery/model-requests.json": {
+      "sha256": "9e19d1330d3e5c043aded9c07d50fe69b8d310b34da57184c190625b6a4fc4a9",
+      "bytes": 83051
+    },
+    ".validation/tui-ui-final/recovery/scenario.json": {
+      "sha256": "27c7430308d7c188ff818c907158fbf162b7967ba1d45cebec2a33d391a9d4d5",
+      "bytes": 10289
+    },
+    ".validation/tui-ui-final/recovery/state/events.jsonl": {
+      "sha256": "42fc719934c41676d96e5be3879e35f8d989fd737ecfc20548733ec91336ee3a",
+      "bytes": 349464
+    },
+    ".validation/tui-ui-final/runtime.log": {
+      "sha256": "b58be69913313a33ab7ef56a89a4210d6e2593c97f9a4e4dd288ad7065ea150f",
+      "bytes": 1102
+    },
+    ".validation/tui-ui-final/sdk.log": {
+      "sha256": "c226fc2ff5011d5209993ce4609c6e79ca53a460c92767ac459e06ddc4086ecc",
+      "bytes": 118
+    },
+    ".validation/tui-ui-final/sdk/events.jsonl": {
+      "sha256": "33c194750849e6b7e1202881a72eb1a8f9c633271d45d4e8023c17a6a5d9bc3b",
+      "bytes": 324073
+    },
+    ".validation/tui-ui-final/sdk/model-requests.json": {
+      "sha256": "447367da8294d9bf4e5bccd4c3b54db293bbefdae5da4cc5b25e3f5badcf847f",
+      "bytes": 81929
+    },
+    ".validation/tui-ui-final/sdk/scenario.json": {
+      "sha256": "fa1dbd9c0f6c277bc40edaff8391299c9bb43696b4b1c9d9d7d7a041cad2cccc",
+      "bytes": 7036
+    },
+    ".validation/tui-ui-final/sdk/state/events.jsonl": {
+      "sha256": "d22611142cfd0ae8508345c5a006d0bede2e136a5107dbcc849699986d13f9ae",
+      "bytes": 324519
+    },
+    ".validation/tui-ui-final/steering.log": {
+      "sha256": "eeb6df4235769af3b89936a3c1d1ef2796c8df87c00c1962aede97022c4020cd",
+      "bytes": 42
+    },
+    ".validation/tui-ui-final/steering/events.jsonl": {
+      "sha256": "7c73d721418df8d95d2cdc7c5e3802c80cddedef91eed21e8b5aa5347c162ba7",
+      "bytes": 555290
+    },
+    ".validation/tui-ui-final/steering/model-requests.json": {
+      "sha256": "967397a471cbc510c921f0553665146afbd8f61bfd4e34f787cdcd731cb167e2",
+      "bytes": 155327
+    },
+    ".validation/tui-ui-final/steering/scenario.json": {
+      "sha256": "d64117ca8936a0de212f57ea09a47284d2a57dc3a51009df93dd860ba750163d",
+      "bytes": 13259
+    },
+    ".validation/tui-ui-final/steering/state/events.jsonl": {
+      "sha256": "411a4178dc0428e75bead42a48ba12ef37ec1242a4190cc031b0dfe804b2724c",
+      "bytes": 555905
+    },
+    ".validation/tui-ui-final/transport.log": {
+      "sha256": "61da90fdfec4b3424063da6926f5cac77429afd2310e9ca75f6d59b2c4b7635f",
+      "bytes": 47
+    },
+    ".validation/tui-ui-final/transport/events.jsonl": {
+      "sha256": "8cd6a8ae63ae3c8e7b25fa877bec175163a65a693015f9934a404296b6d13801",
+      "bytes": 393103
+    },
+    ".validation/tui-ui-final/transport/model-requests.json": {
+      "sha256": "534e5f2fae3a9c9c3323399869881b063f72a3875ddba0cce88e158dce13eebb",
+      "bytes": 103520
+    },
+    ".validation/tui-ui-final/transport/scenario.json": {
+      "sha256": "e8fcf533fa2dce527e71e35d5bcbdc464337de7cbcd6cffe194cd00be8eab2f4",
+      "bytes": 9016
+    },
+    ".validation/tui-ui-final/transport/state/events.jsonl": {
+      "sha256": "c0fa93c751171e419930855f09567e89b02ddc29d1dcddcb665a5f22651eb6c3",
+      "bytes": 393549
+    },
+    ".validation/tui-ui-final/types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    ".validation/tui-ui-installed-help.log": {
+      "bytes": 504,
+      "sha256": "2930f694b19d323a60752280b8349c81b3bf1ab9f8b7315e0265b76ff8661509"
+    },
+    ".validation/tui-ui-installed-r2.log": {
+      "bytes": 34,
+      "sha256": "9bb598c02a279624e28eb03a64cbcc6da76dbb953a9cee6ba39028ece95bce16"
+    },
+    ".validation/tui-ui-installed-r2/events.jsonl": {
+      "bytes": 434167,
+      "sha256": "7ccc8dbac90b6bf3a73661cd074576b180ab4de5dfaa19b2b3fc86d5f4e3587e"
+    },
+    ".validation/tui-ui-installed-r2/goal-screen.txt": {
+      "bytes": 3512,
+      "sha256": "5b82885f7c305fbf448700636061edfd7b14f38d6d356ef6e9b50d7934b3922a"
+    },
+    ".validation/tui-ui-installed-r2/history-screen.txt": {
+      "bytes": 3578,
+      "sha256": "3a1cd0d9734f08a0c5358b7ab757f4c57db2fa25bb534ea8c2bdebdafad4fafa"
+    },
+    ".validation/tui-ui-installed-r2/initial-screen.txt": {
+      "bytes": 3474,
+      "sha256": "659809baca27b8418112717b41ea0a6aee881da7e3305d6f64887c28aea5936f"
+    },
+    ".validation/tui-ui-installed-r2/last-screen.txt": {
+      "bytes": 1408,
+      "sha256": "c9e2d1d2d2e9bd29f2654411c39af317d31ea4548a48b99f73a0ae1a686ce8ad"
+    },
+    ".validation/tui-ui-installed-r2/model-requests.json": {
+      "bytes": 108275,
+      "sha256": "65d1d6a6f1b9c86774d22d454e4e26d8e0a9781b9fe6c1102596944051025453"
+    },
+    ".validation/tui-ui-installed-r2/narrow-help-screen.txt": {
+      "bytes": 1498,
+      "sha256": "1d3d2cb0ea683c450555e3d29906140ce50b01bbfa0472396d28b9eaae1cd051"
+    },
+    ".validation/tui-ui-installed-r2/pty-transcript.txt": {
+      "bytes": 144637,
+      "sha256": "dc389a691407ac64269a663b405b73b2a094fa3d6d9ce3ed6eecdbb4b1a5e399"
+    },
+    ".validation/tui-ui-installed-r2/rejected-command-screen.txt": {
+      "bytes": 3538,
+      "sha256": "15f0e880270d8d1b6ee774a87f2ec42d61dd5649077c6fd7d48602e61ae63b61"
+    },
+    ".validation/tui-ui-installed-r2/scenario.json": {
+      "bytes": 22770,
+      "sha256": "fbabd6bac17244ed4005e7607e99ffebf7336c6b9033195da4437390e3be5f67"
+    },
+    ".validation/tui-ui-installed-r2/state/events.jsonl": {
+      "bytes": 437606,
+      "sha256": "30099ea26bcd3cb755cec559627ce47bf684e45a4ca370541ffe23e26c57d39e"
+    },
+    ".validation/tui-ui-installed-r2/submitted-screen.txt": {
+      "bytes": 3487,
+      "sha256": "29f50f0a5a441934d7442ae9f1ecb5d3f8c484837eb55a52c40d1956960e81b9"
+    },
+    ".validation/tui-ui-regression-r2/acceptance.json": {
+      "bytes": 9309,
+      "sha256": "61d847cbe7cfb009ef2f3ca01e51dfd8b44b334b1b42bb2f843067316912bc59"
+    },
+    ".validation/tui-ui-regression-r2/admission.log": {
+      "sha256": "3fb5d44321473f1aaf6f864dd60fa97f29dff42e00fb7b2a73fe93577df3ba70",
+      "bytes": 979
+    },
+    ".validation/tui-ui-regression-r2/admission/events.jsonl": {
+      "sha256": "9303202a184c9649e459a5853885fcaa050e43752d8e130b78fe0f2fb7b53a6d",
+      "bytes": 123395
+    },
+    ".validation/tui-ui-regression-r2/admission/model-requests.json": {
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "bytes": 2
+    },
+    ".validation/tui-ui-regression-r2/admission/state/events.jsonl": {
+      "sha256": "292661a16b7c7e896a3d1dd41f1be94602884c25070e090b6b32298981e6a908",
+      "bytes": 123565
+    },
+    ".validation/tui-ui-regression-r2/authority.log": {
+      "sha256": "7fdc53278b1005fbbb73936ddffa457c6a6fd471234502b2748d26c42bd60e94",
+      "bytes": 1874
+    },
+    ".validation/tui-ui-regression-r2/compatibility.log": {
+      "sha256": "fe05105566e5297eafa8af44acb90f62e835a460aec35ef399e6cf86d8d2c84d",
+      "bytes": 4830
+    },
+    ".validation/tui-ui-regression-r2/deployment.log": {
+      "sha256": "6d620f148b1044f95d24593cd97f6b6b5cb415ce6ebc514be1ad318d21aec746",
+      "bytes": 286
+    },
+    ".validation/tui-ui-regression-r2/deployment/expected.json": {
+      "bytes": 1451,
+      "sha256": "18d2b43adcf9cc59f03d86b6f65fe141a19f0bacced42426cd5242403edcf635"
+    },
+    ".validation/tui-ui-regression-r2/lifecycle.log": {
+      "sha256": "d7522d505d6281d39e7aa4d3a0a05c57c363a611094b5cabd5116ebef43b404b",
+      "bytes": 407
+    },
+    ".validation/tui-ui-regression-r2/lifecycle/awaiting_user/events.jsonl": {
+      "sha256": "a3904ef1805f93b9c9671a445543067582488db8fb5c7d4bfe5b6b7c0233b96e",
+      "bytes": 286046
+    },
+    ".validation/tui-ui-regression-r2/lifecycle/awaiting_user/state/events.jsonl": {
+      "sha256": "4b1915f6a272da9ffb95141565974b63f9f290f65cdcddeb570b3f6273006354",
+      "bytes": 286833
+    },
+    ".validation/tui-ui-regression-r2/lifecycle/budget/events.jsonl": {
+      "sha256": "00501ddb143ae3c8b573728219ac4efcb276152344a8f9a0dd8081cee7287835",
+      "bytes": 471193
+    },
+    ".validation/tui-ui-regression-r2/lifecycle/budget/state/events.jsonl": {
+      "sha256": "cb311f54555d4769840c13fbfaac8b54fd07876f27eecf629d5f65eb8f00e94d",
+      "bytes": 471802
+    },
+    ".validation/tui-ui-regression-r2/lifecycle/credits/events.jsonl": {
+      "sha256": "88c4de471b5171b724fc1b63f230d11ce968769ffcd61ec1fad92cca904d5dda",
+      "bytes": 181090
+    },
+    ".validation/tui-ui-regression-r2/lifecycle/credits/state/events.jsonl": {
+      "sha256": "3e9fafb15992e003322730bf54d369cb898adcc4ded62841dc6ea71ddcab8681",
+      "bytes": 181535
+    },
+    ".validation/tui-ui-regression-r2/lifecycle/detach/events.jsonl": {
+      "sha256": "d79b605502bd28b5e96ab49f8fba3fd335b31eba6dbce9c18757640f13f633f9",
+      "bytes": 280757
+    },
+    ".validation/tui-ui-regression-r2/lifecycle/detach/state/events.jsonl": {
+      "sha256": "9e20085d02bae1653c1a3e8f9145899ef1c81d8ac66f06e8585d075b86a65cc3",
+      "bytes": 281203
+    },
+    ".validation/tui-ui-regression-r2/lifecycle/model-requests.json": {
+      "sha256": "e88de1876e8e6b5beb5058a1352cd691cc21bfdae563975e4a3a424ce51baab3",
+      "bytes": 312951
+    },
+    ".validation/tui-ui-regression-r2/lifecycle/pause/events.jsonl": {
+      "sha256": "d9272b1d584795c65cc0df0c14831ae5df0af308472b138cb1c8d0b297ac20eb",
+      "bytes": 282409
+    },
+    ".validation/tui-ui-regression-r2/lifecycle/pause/state/events.jsonl": {
+      "sha256": "a83cad88e11389ae0343e91c709adb8ed8236e2ee2e307e4c619ddfca859271b",
+      "bytes": 283197
+    },
+    ".validation/tui-ui-regression-r2/lifecycle/scenario.json": {
+      "sha256": "dc08ec2a2a593d313e4a1ae12ce4c8aebe3d7a56e1e57eaf229af3391ecf98f4",
+      "bytes": 670
+    },
+    ".validation/tui-ui-regression-r2/lifecycle/seed_credits/events.jsonl": {
+      "sha256": "b894f794c3653f3832bf8194cf0e83217d9d4f59833b078adb8f9988ee5109a9",
+      "bytes": 97401
+    },
+    ".validation/tui-ui-regression-r2/lifecycle/seed_credits/state/events.jsonl": {
+      "sha256": "8d868c64a03cb23f5269e1fd25fa8580a1d0a67b742fdbccecc8c306359372a5",
+      "bytes": 97846
+    },
+    ".validation/tui-ui-regression-r2/long.log": {
+      "sha256": "2eb102f28279ea24b309df834fc3b29586ab75f26d7b3adf032cdd425a4afa44",
+      "bytes": 70
+    },
+    ".validation/tui-ui-regression-r2/long/events.jsonl": {
+      "sha256": "69b5cfde662fe8cdeaa3397666c735fe36a16894baf4fefc6ca4cb483ececdb8",
+      "bytes": 4122264
+    },
+    ".validation/tui-ui-regression-r2/long/model-requests.json": {
+      "sha256": "00d246c73f9a26e03026c33dad9c6400f0694c2ebf9bf23696aa19c4b01a90bb",
+      "bytes": 1223703
+    },
+    ".validation/tui-ui-regression-r2/long/scenario.json": {
+      "sha256": "e3b07cb65da8eeebf405ccc2cd4e12acae5fa851c44f46240a9c1b5edb086abd",
+      "bytes": 42080
+    },
+    ".validation/tui-ui-regression-r2/long/state/events.jsonl": {
+      "sha256": "e36cbaf1a836dd44e9f0389340a59e8e9cc64a1832e5b44186963fb65389f1d7",
+      "bytes": 4122710
+    },
+    ".validation/tui-ui-regression-r2/pty.log": {
+      "sha256": "80310a6b398d47201078bfd553f2b23b13b07a55b95361a46e4ccf147968769b",
+      "bytes": 47
+    },
+    ".validation/tui-ui-regression-r2/pty/events.jsonl": {
+      "sha256": "de84eae1a1a86f132a82a69f9556321733f03dc12bdd5a4aafca0a7d725a831b",
+      "bytes": 1801062
+    },
+    ".validation/tui-ui-regression-r2/pty/model-requests.json": {
+      "sha256": "bb927a29fa522d56086a522cf4aa9bed0de2e680d840709c033d4a8dc7ea2c36",
+      "bytes": 308033
+    },
+    ".validation/tui-ui-regression-r2/pty/pty-transcript.txt": {
+      "sha256": "d213bfb03190dc095091f54836b38cbc9afe377b9425bb0f859bc34768668fb2",
+      "bytes": 131621
+    },
+    ".validation/tui-ui-regression-r2/pty/scenario.json": {
+      "sha256": "1901ab6a85c3afe00544658218b7b06e6b05eca051bcbfa041c194722ac3e2f4",
+      "bytes": 47075
+    },
+    ".validation/tui-ui-regression-r2/pty/state/events.jsonl": {
+      "sha256": "de84eae1a1a86f132a82a69f9556321733f03dc12bdd5a4aafca0a7d725a831b",
+      "bytes": 1801062
+    },
+    ".validation/tui-ui-regression-r2/recovery.log": {
+      "sha256": "430d8948895df9ced76d0e663036307d62a958fc4a78ef36e812858149b5d141",
+      "bytes": 63
+    },
+    ".validation/tui-ui-regression-r2/recovery/events.jsonl": {
+      "sha256": "4706b729d3012a7104c3cd451053d73a2366efad532599f7a1b97f9438cc5f35",
+      "bytes": 349541
+    },
+    ".validation/tui-ui-regression-r2/recovery/model-requests.json": {
+      "sha256": "86e0fb83d22303612d071f89fe73ab205e688f4aad4dd940a73cb5a05f2faba1",
+      "bytes": 83091
+    },
+    ".validation/tui-ui-regression-r2/recovery/scenario.json": {
+      "sha256": "a0bd582ce9e86b4d1f27735a80d9c9fdec2de99214a62f769e3eb4304428f56a",
+      "bytes": 10321
+    },
+    ".validation/tui-ui-regression-r2/recovery/state/events.jsonl": {
+      "sha256": "e944b5b31f05290d417f368d5c1863f3cea235b4b7c82ec66369d2cc209265bb",
+      "bytes": 350156
+    },
+    ".validation/tui-ui-regression-r2/runtime.log": {
+      "sha256": "e26e89da80edd496407fa027cdbee204428abe1760f142d87a7a2a5bf6695e81",
+      "bytes": 1102
+    },
+    ".validation/tui-ui-regression-r2/sdk.log": {
+      "sha256": "0f5034cc1ee0e40a1f3b4ef910ca14f375689fa767d4dfdbac5eb5603d3bb16e",
+      "bytes": 118
+    },
+    ".validation/tui-ui-regression-r2/sdk/events.jsonl": {
+      "sha256": "928184c4608006d4068c20096282d77cf0341349f26119c0256beb9618eaa9a8",
+      "bytes": 324712
+    },
+    ".validation/tui-ui-regression-r2/sdk/model-requests.json": {
+      "sha256": "be459807660f125fa154f0e99cc3787c2fc853dcf65d4b7148fb9612e7cef079",
+      "bytes": 81969
+    },
+    ".validation/tui-ui-regression-r2/sdk/scenario.json": {
+      "sha256": "f5781608e3757be4382337a309e7ea8ff9360bce4329a4434d4007f5c69ad681",
+      "bytes": 7068
+    },
+    ".validation/tui-ui-regression-r2/sdk/state/events.jsonl": {
+      "sha256": "58403552cacdf797b6f5ed15910ce7d720591f8b924fbc210edd0d8882a3db60",
+      "bytes": 325158
+    },
+    ".validation/tui-ui-regression-r2/steering.log": {
+      "sha256": "eeb6df4235769af3b89936a3c1d1ef2796c8df87c00c1962aede97022c4020cd",
+      "bytes": 42
+    },
+    ".validation/tui-ui-regression-r2/steering/events.jsonl": {
+      "sha256": "0759089acaed1469a5016815ef3424fce3d4f3533169e2b72d31c718d598eb34",
+      "bytes": 556637
+    },
+    ".validation/tui-ui-regression-r2/steering/model-requests.json": {
+      "sha256": "301dbf44bb236eef010376b40fde14dfcfdbf12c29edccd03b711acccbff99bc",
+      "bytes": 155415
+    },
+    ".validation/tui-ui-regression-r2/steering/scenario.json": {
+      "sha256": "57b64e07d1b16115f141bf2c758228b7b45e84fe221d46449990ab508e52599e",
+      "bytes": 13291
+    },
+    ".validation/tui-ui-regression-r2/steering/state/events.jsonl": {
+      "sha256": "0841714a03c7e6d0c1a856f2abbcda64ffe61f6bd8824828a545492ca8fa444a",
+      "bytes": 557252
+    },
+    ".validation/tui-ui-regression-r2/transport.log": {
+      "sha256": "61da90fdfec4b3424063da6926f5cac77429afd2310e9ca75f6d59b2c4b7635f",
+      "bytes": 47
+    },
+    ".validation/tui-ui-regression-r2/transport/events.jsonl": {
+      "sha256": "38ee41492263e579a2dfc2ae22e4b6d130ce8fecfa415386770cf817937004d8",
+      "bytes": 393926
+    },
+    ".validation/tui-ui-regression-r2/transport/model-requests.json": {
+      "sha256": "1d7f9486960cfb75f59669bd5d4db8a04318dcd442d3c8589abf068f44afecfc",
+      "bytes": 103568
+    },
+    ".validation/tui-ui-regression-r2/transport/scenario.json": {
+      "sha256": "ae585b363e6b4bea952ffb49cf733ac4d13c4efddb675d7b8e3cbccf4bc43d33",
+      "bytes": 9048
+    },
+    ".validation/tui-ui-regression-r2/transport/state/events.jsonl": {
+      "sha256": "406a63d6fb295d53b0f6e48f48c10b810624e89367461380eac3508b0d1ae324",
+      "bytes": 394372
+    },
+    ".validation/tui-ui-regression-r2/types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    ".validation/tui-ui-source.json": {
+      "bytes": 126140,
+      "sha256": "78661c0e1862f7b80a6107be45b07c36e2cdc433b3a81b5767886619abb603cb"
+    }
+  },
+  "notes": [
+    "Base regression admission assertion treated a mapping as an array; corrected assertion passed in the repeat.",
+    "The later parallel repeat had lifecycle, PTY and long-session timeouts under workstation memory pressure; original failures retained.",
+    "The installed screen test passed in isolation; default runner concurrency is now one job."
+  ],
+  "device_qualification": "pending",
+  "source_snapshot": ".validation/tui-ui-source.json"
+}

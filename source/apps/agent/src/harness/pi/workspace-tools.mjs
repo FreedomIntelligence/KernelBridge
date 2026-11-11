@@ -13,6 +13,17 @@ const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 
 export function workspaceTools(sdk, capability) {
   const root = resolve(capability.root);
+  // Ordinary codegen uses Pi's native project tools. Isolated experiment mode
+  // retains the snapshot/writeback boundary below. Both paths require the same
+  // host admission and original tool-result settlement in native.mjs.
+  if (capability.mode === 'project') {
+    const factories = { read: sdk.createReadToolDefinition, write: sdk.createWriteToolDefinition, edit: sdk.createEditToolDefinition,
+      bash: sdk.createBashToolDefinition, grep: sdk.createGrepToolDefinition, find: sdk.createFindToolDefinition, ls: sdk.createLsToolDefinition };
+    return (capability.tools ?? Object.keys(factories)).filter(name => factories[name]).map(name => ({
+      ...factories[name](root, name === 'bash' ? { exposeSessionEnvironment: false,
+        spawnHook: context => ({ ...context, env: { ...context.env, ...(capability.home ? { HOME: capability.home } : {}) } }) } : undefined),
+      exposure: 'model-only' }));
+  }
   const writable = capability.writable_paths;
   const readonly = capability.readonly_paths ?? ['reference'];
 
@@ -100,8 +111,8 @@ export function workspaceTools(sdk, capability) {
         await fs.writeFile(join(scratch, name), data);
         await fs.chmod(join(scratch, name), (await fs.stat(join(root, name))).mode & 0o777);
       }
-      const result = await execute(scratch);
-      if (writeback) {
+      const result = await execute(scratch, before);
+      if (writeback && result.exitCode === 0) {
         const after = await inventory(scratch, false);
         const changes = [];
         for (const name of new Set([...before.keys(), ...after.keys()])) {
@@ -162,17 +173,20 @@ export function workspaceTools(sdk, capability) {
   }
   const shell = sdk.createLocalBashOperations({ shellPath: '/bin/bash' });
   const bash = sdk.createBashToolDefinition(root, { exposeSessionEnvironment: false, operations: {
-    exec: async (command, _cwd, options) => withSnapshot(async scratch => {
+    exec: async (command, _cwd, options) => withSnapshot(async (scratch, original) => {
+      const protectedFiles = [...original.keys()].filter(name => !canWrite(name));
       let isolated;
       if (process.platform === 'darwin') {
         const system = ['/usr', '/bin', '/sbin', '/System/Library', '/System/Volumes/Preboot', '/Library', '/Applications', '/dev', '/opt', '/private/etc', '/private/var/db'];
         const profile = '(version 1)(deny default)(allow process*)(allow sysctl-read)(allow mach-lookup)(allow file-read-metadata)'
           + '(allow file-read* (literal "/") '
           + [...system, scratch].map(p => `(subpath ${JSON.stringify(p)})`).join(' ') + ')'
-          + `(allow file-write* (subpath ${JSON.stringify(scratch)}) (literal "/dev/null"))`;
+          + `(allow file-write* (subpath ${JSON.stringify(scratch)}) (literal "/dev/null"))`
+          + protectedFiles.map(name => `(deny file-write* (literal ${JSON.stringify(join(scratch, name))}))`).join('')
+          + readonly.map(name => `(deny file-write* (subpath ${JSON.stringify(join(scratch, name))}))`).join('');
         isolated = ['/usr/bin/sandbox-exec', '-p', profile, '/usr/bin/env', '-i',
           'PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin', 'LANG=en_US.UTF-8', `TMPDIR=${scratch}`, `HOME=${scratch}`,
-          '/bin/bash', '--noprofile', '--norc', '-c', command].map(quote).join(' ');
+          '/bin/bash', '--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', command].map(quote).join(' ');
       } else if (process.platform === 'linux') {
         // No unsandboxed fallback: provision bubblewrap in the runner image.
         const executable = process.env.KERNELCAT_BWRAP ?? 'bwrap';
@@ -183,10 +197,15 @@ export function workspaceTools(sdk, capability) {
         }
         // An empty /proc also works in nested runners that prohibit proc mounts;
         // never bind the host's /proc (which can expose other processes/files).
-        argv.push('--dir', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--setenv', 'TMPDIR', '/tmp',
-          '--bind', scratch, '/workspace', '--chdir', '/workspace',
+        argv.push('--dir', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--setenv', 'TMPDIR', '/tmp', '--bind', scratch, '/workspace');
+        for (const name of protectedFiles) argv.push('--ro-bind', join(scratch, name), join('/workspace', name));
+        for (const name of readonly) {
+          try { await fs.stat(join(scratch, name)); argv.push('--ro-bind', join(scratch, name), join('/workspace', name)); }
+          catch (error) { if (error.code !== 'ENOENT') throw error; }
+        }
+        argv.push('--chdir', '/workspace',
           '/usr/bin/env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin', 'LANG=C.UTF-8', 'TMPDIR=/tmp', 'HOME=/workspace',
-          '/bin/bash', '--noprofile', '--norc', '-c', command);
+          '/bin/bash', '--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', command);
         isolated = argv.map(quote).join(' ');
       } else throw new Error('No isolated bash backend on this platform');
       return shell.exec(isolated, scratch, { ...options, env: { PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin', LANG: 'en_US.UTF-8', TMPDIR: scratch } });

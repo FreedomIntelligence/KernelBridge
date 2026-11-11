@@ -74,10 +74,10 @@ def _knowledge_root(config: Config, base: Path) -> Path | None:
     return root
 
 
-def _pi_files(worker: PiWorkerConfig, base: Path, writable: Path) -> tuple[Path, ...]:
+def _pi_files(worker: PiWorkerConfig, base: Path, writable: Path, *, project: bool = False) -> tuple[Path, ...]:
     _check_executable((worker.node,), "Pi node")
     root = (base / worker.root).resolve()
-    if root.is_relative_to(writable) or writable.is_relative_to(root):
+    if not project and (root.is_relative_to(writable) or writable.is_relative_to(root)):
         raise ValueError("Pi worker source and writable workspace must be disjoint")
     expected = {
         "@earendil-works/pi-agent-core": "1.5.0",
@@ -94,7 +94,7 @@ def _pi_files(worker: PiWorkerConfig, base: Path, writable: Path) -> tuple[Path,
              *(root / "node_modules" / n / "package.json" for n in expected))
     if any(not p.is_file() for p in files):
         raise ValueError("Pi SDK/subagents are required; explicitly install the locked worker first")
-    if any(p.resolve().is_relative_to(writable) for p in files):
+    if not project and any(p.resolve().is_relative_to(writable) for p in files):
         raise ValueError("Pi worker files cannot resolve inside the writable workspace")
     package, lock = (json.loads(files[i].read_text()) for i in (0, 1))
     if (package.get("dependencies") != expected or lock.get("lockfileVersion") != 3
@@ -135,7 +135,7 @@ def _build_proposers(
 
 def _version_inputs(config: Config, base: Path, skills: Skills) -> Json:
     writable = (base / config.workspace).resolve()
-    files = _pi_files(config.pi_worker, base, writable)
+    files = _pi_files(config.pi_worker, base, writable, project=config.workspace_mode == "project")
     root = (base / config.pi_worker.root).resolve()
     sources = tuple(path for path in sorted((root / "src").rglob("*"))
                     if path.suffix in {".mjs", ".ts"} and path.is_file())
@@ -144,7 +144,7 @@ def _version_inputs(config: Config, base: Path, skills: Skills) -> Json:
     if not bootstrap.is_file():
         raise ValueError("reviewed Agent Python bootstrap is required")
     admitted = (*files, *sources, bootstrap, *((entry,) if entry.is_file() else ()))
-    if any(path.resolve().is_relative_to(writable) for path in admitted):
+    if config.workspace_mode != "project" and any(path.resolve().is_relative_to(writable) for path in admitted):
         raise ValueError("Pi runtime files cannot resolve inside the writable workspace")
     validator = config.self_evolution.validator if config.self_evolution else None
     return runtime_inputs(config, skills.fingerprint(),
@@ -211,7 +211,7 @@ def _preflight(config: Config, base: Path) -> Json:
             raise ValueError("configure an explicit authorized model ID")
         if not os.environ.get(provider.api_key_env, "").strip():
             raise ValueError(f"missing provider credential environment variable: {provider.api_key_env}")
-    _pi_files(config.pi_worker, base, (base / config.workspace).resolve())
+    _pi_files(config.pi_worker, base, (base / config.workspace).resolve(), project=config.workspace_mode == "project")
     skills = Skills(tuple(base / r for r in config.skill_roots))
     if config.evaluator:
         _check_executable(config.evaluator.argv, "evaluator")
@@ -246,6 +246,7 @@ def _preflight(config: Config, base: Path) -> Json:
 
 def build(config: Config, base: Path, task: Task, *,
           guards: tuple[ExecutionGuard, ...] = (),
+          extra_tools: tuple[Tool, ...] = (),
           probe_versions: bool = True, external_context: bool = False,
           startup: PythonStartup | None = None) -> ExecutionSession:
     startup = admit_config(config) if startup is None else startup
@@ -253,7 +254,11 @@ def build(config: Config, base: Path, task: Task, *,
     _preflight(config, base)
     if config.pi_worker.role == "scout" and task.seed_files:
         raise ValueError("read-only scouts cannot seed a writable workspace")
-    initial_workspace = (base / config.workspace).resolve() / digest_task(task)
+    initial_workspace = (base / config.workspace).resolve()
+    if config.workspace_mode != "project":
+        initial_workspace /= digest_task(task)
+    elif task.seed_files or config.rsi or config.evaluator or config.business_tools:
+        raise ValueError("project codegen cannot seed files or implicitly enable experiment tools; use an isolated task/profile")
     check_workspace_paths(config, base, initial_workspace)
     state_dir = (base / config.state_dir).resolve()
     workspace_path = selected_workspace(config, base, task)
@@ -310,7 +315,7 @@ def build(config: Config, base: Path, task: Task, *,
             observers.append(PromoteOnFinish())
     providers = _build_proposers(config.providers)
     child_providers = _build_proposers(config.providers, child=True)
-    gateway = Gateway(store, tools, task.scope, guards)
+    gateway = Gateway(store, [*tools, *extra_tools], task.scope, guards)
     rsi = None if config.rsi is None else RsiEffects(
         gateway, workspace, artifacts, state_dir, task.id, config.rsi)
     tool_schema_digest = "sha256:" + digest([
@@ -327,7 +332,8 @@ def build(config: Config, base: Path, task: Task, *,
             *(tool.timeout + 30 for tool in config.business_tools)),
         max_frame_bytes=worker.max_frame_bytes,
         workspace_policy={"root": str(workspace.root), "writable_paths": writable_paths,
-                          "readonly_paths": config.readonly_paths, "codemode": worker.codemode},
+                          "readonly_paths": config.readonly_paths, "codemode": worker.codemode,
+                          "mode": config.workspace_mode, "home": str(Path.home())},
         role=worker.role, child_proposers=child_providers, profile=config.agent_profile,
         observers=tuple(observers), task_identity=digest(task), options=config.agent_options,
         external_context=external_context, rsi=rsi,
@@ -355,6 +361,8 @@ def check_workspace_paths(config: Config, base: Path, workspace: Path) -> None:
 
 
 def selected_workspace(config: Config, base: Path, task: Task) -> Path:
+    if config.workspace_mode == "project":
+        return (base / config.workspace).resolve(strict=True)
     state = (base / config.state_dir).resolve()
     initial = (base / config.workspace).resolve() / digest_task(task)
     store = AgentJournal(state / "events.jsonl")

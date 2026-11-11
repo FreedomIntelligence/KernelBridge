@@ -67,6 +67,11 @@ class RuntimeJournal(AgentJournal):
         FENCE_EVENT, FENCE_CONTROL_EVENT, EVENT_KIND})
     v3_event_kinds = v2_event_kinds | frozenset({TRIAL_CONTROL_EVENT, TRIAL_PREPARED_EVENT,
         TRIAL_FROZEN_EVENT, CAPTURE_PREPARED_EVENT, CAPTURE_INSTALLED_EVENT})
+    application_event_kinds = frozenset("application/" + kind for kind in (
+        "created", "input_accepted", "input_transition", "lease_granted", "lease_revoked",
+        "goal", "task_version", "trial", "call_intent", "call_result", "call_reconciled", "checkpoint", "configuration", "evidence"))
+    v2_event_kinds |= application_event_kinds
+    v3_event_kinds |= application_event_kinds
 
     def __init__(self, path: Path, *, clock: Callable[[], datetime] = utc_now) -> None:
         super().__init__(path.resolve())

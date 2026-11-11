@@ -4,8 +4,8 @@ import { reduceExperiment } from "../rsi/reduction.ts";
 import { selectKnowledge } from "../rsi/selection.ts";
 
 /** Protected host decisions. Pi can request preparation/settlement, never a verdict. */
-export function controlledRsi(rpc: EffectRpc): EffectRpc {
-  const controller = createRsiController(rpc);
+export function controlledRsi(rpc: EffectRpc, applicationBaseline?: () => Promise<{ baseline_record_id: string; record_sequence: number } | undefined>): EffectRpc {
+  const controller = createRsiController(rpc, applicationBaseline);
   let enabled = false;
   return {
     async call(method, params = {}) {

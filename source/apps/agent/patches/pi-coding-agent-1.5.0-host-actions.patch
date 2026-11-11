@@ -1,0 +1,176 @@
+--- interactive-mode.js
++++ interactive-mode.host.js
+@@ -466,6 +466,9 @@
+         }));
+     }
+     createBaseAutocompleteProvider() {
++        if (this.options.hostActions) {
++            return new CombinedAutocompleteProvider(this.options.hostActions.commands(), this.sessionManager.getCwd(), this.fdPath);
++        }
+         // Define commands for autocomplete
+         const slashCommands = BUILTIN_SLASH_COMMANDS.map((command) => ({
+             name: command.name,
+@@ -549,6 +552,7 @@
+         let provider = this.createBaseAutocompleteProvider();
+         const triggerCharacters = [];
+         for (const wrapProvider of this.autocompleteProviderWrappers) {
++            if (this.options.hostActions) break;
+             provider = wrapProvider(provider);
+             triggerCharacters.push(...(provider.triggerCharacters ?? []));
+         }
+@@ -807,6 +811,7 @@
+         await this.rebindCurrentSession();
+         // Render initial messages AFTER showing loaded resources
+         this.renderInitialMessages();
++        if (this.options.hostActions) this.ui.scrollToBottom?.();
+         // Set up theme file watcher
+         onThemeChange(() => {
+             this.ui.invalidate();
+@@ -882,7 +887,8 @@
+             }
+         });
+         // Show startup warnings
+-        const { migratedProviders, startupDiagnostics, modelFallbackMessage, initialMessage, initialImages, initialMessages, } = this.options;
++        const { migratedProviders, startupDiagnostics, modelFallbackMessage, initialMessage: configuredInitialMessage, initialImages, initialMessages, } = this.options;
++        const initialMessage = this.options.hostActions ? await this.options.hostActions.initial() : configuredInitialMessage;
+         for (const diagnostic of startupDiagnostics ?? []) {
+             if (diagnostic.type === "error") {
+                 this.showError(diagnostic.message);
+@@ -1602,6 +1608,7 @@
+                     }
+                     this.chatContainer.clear();
+                     this.renderInitialMessages();
++                    if (this.options.hostActions) this.ui.scrollToBottom?.();
+                     if (result.editorText && !this.editor.getText().trim()) {
+                         this.editor.setText(result.editorText);
+                     }
+@@ -1765,7 +1772,7 @@
+         const cause = change.kind === "updated"
+             ? `${APP_NAME} was updated to ${change.version} while this session was running (${VERSION})`
+             : `The ${APP_NAME} installation this session runs from was removed or replaced`;
+-        const resumeCommand = formatResumeCommand(this.sessionManager);
++        const resumeCommand = this.options.hostActions?.resumeCommand() ?? formatResumeCommand(this.sessionManager);
+         const restart = resumeCommand
+             ? `Restart with \`${resumeCommand}\` to continue this session.`
+             : `Restart ${APP_NAME}.`;
+@@ -1781,6 +1788,7 @@
+         this.streamingMessage = undefined;
+         this.pendingTools.clear();
+         this.renderInitialMessages();
++        if (this.options.hostActions) this.ui.scrollToBottom?.();
+     }
+     /**
+      * Get a registered tool definition by name (for custom rendering).
+@@ -2367,6 +2375,11 @@
+      * Show a notification for extensions.
+      */
+     showExtensionNotify(message, type) {
++        if (this.options.hostActions) {
++            if (type === "info" && /^(Initializing workspace history for this project|Workspace history is finishing its initial snapshot)/.test(message)) return;
++            this.options.hostActions.feedback(message, type === "error");
++            return;
++        }
+         if (type === "error") {
+             this.showError(message);
+         }
+@@ -2468,6 +2481,9 @@
+         // Set up handlers on defaultEditor - they use this.editor for text access
+         // so they work correctly regardless of which editor is active
+         this.defaultEditor.onEscape = () => {
++            if (this.session.isStreaming || this.session.isBashRunning) {
++                void this.options.hostActions?.interrupt().catch(error => this.showError(String(error)));
++            }
+             if (this.session.isStreaming) {
+                 this.restoreQueuedMessagesToEditor({ abort: true });
+             }
+@@ -2593,6 +2609,27 @@
+     }
+     setupEditorSubmitHandler() {
+         this.defaultEditor.onSubmit = async (text) => {
++            if (this.options.hostActions) {
++                this.ui.scrollToBottom?.();
++                this.options.hostActions.feedback();
++                try {
++                    const decision = await this.options.hostActions.submit(text, {
++                        streaming: this.session.isStreaming, compacting: this.session.isCompacting,
++                    });
++                    if (decision.action !== "continue") {
++                        this.editor.setText(decision.action === "reject" ? text : "");
++                        if (decision.message) this.options.hostActions.feedback(decision.message, decision.action === "reject");
++                        this.ui.scrollToBottom?.();
++                        return;
++                    }
++                    text = decision.text ?? text;
++                } catch (error) {
++                    this.editor.setText(text);
++                    this.options.hostActions.feedback(String(error), true);
++                    this.ui.scrollToBottom?.();
++                    return;
++                }
++            }
+             text = text.trim();
+             if (!text)
+                 return;
+@@ -3239,7 +3276,8 @@
+             case "system":
+                 break;
+             case "user": {
+-                const textContent = this.getUserMessageText(message);
++                const originalText = this.getUserMessageText(message);
++                const textContent = this.options.hostActions?.presentInput(originalText) ?? originalText;
+                 if (textContent) {
+                     if (this.chatContainer.children.length > 0) {
+                         this.chatContainer.addChild(new Spacer(1));
+@@ -3261,7 +3299,7 @@
+                         const userComponent = new UserMessageComponent(textContent, this.getMarkdownThemeWithSettings(), this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp);
+                         this.chatContainer.addChild(userComponent);
+                     }
+-                    if (options?.populateHistory) {
++                    if (options?.populateHistory && textContent === originalText) {
+                         this.editor.addToHistory?.(textContent);
+                     }
+                 }
+@@ -3500,6 +3538,7 @@
+         }
+     }
+     renderProjectTrustWarningIfNeeded() {
++        if (this.options.hostActions) return; // The host owns the frozen resource policy.
+         if (this.settingsManager.isProjectTrusted() || !hasTrustRequiringProjectResources(this.sessionManager.getCwd())) {
+             return;
+         }
+@@ -3548,6 +3587,10 @@
+      */
+     isShuttingDown = false;
+     async shutdown(options) {
++        if (this.options.hostActions && !options?.fromSignal) {
++            try { if (!await this.options.hostActions.exit()) return; }
++            catch (error) { this.showError(String(error)); return; }
++        }
+         if (this.isShuttingDown)
+             return;
+         this.isShuttingDown = true;
+@@ -3577,7 +3620,7 @@
+         await this.ui.terminal.drainInput(1000);
+         this.stop();
+         await this.runtimeHost.dispose();
+-        const resumeCommand = formatResumeCommand(this.sessionManager);
++        const resumeCommand = this.options.hostActions?.resumeCommand() ?? formatResumeCommand(this.sessionManager);
+         if (resumeCommand) {
+             process.stdout.write(`${chalk.dim("To resume this session:")} ${resumeCommand}\n`);
+         }
+@@ -4792,6 +4835,7 @@
+                     // Update UI
+                     this.chatContainer.clear();
+                     this.renderInitialMessages();
++                    if (this.options.hostActions) this.ui.scrollToBottom?.();
+                     if (result.editorText && !this.editor.getText().trim()) {
+                         this.editor.setText(result.editorText);
+                     }
+@@ -5896,6 +5940,7 @@
+         }
+     }
+     handleDebugCommand() {
++        if (this.options.hostActions) { this.showWarning("Debug export is disabled by the host profile"); return; }
+         const width = this.ui.terminal.columns;
+         const height = this.ui.terminal.rows;
+         const allLines = this.ui.render(width);

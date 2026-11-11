@@ -42,6 +42,66 @@ class Journal:
 
     def __init__(self, path: Path) -> None:
         self.path = path
+        self._application_lease: tuple[str, str, int] | None = None
+        self._application_context: Json = {}
+
+    def bind_application_context(self, context: Json) -> None:
+        self._application_context = json.loads(canonical(context))
+
+    def application_state(self) -> Json | None:
+        if self._application_lease is None:
+            return None
+        from kernelcat_executor.state.application import project
+        identity = self._application_lease[0]
+        return self._transaction(lambda rows: (None, project(rows, identity)))
+
+    def bind_application_lease(self, application_id: str, worker_id: str, epoch: int) -> None:
+        """Bind by the trusted owner before exposing an execution RPC handle."""
+        if not application_id or not worker_id or type(epoch) is not int or epoch < 1:
+            raise ValueError("invalid application lease binding")
+        self._application_lease = (application_id, worker_id, epoch)
+
+    def _check_application_admission(self, rows: list[Json], event: Json) -> None:
+        # All legacy/managed compound admissions pass this single commit point.
+        effects = event["events"] if event["kind"] == "atomic" else [event]
+        if not any(item["kind"] in {"admitted", "started"} for item in effects):
+            return
+        if self._application_lease is None:
+            protected = [row["data"]["task"]["id"] for row in self._events(rows)
+                         if row["kind"] == "application/created"]
+            admitted = {row["action"]["id"]: row["action"] for row in self._events(rows) if row["kind"] == "admitted"}
+            tasks = [item.get("action", admitted.get(item.get("action_id"), {})).get("task", "")
+                     for item in effects if item["kind"] in {"admitted", "started"}]
+            if any(value == task or value.startswith(task + "/") for value in tasks for task in protected):
+                raise Conflict("application-owned task requires its host execution lease")
+            return
+        from kernelcat_executor.state.application import ModelAdmissionStopped, project
+        identity, worker, epoch = self._application_lease
+        state = project(rows, identity)
+        lease = state["lease"]
+        if not lease or lease["worker_id"] != worker or lease["lease_epoch"] != epoch:
+            raise Conflict("execution lease expired before atomic admission")
+        goal = state["goal"]
+        model_admission = any(item["kind"] == "admitted" and item["action"]["tool"] == "__propose__" for item in effects)
+        if model_admission and (state.get("takeover_requested") or state.get("pending_transition")):
+            raise ModelAdmissionStopped("takeover" if state.get("takeover_requested") else "trial_transition")
+        prior_admissions = {row["action"]["id"]: row for row in self._events(rows) if row["kind"] == "admitted"}
+        for item in effects:
+            if item["kind"] == "started":
+                prior = prior_admissions.get(item.get("action_id"), {})
+                if prior.get("application_session_id") == identity and prior.get("lease_epoch") != epoch:
+                    raise Conflict("an unstarted action cannot cross execution leases")
+        if goal and goal["status"] != "cleared" and any(item["kind"] == "admitted" and item["action"]["tool"] == "__propose__" for item in effects):
+            if goal["status"] not in {"active", "cleared"} or state.get("takeover_requested") or state.get("pending_transition"):
+                raise ModelAdmissionStopped(goal["status"])
+            consumed = sum(1 for item in self._events(rows) if item["kind"] == "admitted"
+                           and item["action"]["tool"] == "__propose__")
+            if goal.get("max_model_turns") is not None and consumed >= goal["max_model_turns"]:
+                raise BudgetExceeded("Goal model-turn ceiling reached, including compaction")
+        for item in effects:
+            item.setdefault("application_session_id", identity)
+            item.setdefault("lease_epoch", epoch)
+            item.setdefault("application_context", self._application_context)
 
     @contextmanager
     def task_lock(self, task_id: str) -> Iterator[None]:
@@ -98,6 +158,7 @@ class Journal:
                 rows.append(row)
             event, result = fn(rows)
             if event is not None:
+                self._check_application_admission(rows, event)
                 event = {**event, "seq": len(rows), "prev": previous}
                 event["digest"] = digest(event)
                 stream.write(canonical(event) + "\n")
@@ -168,9 +229,9 @@ class Journal:
             python_module_observations.validate_owner_links(state, cls._events(rows), managed=False)
         return state
 
-    def initialize(self, limit: int, policy: Policy, *,
+    def initialize(self, limit: int | None, policy: Policy, *,
                    resource_limits: dict[str, int] | None = None) -> None:
-        if type(limit) is not int or limit <= 0:
+        if limit is not None and (type(limit) is not int or limit <= 0):
             raise ValueError("credit limit must be a positive integer")
 
         limits = None if resource_limits is None else resources(resource_limits)
@@ -301,6 +362,21 @@ class Journal:
     def events(self) -> list[Json]:
         return self._transaction(lambda rows: (None, rows))
 
+    def cancel_unstarted(self, action: Action) -> None:
+        """Release only an original reservation proved never to have started."""
+        def apply(rows: list[Json]) -> tuple[Json | None, None]:
+            prior = self._state(rows)["actions"].get(action.id)
+            if not prior or prior["action_digest"] != digest(action):
+                raise Conflict("cancellation does not match an original admission")
+            if prior.get("terminal"):
+                return None, None
+            if prior.get("started") or prior.get("outcome"):
+                raise InDoubt("started or uncertain effects require their original receipt")
+            return {"kind": "cancelled_unstarted", "action_id": action.id,
+                    "outcome": {"status": "failed", "data": {"cancelled_unstarted": True,
+                        "recovered": True, "reason": "Original worker lost before execution start"}}}, None
+        self._transaction(apply)
+
     def snapshot(self) -> Json:
         return self._transaction(lambda rows: (None, self._state(rows)))
 
@@ -345,7 +421,7 @@ class Journal:
                 key: state[key] for key in ("limit", "spent", "reserved")}:
             raise Conflict("budget changed before admission")
         Journal._validate_request(state, action)
-        if state["spent"] + state["reserved"] + credits > state["limit"]:
+        if state["limit"] is not None and state["spent"] + state["reserved"] + credits > state["limit"]:
             raise BudgetExceeded("campaign credit ceiling reached")
         if quote:
             account = state.get("resources")

@@ -7,17 +7,14 @@
     "node": ">=22.19.0"
   },
   "scripts": {
-    "test": "npm run check:types && node --test tests/protocol.test.mjs tests/cycle.test.mjs tests/task-contract.test.mjs tests/score-inputs.test.mjs tests/score.test.mjs tests/version-lock.test.mjs tests/version-tests.test.mjs tests/objects.test.mjs tests/object-graph.test.mjs tests/control.test.mjs tests/state-transitions.test.mjs tests/trust-boundary.test.mjs tests/trust-checks.test.mjs tests/lab-errors.test.mjs tests/context.test.mjs tests/search-policy.test.mjs tests/worker-client.test.mjs tests/python-startup.test.mjs tests/rpc-payload.test.mjs tests/harness-input.test.mjs tests/managed-runtime.test.mjs tests/managed-trials.test.mjs tests/knowledge-runtime-contract.test.mjs tests/managed-trial-contract.test.mjs tests/knowledge-query-contract.test.mjs tests/python-modules-contract.test.mjs tests/rsi-policy.test.mjs tests/rsi-controller.test.mjs tests/rsi-extension.test.mjs tests/replay-context.test.mjs tests/context-manifest.test.mjs tests/model-control.test.mjs tests/round-control.test.mjs tests/loopx-host.test.mjs tests/session-fork.test.mjs tests/native-replay.test.mjs tests/receipt-context.test.mjs tests/knowledge-comparison.test.mjs tests/rsi-lineage.test.mjs tests/session-import.test.mjs tests/rsi-collect.test.mjs tests/replay-request.test.mjs tests/replay-plugin.test.mjs tests/sdk.test.mjs tests/sdk-goal.test.mjs tests/managed-continuation-architecture.test.mjs tests/sdk-next-trial.test.mjs tests/sdk-pursuit.test.mjs",
+    "test": "npm run check:types && node --test ../../../validation/*.mjs ../../../validation/tui/compatibility.mjs ../../../validation/tui/interaction.mjs",
     "check:types": "tsc --noEmit -p tsconfig.json && node scripts/check-managed-continuation.ts",
-    "test:integration": "node --test tests/integration.test.mjs tests/product-integration.test.mjs tests/native-integration.test.mjs tests/session-qualification.test.mjs tests/managed-product-integration.test.mjs tests/knowledge-fence-integration.test.mjs tests/multi-trial-product-integration.test.mjs tests/rsi-product-integration.test.mjs tests/replay-product-integration.test.mjs",
+    "test:integration": "python3 -B ../../../validation/tui/run.py",
     "smoke:subagents": "node scripts/smoke-subagents.ts",
     "start": "node src/main.ts",
     "version-test-plan": "node scripts/version-test-plan.ts",
     "start:harness": "node src/harness/pi/worker.mjs",
-    "test:managed-integration": "node --test tests/managed-product-integration.test.mjs tests/knowledge-fence-integration.test.mjs tests/multi-trial-product-integration.test.mjs",
-    "replay:session": "node scripts/session-replay.ts",
-    "test:sdk": "node --test tests/sdk.test.mjs tests/sdk-goal.test.mjs tests/sdk-goal-integration.test.mjs",
-    "test:sdk-goal:integration": "node --test tests/sdk-goal-integration.test.mjs"
+    "replay:session": "node scripts/session-replay.ts"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "1.5.0",

@@ -477,6 +477,11 @@ class ExecutionSession:
             finally:
                 self._release_run()
 
+    def enqueue_input(self, task: Task, text: str, kind: str, input_id: str) -> str:
+        """Trusted host ingress into the existing task queue, with durable identity."""
+        self.gateway.store.register_task(task.model_dump(mode="json"))
+        return self._control.enqueue(task.id, text, kind, input_id)
+
     def _serve(self, task: Task, transport: RPCTransport, *,
                retry: ModelRetry | None = None) -> Json:
         from kernelcat_executor.capabilities.worker import WorkerError

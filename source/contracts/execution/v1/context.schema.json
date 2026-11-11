@@ -96,7 +96,33 @@
       "additionalProperties": false
     },
     "ContextBudget": {
-      "$ref": "https://kernelcat.local/contracts/execution/v1/runtime_control.schema.json#/$defs/CreditBudget"
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "spent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "reserved": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "limit",
+        "spent",
+        "reserved"
+      ],
+      "additionalProperties": false
     },
     "ContextSource": {
       "type": "object",

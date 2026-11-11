@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kernelcat.local/contracts/execution/v1/application-host.schema.json",
+  "$ref": "#/$defs/Request",
+  "$defs": {
+    "Request": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "method": {
+          "enum": [
+            "authenticate",
+            "status",
+            "subscribe",
+            "accept",
+            "control",
+            "ticket",
+            "claim",
+            "bind_worker",
+            "transition",
+            "checkpoint",
+            "configuration",
+            "trial",
+            "task_version",
+            "snapshot",
+            "select_session",
+            "configure",
+            "next",
+            "effect",
+            "event",
+            "detach",
+            "takeover"
+          ]
+        },
+        "params": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "accept"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "$ref": "#/$defs/Input"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Input": {
+      "type": "object",
+      "properties": {
+        "input_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 262144
+        },
+        "kind": {
+          "enum": [
+            "prompt",
+            "steer",
+            "follow_up",
+            "control",
+            "policy"
+          ]
+        },
+        "initiator": {
+          "enum": [
+            "user",
+            "agent",
+            "loopx"
+          ]
+        },
+        "channel": {
+          "enum": [
+            "tui",
+            "sdk",
+            "cli",
+            "policy"
+          ]
+        }
+      },
+      "required": [
+        "input_id",
+        "text",
+        "kind",
+        "initiator",
+        "channel"
+      ],
+      "additionalProperties": false
+    },
+    "Lease": {
+      "type": "object",
+      "properties": {
+        "worker_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "lease_epoch": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "mode": {
+          "enum": [
+            "interactive",
+            "headless"
+          ]
+        },
+        "recovering": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "worker_id",
+        "lease_epoch",
+        "mode"
+      ],
+      "additionalProperties": false
+    },
+    "InputState": {
+      "enum": [
+        "accepted",
+        "queued",
+        "applied",
+        "completed",
+        "interrupted",
+        "failed"
+      ]
+    },
+    "Identity": {
+      "type": "object",
+      "properties": {
+        "application_session_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "goal_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trial_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pi_session_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "entry_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "input_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "action_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tool_call_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "eval_job_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evaluator_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

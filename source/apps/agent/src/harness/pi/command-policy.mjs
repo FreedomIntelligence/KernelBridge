@@ -1,0 +1,57 @@
+/** One catalogue drives both the command gate and native editor completion. */
+export const COMMAND_POLICY_VERSION = 'kernelbridge.commands/v2';
+export const PRODUCT_COMMANDS = Object.freeze([
+  ['goal', '设置持续目标；不带参数查看目标', '[目标内容 | pause | resume | clear]'],
+  ['help', '查看可用命令与快捷键'],
+  ['latest', '回到最新消息'],
+  ['compact', '压缩上下文，保留约束与回执', '[压缩要求]'],
+  ['context', '清理或重置上下文', 'clean | reset'],
+  ['new', '保留源码，开始新 Trial'],
+  ['fork', '从历史消息创建分支', '[entry]'],
+  ['clone', '复制当前上下文到新分支'],
+  ['tree', '浏览对话树并选择分支'],
+  ['model', '查看或切换允许的模型路由', '[route]'],
+  ['thinking', '查看或切换允许的推理等级', '[level]'],
+  ['scoped-models', '查看允许的模型路由'],
+  ['settings', '查看会话设置'],
+  ['trust', '查看已冻结的任务指令'],
+  ['reload', '重新加载已冻结的资源'],
+  ['resume', '选择本产品档案内的会话', '[path]'],
+  ['import', '导入有源码检查点的归档会话', '[path]'],
+  ['export', '导出对话到运行目录'],
+  ['copy', '复制最近一条回复'],
+  ['name', '命名会话', '[name]'],
+  ['session', '查看原生会话信息'],
+  ['changelog', '查看 Pi 更新记录'],
+  ['hotkeys', '查看快捷键'],
+  ['login', '查看宿主凭据配置方式'],
+  ['logout', '查看宿主凭据配置方式'],
+  ['detach', '退出界面，允许活跃 Goal 在后台继续'],
+  ['quit', '退出并按当前策略暂停或继续'],
+].map(([name, description, argumentHint]) => Object.freeze({ name, description, ...(argumentHint ? { argumentHint } : {}) })));
+
+export const PRODUCT_COMMAND_NAMES = new Set(PRODUCT_COMMANDS.map(item => '/' + item.name));
+
+/** Codex CLI semantics: only exact lifecycle words are commands; other text is the objective. */
+export function parseGoalCommand(text) {
+  const objective = text.replace(/^\/goal(?:\s+|$)/, '').trim();
+  if (!objective) return { operation: 'status' };
+  if (['pause', 'resume', 'clear'].includes(objective)) return { operation: objective };
+  // KernelBridge-specific exit policy, retained for compatibility.
+  if (/^on-detach(?:\s|$)/.test(objective)) {
+    const value = objective.slice('on-detach'.length).trim();
+    if (!['pause', 'continue'].includes(value)) throw new Error('用法：/goal on-detach pause|continue');
+    return { operation: 'on-detach', value };
+  }
+  return { operation: 'set', objective };
+}
+
+export const COMMAND_HELP = [
+  '/goal 目标内容：持续执行目标；/goal：查看目标',
+  '/goal pause | resume | clear：暂停、恢复、清除',
+  '/latest：回到最新消息；/compact：压缩上下文',
+  '/context reset：新 Trial；/fork：分支；/tree：历史',
+  '/model：模型；/settings：设置；!命令：受控 bash',
+  '/quit：退出；/detach：退出并允许 Goal 继续',
+  'Esc：中断；Ctrl+O：展开工具详情；输入 / 查看全部可用命令',
+].join('\n');

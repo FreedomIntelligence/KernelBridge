@@ -42,8 +42,15 @@ class Records:
         return None
 
     def baseline(self) -> Json:
+        application = self.store.application_state() if hasattr(self.store, "application_state") else None
+        binding = application["trials"][-1].get("rsi_context") if application and application["trials"] else None
         for item in reversed(self.entries()):
             record = self.decode(item)
+            if binding and record["sequence"] <= binding["record_sequence"]:
+                baseline = self.read(binding["baseline_record_id"])
+                if baseline["kind"] not in {"initial", "acceptance"}:
+                    raise Conflict("application Trial has no accepted RSI baseline")
+                return baseline
             if record["kind"] in {"acceptance", "initial"}:
                 return record
             if record["kind"] == "branch":

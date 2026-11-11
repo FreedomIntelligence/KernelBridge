@@ -31,7 +31,7 @@ def expand(value, variables):
     return value
 
 
-def prepare(task_path, profile_path, output, mode=None, session_seed=None, session_only=False):
+def prepare(task_path, profile_path, output, mode=None, session_seed=None, session_only=False, application_host=False):
     output = Path(output).absolute()
     if output.resolve() != output:
         raise ValueError('output must not traverse symlinks')
@@ -53,6 +53,14 @@ def prepare(task_path, profile_path, output, mode=None, session_seed=None, sessi
                   'inputs': {name: {'sha256': hashlib.sha256((Path(task_path).parent / name).read_bytes()).hexdigest()} for name in names}}
     else:
         compiled, reference, request, inputs = load_bundle(task_path, mode)
+    if application_host:
+        compiled['contract']['acceptance'] = {'evidence_tier': 'E3' if mode == 'optimize' else 'E1'}
+        measurement = {key: request[key] for key in ('soc', 'device', 'atol', 'rtol') if key in request}
+        measurement.update(timer='npu_event', warmup=3, single_trials=100,
+            pairing='alternating', paired_blocks=20 if sigmoid else 12,
+            samples_per_arm=30 if sigmoid else 20, environment_source='original_device_receipt')
+        measurement['version'] = hashlib.sha256(json.dumps(measurement, sort_keys=True).encode()).hexdigest()
+        compiled['contract']['measurement_profile'] = measurement
     instruction = (BUNDLE / 'examples/cann/instructions/AGENTS.md').read_text()
     appendix = ('# Current operator task\n\n' + compiled['goal'] + '\n\n'
                 + 'The frozen contract and reference files define inputs, precision and acceptance.\n'
@@ -69,7 +77,7 @@ def prepare(task_path, profile_path, output, mode=None, session_seed=None, sessi
                    'Use evaluate(candidate="solution.py") for native compilation, correctness and timing. Finish after a passing receipt for the final candidate.\n'))
     compiled['seed_files'].update({'AGENTS.md': instruction, 'AGENTS.task.md': appendix})
     profile = json.loads(Path(profile_path).read_text())
-    allowed = {'schema_version', 'python', 'node', 'expected_python_modules', 'config', 'loopx', 'task_contract_file', 'npu_environment', 'npu_python', 'diagnostics', 'goal', 'checks'}
+    allowed = {'schema_version', 'python', 'node', 'expected_python_modules', 'config', 'loopx', 'task_contract_file', 'npu_environment', 'npu_python', 'diagnostics', 'goal', 'checks', 'application'}
     if set(profile) - allowed or profile.get('schema_version') != 'kernelbridge.cann-profile/v1':
         raise ValueError('unsupported or unknown CANN profile field')
     profile = expand(profile, {'bundle': str(BUNDLE), 'run': str(output)})
@@ -131,7 +139,7 @@ def prepare(task_path, profile_path, output, mode=None, session_seed=None, sessi
         else:
             rsi_text = None
     if use_goal:
-        if not profile.get('loopx') or not Path(profile['loopx']).is_file():
+        if not application_host and (not profile.get('loopx') or not Path(profile['loopx']).is_file()):
             raise ValueError('Goal mode needs the installed loopx executable')
         if mode == 'generate' and (config.get('evaluator') or config.get('rsi')):
             raise ValueError('Functional goals use operator_evaluate as a business tool')
@@ -210,6 +218,7 @@ if __name__ == '__main__':
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--mode', choices=['generate', 'optimize'])
     parser.add_argument('--session-only', action='store_true')
+    parser.add_argument('--application-host', action='store_true')
     parser.add_argument('--session-seed', type=Path)
     args = parser.parse_args()
-    print(json.dumps(prepare(args.task, args.profile, args.output, args.mode, args.session_seed, args.session_only)))
+    print(json.dumps(prepare(args.task, args.profile, args.output, args.mode, args.session_seed, args.session_only, args.application_host)))

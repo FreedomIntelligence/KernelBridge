@@ -1,0 +1,1057 @@
+{
+  "schema_version": "kernelbridge.codegen-acceptance/v1",
+  "date": "2026-11-10",
+  "status": "passed_across_recorded_runs",
+  "scope": "macOS local deterministic provider/evaluator and real PTYs; no live-model or NPU qualification",
+  "platform": "macOS-14.6-arm64-arm-64bit",
+  "canonical_launcher": "kernelagent",
+  "unit_checks": 62,
+  "frozen_python": {
+    "expected": ".development/build-f8586d4c9f654d859cc322be9a302b28/expected.json",
+    "bytes": 1483,
+    "sha256": "94f578a5548dc4e415b3be792cf4ab771d45ae4f46f4b3e67fcd801d115b6818",
+    "bindings": {
+      "modules": [
+        {
+          "allowed_package_roots": [
+            "file:///Users/jerry/Desktop/KernelBridge/.development/build-f8586d4c9f654d859cc322be9a302b28/unpacked/kernelcat_executor"
+          ],
+          "content_digest": "sha256:63644efe6ee0c7218d8ecee95abd237f72cb2710b4100fa5cd58846b62640cc1",
+          "distribution_name": "kernelcat-executor",
+          "hash_rule": "python-source-tree/v1",
+          "module_name": "kernelcat_executor"
+        },
+        {
+          "allowed_package_roots": [
+            "file:///Users/jerry/Desktop/KernelBridge/.development/build-f8586d4c9f654d859cc322be9a302b28/unpacked/kernelcat_ingestion"
+          ],
+          "content_digest": "sha256:f39fb5fa5713b56620866622539a50027a7770950e14ef60b0c1336aa027cb54",
+          "distribution_name": "kernelcat-ingestion",
+          "hash_rule": "python-source-tree/v1",
+          "module_name": "kernelcat_ingestion"
+        },
+        {
+          "allowed_package_roots": [
+            "file:///Users/jerry/Desktop/KernelBridge/.development/build-f8586d4c9f654d859cc322be9a302b28/unpacked/kernelcat_knowledge"
+          ],
+          "content_digest": "sha256:0b878c53b7430efb1bab00b03cd9bef75b4ce171ab86adc7abcdbf2adbc27371",
+          "distribution_name": "kernelcat-knowledge",
+          "hash_rule": "python-source-tree/v1",
+          "module_name": "kernelcat_knowledge"
+        },
+        {
+          "allowed_package_roots": [
+            "file:///Users/jerry/Desktop/KernelBridge/.development/build-f8586d4c9f654d859cc322be9a302b28/unpacked/kernelcat_worker"
+          ],
+          "content_digest": "sha256:52dcd10ed98c1327e62e210f02ed847405119c2524fd635a0d4c134577904932",
+          "distribution_name": "kernelcat-worker",
+          "hash_rule": "python-source-tree/v1",
+          "module_name": "kernelcat_worker"
+        }
+      ],
+      "schema_version": "kernelcat.python-module-binding/v1"
+    }
+  },
+  "checks": [
+    {
+      "check": "ordinary_codegen_35_turns",
+      "status": "passed",
+      "artifact_directory": ".validation/codegen-final-35",
+      "result": {
+        "status": "passed",
+        "checks": [
+          "idle_zero_effects",
+          "read_edit_bash_project_and_return_idle",
+          "no_default_step_limit",
+          "command_gate",
+          "compact_new_preserve_files",
+          "interrupt_then_continue",
+          "goal_opt_in_completion_and_return",
+          "provider_failure_next_input",
+          "resume_no_replay"
+        ],
+        "model_requests": 48
+      }
+    },
+    {
+      "check": "goal_clear_resume",
+      "status": "passed",
+      "artifact_directory": ".validation/codegen-goal-clear-complete",
+      "result": {
+        "status": "passed",
+        "checks": [
+          "idle_zero_effects",
+          "read_edit_bash_project_and_return_idle",
+          "no_default_step_limit",
+          "command_gate",
+          "compact_new_preserve_files",
+          "interrupt_then_continue",
+          "goal_opt_in_completion_and_return",
+          "provider_failure_next_input",
+          "resume_no_replay"
+        ],
+        "model_requests": 13
+      }
+    },
+    {
+      "check": "setup_and_explicit_budget",
+      "status": "passed",
+      "artifact_directory": ".validation/codegen-edges-verified",
+      "result": {
+        "status": "passed",
+        "checks": [
+          "missing_model_idle_help_clear_exit",
+          "explicit_budget_initial_prompt_no_overspend"
+        ]
+      }
+    },
+    {
+      "check": "manual_demo_entrypoint",
+      "status": "passed",
+      "artifact_directory": ".validation/codegen-demo-verified-r2",
+      "result": {
+        "status": "passed",
+        "checks": [
+          "demo_idle_default",
+          "demo_read_edit_bash",
+          "native_bash_host_path",
+          "consecutive_user_bash",
+          "clean_tool_output",
+          "exit_zero"
+        ],
+        "model_requests": 4
+      }
+    },
+    {
+      "check": "experiment_tui",
+      "status": "passed",
+      "artifact_directory": ".validation/codegen-experiment-ui-complete",
+      "result": {
+        "status": "passed",
+        "checks": [
+          "startup_tail",
+          "go_tab_completion",
+          "codex_goal_lifecycle",
+          "visible_rejection",
+          "latest_command",
+          "submit_from_history",
+          "narrow_footer",
+          "no_synthetic_final_answer"
+        ]
+      }
+    },
+    {
+      "check": "goal_lifecycle",
+      "status": "passed",
+      "artifact_directory": ".validation/codegen-lifecycle-complete",
+      "result": {
+        "status": "passed",
+        "outcomes": [
+          {
+            "mode": "pause",
+            "goal": "completed",
+            "models": 3,
+            "spent": 14
+          },
+          {
+            "mode": "detach",
+            "goal": "completed",
+            "models": 3,
+            "spent": 14
+          },
+          {
+            "mode": "awaiting_user",
+            "goal": "completed",
+            "models": 3,
+            "spent": 14
+          },
+          {
+            "mode": "budget",
+            "goal": "budget_limit",
+            "models": 5,
+            "spent": 16
+          },
+          {
+            "mode": "credits",
+            "goal": "budget_limit",
+            "models": 1,
+            "spent": 7
+          },
+          {
+            "mode": "seed_credits",
+            "goal": "budget_limit",
+            "models": 0,
+            "spent": 1
+          }
+        ]
+      }
+    },
+    {
+      "check": "sdk_long_20_turns",
+      "status": "passed",
+      "artifact_directory": ".validation/codegen-regression/long",
+      "result": {
+        "status": "passed",
+        "turns": 20
+      }
+    },
+    {
+      "check": "sdk",
+      "status": "passed",
+      "artifact_directory": ".validation/codegen-sdk-complete/sdk",
+      "result": {}
+    },
+    {
+      "check": "steering",
+      "status": "passed",
+      "artifact_directory": ".validation/codegen-sdk-complete/steering",
+      "result": {
+        "status": "passed"
+      }
+    },
+    {
+      "check": "recovery",
+      "status": "passed",
+      "artifact_directory": ".validation/codegen-sdk-complete/recovery",
+      "result": {
+        "status": "passed"
+      }
+    },
+    {
+      "check": "transport",
+      "status": "passed",
+      "artifact_directory": ".validation/codegen-sdk-complete/transport",
+      "result": {
+        "status": "passed"
+      }
+    },
+    {
+      "check": "admission",
+      "status": "passed",
+      "artifact_directory": ".validation/codegen-sdk-complete/admission",
+      "result": {
+        "status": "passed"
+      }
+    },
+    {
+      "check": "38 JavaScript checks, TypeScript and managed-continuation validation",
+      "status": "passed",
+      "log": ".validation/codegen-agent-complete.log"
+    },
+    {
+      "check": "17 Journal, admission, input, stream and codegen checks",
+      "status": "passed",
+      "log": ".validation/codegen-authority-complete.log"
+    },
+    {
+      "check": "7 existing real Pi/Executor runtime checks",
+      "status": "passed",
+      "log": ".validation/codegen-runtime-complete.log"
+    }
+  ],
+  "source_files": {
+    "source/apps/agent/src/application/worker.mjs": {
+      "bytes": 2849,
+      "sha256": "5809b4d17f06e21a33c012ecc0d5024635602c030f959de3123aeec9b914707d"
+    },
+    "source/apps/agent/src/application/worker-lease.mjs": {
+      "bytes": 638,
+      "sha256": "e7f2d865bd63f6f5a9654ccdae760b65dd580bc632486ba2bfdad2e099b2786e"
+    },
+    "source/apps/agent/src/application/client.mjs": {
+      "bytes": 4050,
+      "sha256": "279bfc2c226aad271af8072190ecfbc93f438e268c0edbebbb9517a2f1f9841f"
+    },
+    "source/apps/agent/src/application/recovery.mjs": {
+      "bytes": 4202,
+      "sha256": "695850bc4e6ee59ba16091b6ba9ca83c1d5df51919d6c50a441b8a5a6a8ebbec"
+    },
+    "source/apps/agent/src/application/host.mjs": {
+      "bytes": 8581,
+      "sha256": "7ea31f8b0bb15379ee817a9c3340f65f1e51936e48e2d7488fc7e4b38c257829"
+    },
+    "source/apps/agent/src/application/cli.d.mts": {
+      "bytes": 102,
+      "sha256": "ca01c721f4559885750bf1f1a93d81741b55f0af192603fcad247c0226de4380"
+    },
+    "source/apps/agent/src/application/input-queue.mjs": {
+      "bytes": 1238,
+      "sha256": "9055d3854e1064930d58af3b8e17f340654861ada4ff59a6c70364046b620651"
+    },
+    "source/apps/agent/src/application/codegen.mjs": {
+      "bytes": 6544,
+      "sha256": "b5cb63cc468b0e150e43531f8d60034cfc9110de3e7185f18bad6e6a3fe7e77e"
+    },
+    "source/apps/agent/src/application/start-screen.mjs": {
+      "bytes": 5066,
+      "sha256": "bea4e06e99a428ea137b8499d8b4b92794dd26b87237f66ea5d970b0a8c69aca"
+    },
+    "source/apps/agent/src/application/cli.mjs": {
+      "bytes": 7077,
+      "sha256": "6e84b905ba5e73bb829006825b9f091da8588ac637c4a04d6b5950fbf73297e2"
+    },
+    "source/apps/agent/src/harness/pi/worker.mjs": {
+      "bytes": 718,
+      "sha256": "125c25df68fd97d039c98e4f7fe9e9853b42b939e4662b86060eaf0a3b307b33"
+    },
+    "source/apps/agent/src/harness/pi/sdk.d.mts": {
+      "bytes": 578,
+      "sha256": "9c1d9d1a79f9b5a0ebae1797ee8f00a397a932824e325b129b1ca9dc6841f53f"
+    },
+    "source/apps/agent/src/harness/pi/workspace-history.ts": {
+      "bytes": 4372,
+      "sha256": "a21665450c724a4b003585055b693f3d61103ac703d9d8ef48b0efb96f40b44e"
+    },
+    "source/apps/agent/src/harness/pi/process.ts": {
+      "bytes": 2216,
+      "sha256": "2cbcf09af0cb89f5d89fc81f63f8816208f88e40eaea30fdcb0c5cb804bde88a"
+    },
+    "source/apps/agent/src/harness/pi/interactive-patch.mjs": {
+      "bytes": 2650,
+      "sha256": "a49a2a1b0c9a5ec3b45c7b9975c43acf9e3304ab5200b4dfbb866b9c7aed8fd3"
+    },
+    "source/apps/agent/src/harness/pi/child-tools.mjs": {
+      "bytes": 937,
+      "sha256": "ed492d28cfdd325702a7214b39197b36588668f016f579d02b3c103cfde31372"
+    },
+    "source/apps/agent/src/harness/pi/input.ts": {
+      "bytes": 2080,
+      "sha256": "282f8d012b9449a4ce85ba1ec4323774269d91d1060d3b7821e224ece9aa484f"
+    },
+    "source/apps/agent/src/harness/pi/replay-extension.ts": {
+      "bytes": 3214,
+      "sha256": "fafccb6fbef59fd8f5379f86e21c0ec3133eb7593ed48c3e85e19a00c827cfb6"
+    },
+    "source/apps/agent/src/harness/pi/rsi-extension.ts": {
+      "bytes": 3982,
+      "sha256": "fc5998c78d2582d6c6b470d97909f80fda2dbc0d6f3374d44e56ffd515588e04"
+    },
+    "source/apps/agent/src/harness/pi/headless-driver.mjs": {
+      "bytes": 117,
+      "sha256": "2bc8835a12f5e1840be77fbdcb3cc2922af46257ba249d42a857487c55861abf"
+    },
+    "source/apps/agent/src/harness/pi/environment.mjs": {
+      "bytes": 1079,
+      "sha256": "876ae8b82a250f4f349e7f559193476ae434465f5138ca8b9de4f2f0c2919538"
+    },
+    "source/apps/agent/src/harness/pi/replay-context-extension.ts": {
+      "bytes": 13755,
+      "sha256": "cd844784421cbb443daf56aec3e305a5345c520668706eae3c890953ac8bbbdb"
+    },
+    "source/apps/agent/src/harness/pi/continuation.mjs": {
+      "bytes": 1669,
+      "sha256": "a674b9dcbf48e9cbee132c41094c34344f576231cdbe08b5cfd741cee64d9cad"
+    },
+    "source/apps/agent/src/harness/pi/mcp-transport.mjs": {
+      "bytes": 2647,
+      "sha256": "7e2dcf0ec38af902c3777a421fce75cb2970673686294451e4c4851c4044339a"
+    },
+    "source/apps/agent/src/harness/pi/host-actions.mjs": {
+      "bytes": 28521,
+      "sha256": "3c47ceba6ec88d1b5559f89e9bb787f89b1c13570143bb21c073387ea04edeac"
+    },
+    "source/apps/agent/src/harness/pi/workspace-tools.mjs": {
+      "bytes": 12684,
+      "sha256": "41728b1b86909f825d39db976c7424963a601282ce423d373a776c290b70f1cb"
+    },
+    "source/apps/agent/src/harness/pi/command-policy.mjs": {
+      "bytes": 3071,
+      "sha256": "3630d6423cb7c119e3ed272c23965f8bd7549d6e8e3ac5d666de4459cc715bf2"
+    },
+    "source/apps/agent/src/harness/pi/native.mjs": {
+      "bytes": 6168,
+      "sha256": "9e21bd59a1ebf027e1dfec0f3916c68f6d6f1a7c1417e24330e11b0dc34f6e64"
+    },
+    "source/apps/agent/src/harness/pi/plugin.mjs": {
+      "bytes": 4273,
+      "sha256": "ecc7302651f74ad992b80d86d3f9ad0d172893f886725dad5424ae51e51fd592"
+    },
+    "source/apps/agent/src/harness/pi/context-files.mjs": {
+      "bytes": 841,
+      "sha256": "30dc6b97afb4dd07152e8f008b7c369489370e3c4cf54a096ce835e179e19be0"
+    },
+    "source/apps/agent/src/harness/pi/runtime-factory.mjs": {
+      "bytes": 16190,
+      "sha256": "eed364a1a34e7e21fe082c37120a6dc4b7b339ddbdcb4f379c6a1adb5af898f5"
+    },
+    "source/apps/agent/src/harness/pi/interactive-driver.mjs": {
+      "bytes": 564,
+      "sha256": "1e23ab8399d9e4a9c644c9be213bd5a14de1009c995ce5609aef402c0200f46c"
+    },
+    "source/apps/agent/src/harness/pi/sdk.mjs": {
+      "bytes": 2688,
+      "sha256": "5c95e62bc2d4ee529c1aac8d4558cde09c4653ee2eda14c9f6ee7bc3f4022ff1"
+    },
+    "source/apps/agent/src/harness/pi/product-ui.mjs": {
+      "bytes": 4803,
+      "sha256": "e9dcd3093ebbbd111cdf80432360a8d81b24fa74c0f8f76de206946adbb66ae9"
+    },
+    "source/apps/agent/patches/pi-coding-agent-1.5.0-host-actions.patch": {
+      "bytes": 8565,
+      "sha256": "27b9ea26ef12ac6675fd0b3ce6035f33dfd5838a276890b1052a02703f20b4f4"
+    },
+    "source/apps/agent/patches/pi-coding-agent-1.5.0-host-actions.json": {
+      "bytes": 718,
+      "sha256": "3c34ca3674884d302e8dd992860f0aa6ecaf58f40f9a151b685772c3ef84fe69"
+    },
+    "kernelagent": {
+      "bytes": 2367,
+      "sha256": "1954361d074e127848110e88ce76b6bfed0481b0e3a785807d077f0c97851d67"
+    },
+    "source/apps/agent/package.json": {
+      "bytes": 1588,
+      "sha256": "ec463f7e166ae6002c2a92d45ce0e6323708eb287354790facc0fea7bee44208"
+    },
+    "source/apps/agent/src/main.ts": {
+      "bytes": 1866,
+      "sha256": "d6eccf0623f76536efef1bb738459a2ebb61c5256359185b0a7cd9ff5f7f39e1"
+    },
+    "source/apps/agent/src/sdk/application-session.mjs": {
+      "bytes": 3920,
+      "sha256": "94d27d6dff4095f4c2c1ec018527e06af89e367ae17feb79e63968b3c3ee6610"
+    },
+    "source/apps/agent/src/replay/product-session.ts": {
+      "bytes": 6849,
+      "sha256": "8265821d5a7d04baddc515bf945ccc4ea379e948f440f0f2fb7eb6263990dcf8"
+    },
+    "source/apps/worker/src/kernelcat_worker/application_host.py": {
+      "bytes": 50703,
+      "sha256": "cd02bfdc3a2048ab10c9f95e4cceb9e8dc501986be0eea1cbcbde5d027c79ec7"
+    },
+    "source/apps/worker/src/kernelcat_worker/configuration.py": {
+      "bytes": 6508,
+      "sha256": "9ef0798247b0ceecb6fe428ea342b2aa0bf7ac431b36638ee63d61cd2eb60e75"
+    },
+    "source/apps/worker/src/kernelcat_worker/bindings.py": {
+      "bytes": 20908,
+      "sha256": "58955944188493806958261890a41c1d158a07dd7f43a4c88ec9d05723ecd629"
+    },
+    "source/apps/worker/src/kernelcat_worker/loopx_application.py": {
+      "bytes": 2895,
+      "sha256": "589d8e6b3d3c4e937a04189737075cdd8240490248931caddbb0f0038d6fafe2"
+    },
+    "source/packages/executor/src/kernelcat_executor/state/application.py": {
+      "bytes": 17648,
+      "sha256": "87ac27815369fdc51511dfd91f293e16ea9b1cc868ff4746df33108d61756e12"
+    },
+    "source/packages/executor/src/kernelcat_executor/state/journal.py": {
+      "bytes": 26721,
+      "sha256": "0fd08fe9e35ef4c2e3e738a8d91a8f50f7f904549ff714ed4ad7bd6273a9d3de"
+    },
+    "source/packages/executor/src/kernelcat_executor/operations/authority.py": {
+      "bytes": 37648,
+      "sha256": "9a76bbf45a183d331052477642e316394b704333605aba17a07904356e82a8d0"
+    },
+    "source/scripts/develop.py": {
+      "bytes": 1862,
+      "sha256": "afd46544b75ec37fd7d45ffc3511b687d6751a7e3db82e9485659df2fcf64836"
+    },
+    "validation/tui/codegen_scenario.py": {
+      "bytes": 10018,
+      "sha256": "d0dcc521853c61aa86506f27aad29295049aae9d22f4a4130942d92679db48b3"
+    },
+    "validation/tui/codegen_edges.py": {
+      "bytes": 5641,
+      "sha256": "640e1036c4fe7aa46e6ee960407974897c63c74a08cf351ac685e70d4786c318"
+    },
+    "validation/tui/test_codegen.py": {
+      "bytes": 4498,
+      "sha256": "0adb66d4fe85fed3c6c94d0fb8a84c4dbcd4976d21ab5536508ffc5c285e192c"
+    },
+    "validation/codegen.mjs": {
+      "bytes": 3374,
+      "sha256": "7a069471d7cc958df97665a30d65618cca1b836cb54b27269aae812541ddc394"
+    }
+  },
+  "original_artifacts": {
+    ".validation/codegen-final-35/model.json": {
+      "bytes": 135,
+      "sha256": "9c5da5dfde32046bb6b0a76152192321b1fdfac6a005458bccba11a35b360c8a"
+    },
+    ".validation/codegen-final-35/transcript.txt": {
+      "bytes": 1171447,
+      "sha256": "bb7ae29ddbdcc63085e8af1c54b29594a8a84f7a4ce893d61afd0d429d487282"
+    },
+    ".validation/codegen-final-35/scenario.json": {
+      "bytes": 74243,
+      "sha256": "62c657914121c9dc9e59098a55717ab0008f7859eb935ee1c2dc9a715da475b8"
+    },
+    ".validation/codegen-final-35/model-requests.json": {
+      "bytes": 1183454,
+      "sha256": "af5956ff039267142387db202bc18d780471d33713ce6938d69d6271cb57300c"
+    },
+    ".validation/codegen-final-35/home/runs/aa39d7e2-63cc-4247-a2ed-e8ba633ff8b6/events.jsonl": {
+      "bytes": 3962614,
+      "sha256": "9e97f89fed35aea4ae6b8958d461851e68fc22bc9caf68b8838d07ff5f974a56"
+    },
+    ".validation/codegen-final-35/home/runs/aa39d7e2-63cc-4247-a2ed-e8ba633ff8b6/manifest.json": {
+      "bytes": 2449,
+      "sha256": "7c7c0ed6df73988bbcbe01697e29ebae9645b57a3bb5a91fbf46607d9cc677ce"
+    },
+    ".validation/codegen-final-35/home/runs/aa39d7e2-63cc-4247-a2ed-e8ba633ff8b6/application.json": {
+      "bytes": 187,
+      "sha256": "63f56f7c3b5152d44e13418e29cc59d30e4bdca5fcf541c2781da20c5468f9c6"
+    },
+    ".validation/codegen-final-35/home/runs/aa39d7e2-63cc-4247-a2ed-e8ba633ff8b6/state/events.jsonl": {
+      "bytes": 3963389,
+      "sha256": "d644ca6a89af9fc165931114c0a3ff6b4df0c3b7db38a57a0b7732c57be6f426"
+    },
+    ".validation/codegen-final-35/idle.txt": {
+      "bytes": 4347,
+      "sha256": "cc60a097f784d8600e6c3f00d8d7e62ed3491688fc7bbde3893227fe11ede24e"
+    },
+    ".validation/codegen-final-35/resumed.txt": {
+      "bytes": 4364,
+      "sha256": "6c560365fbbb623a54d9be3c358e4d4e6180e85d189aa5679e8560555fde8beb"
+    },
+    ".validation/codegen-final-35/completed.txt": {
+      "bytes": 4338,
+      "sha256": "04b3799fca9c7c9e32f00c32b58432074712abb084243685f7ab33f2a16c633a"
+    },
+    ".validation/codegen-final-35/unsupported-command.txt": {
+      "bytes": 4402,
+      "sha256": "e12f6e32b5923ef978fb341712c47f1c4d87ec4a972af6b92befec0e3faf757a"
+    },
+    ".validation/codegen-goal-clear-complete/model.json": {
+      "bytes": 135,
+      "sha256": "3f6f9f207bc959b5e77cb2e41777ae051932ed12fb474707d7124913888bb6c3"
+    },
+    ".validation/codegen-goal-clear-complete/transcript.txt": {
+      "bytes": 282403,
+      "sha256": "e818bec6cb95d204009e3662d5b1801eb1d88a91c1a2d46f72a45a2a2ae8482e"
+    },
+    ".validation/codegen-goal-clear-complete/scenario.json": {
+      "bytes": 30971,
+      "sha256": "85446ff79f67e4ac7489f9ed21304a77daacdbe6c7f1dc115e9abf795e86310b"
+    },
+    ".validation/codegen-goal-clear-complete/model-requests.json": {
+      "bytes": 200115,
+      "sha256": "63960d6e88862a10e9a7e4a7294b1c5874f8e6de1c373695cde87c32c5e9d2a1"
+    },
+    ".validation/codegen-goal-clear-complete/home/runs/2b23baec-d4b5-41a3-b120-3f33d3f4f779/events.jsonl": {
+      "bytes": 799649,
+      "sha256": "649a439e0ab0c1a94e38740a2fe9851293bb985ba65cd6f3115e9f890e657728"
+    },
+    ".validation/codegen-goal-clear-complete/home/runs/2b23baec-d4b5-41a3-b120-3f33d3f4f779/manifest.json": {
+      "bytes": 2492,
+      "sha256": "c0c1b9d67dce1aeee8ef4f257e7671a16240a8eefa611973bd49e0bb34738626"
+    },
+    ".validation/codegen-goal-clear-complete/home/runs/2b23baec-d4b5-41a3-b120-3f33d3f4f779/application.json": {
+      "bytes": 187,
+      "sha256": "d376d7b53f0946a8d5fb66b43a69b4a6b704dbfee65c270cc2c9d9503802bc0a"
+    },
+    ".validation/codegen-goal-clear-complete/home/runs/2b23baec-d4b5-41a3-b120-3f33d3f4f779/state/events.jsonl": {
+      "bytes": 801505,
+      "sha256": "78ece2d0b3affc6a1d351b9b543df22eb165afe5e2e92cc00900ff2f8ef0898a"
+    },
+    ".validation/codegen-goal-clear-complete/idle.txt": {
+      "bytes": 4347,
+      "sha256": "ef6f987b341b8a26acbce7a33b8ee86555f77c17d6fd1db44556b03d7d3605f3"
+    },
+    ".validation/codegen-goal-clear-complete/resumed.txt": {
+      "bytes": 4365,
+      "sha256": "d16e6d51124dfdd7b4770979880473862db1bb87fd8de31ef7f0d44238df03b6"
+    },
+    ".validation/codegen-goal-clear-complete/completed.txt": {
+      "bytes": 4338,
+      "sha256": "92906973320e60a18fa046ad2577466d2f037198fa3a84f9b48c94eb9e19a3f6"
+    },
+    ".validation/codegen-goal-clear-complete/unsupported-command.txt": {
+      "bytes": 4356,
+      "sha256": "7aea5610c4c914a9c1bfb8c438dfb7abe105ebf8e5dbcfc466f9de186868014a"
+    },
+    ".validation/codegen-edges-verified/model.json": {
+      "bytes": 136,
+      "sha256": "2af2e432cb2e22c3bd68b8d6c1455fa767d315b7af829ae4d77145b913cf7543"
+    },
+    ".validation/codegen-edges-verified/scenario.json": {
+      "bytes": 135,
+      "sha256": "d2132b264bb05085a7ffa7f19a3340b334e8f6750edfddcce727711e628c0df9"
+    },
+    ".validation/codegen-edges-verified/home/runs/4f11af61-9538-427d-becd-9a8ac962b8f7/events.jsonl": {
+      "bytes": 143993,
+      "sha256": "2086f8c4705807282952e46e4c8629ff4bb66a4c856a9fbc585304364c9c0944"
+    },
+    ".validation/codegen-edges-verified/home/runs/4f11af61-9538-427d-becd-9a8ac962b8f7/manifest.json": {
+      "bytes": 1448,
+      "sha256": "f22401f770834df27d8e5ff077639710b656409deab3ebbe75732d18fb642c6c"
+    },
+    ".validation/codegen-edges-verified/home/runs/4f11af61-9538-427d-becd-9a8ac962b8f7/application.json": {
+      "bytes": 187,
+      "sha256": "a3101f5bfbc02e25f042bb853510654c6c6353d18ce327dda87099f1078c104a"
+    },
+    ".validation/codegen-edges-verified/home/runs/4f11af61-9538-427d-becd-9a8ac962b8f7/state/events.jsonl": {
+      "bytes": 144441,
+      "sha256": "295f0ad519e0229d722128e9da96fc1b04a137834a941b85875200f72396879f"
+    },
+    ".validation/codegen-edges-verified/setup-transcript.txt": {
+      "bytes": 4164,
+      "sha256": "3fc02626466f117d24568c7a61e0e5db43a964db647101d9e2158f8768293217"
+    },
+    ".validation/codegen-edges-verified/budget-transcript.txt": {
+      "bytes": 22794,
+      "sha256": "138a010ddafb6ddde5be6aac915969299457f74485885bf5e1416ecf983f048c"
+    },
+    ".validation/codegen-demo-verified-r2/model.json": {
+      "bytes": 140,
+      "sha256": "d1f7ee5784d6175f6cb0cd73541dc514794b28073d2c7f3f270fe251f59a127a"
+    },
+    ".validation/codegen-demo-verified-r2/transcript.txt": {
+      "bytes": 53698,
+      "sha256": "4f3a08f0d8f15cbc04f64b55bea0f846f43feeea4a6f79800352169dd9961f55"
+    },
+    ".validation/codegen-demo-verified-r2/demo.json": {
+      "bytes": 95,
+      "sha256": "6cd312809affa3fc4b9712f03354c191c66ce34781dfc04eabcf1ab7c7ad422f"
+    },
+    ".validation/codegen-demo-verified-r2/scenario.json": {
+      "bytes": 217,
+      "sha256": "cc407f7283ce8ada1f2d0f152d5abe2782575fbd459bbff2f84751bb1c0298a7"
+    },
+    ".validation/codegen-demo-verified-r2/model-requests.json": {
+      "bytes": 59264,
+      "sha256": "1ae8d196a83bcc9d9304b28e5b99ed989122d351329f56894096d71df3a38808"
+    },
+    ".validation/codegen-demo-verified-r2/home/runs/43b654e5-a1d4-41fd-8457-e159dbe6c8d9/events.jsonl": {
+      "bytes": 296617,
+      "sha256": "bbcd4f3e63a17b7f51381d91c87ba5ab125f86d7e01968ada814adf6e98eeb56"
+    },
+    ".validation/codegen-demo-verified-r2/home/runs/43b654e5-a1d4-41fd-8457-e159dbe6c8d9/manifest.json": {
+      "bytes": 1453,
+      "sha256": "0d855b468fedec7644786b227afb2795c59b7005681e4b00148e567c1e6401df"
+    },
+    ".validation/codegen-demo-verified-r2/home/runs/43b654e5-a1d4-41fd-8457-e159dbe6c8d9/application.json": {
+      "bytes": 187,
+      "sha256": "fb393569c1aeaef0790afeb0f44f9679d476ffabfddc883984097db7f34a6933"
+    },
+    ".validation/codegen-demo-verified-r2/home/runs/43b654e5-a1d4-41fd-8457-e159dbe6c8d9/state/events.jsonl": {
+      "bytes": 297066,
+      "sha256": "dfb63c5ac4755550a7f0fb7e7b5e02fb8b0ad39327722668c59d29ed05fabdc3"
+    },
+    ".validation/codegen-demo-verified-r2/idle-screen.txt": {
+      "bytes": 3238,
+      "sha256": "cb02d833a5badab379813382b04e777e21dc31b3b19c75d09f8746cdc5b29785"
+    },
+    ".validation/codegen-demo-verified-r2/completed-screen.txt": {
+      "bytes": 4236,
+      "sha256": "cc1804a88c773929c2fee0636a1c1cc15739d470249757bd582df73fb2413999"
+    },
+    ".validation/codegen-experiment-ui-complete/options.json": {
+      "bytes": 544,
+      "sha256": "1ac5d25bb821a507e6c4c531ca05e815c47416f2ec86935d2d94a7a859282741"
+    },
+    ".validation/codegen-experiment-ui-complete/events.jsonl": {
+      "bytes": 434810,
+      "sha256": "e2295b177b11c89cf266695e9edec7d171b90ca9d417d318ed1c23ddbe5e266e"
+    },
+    ".validation/codegen-experiment-ui-complete/scenario.json": {
+      "bytes": 23078,
+      "sha256": "57a6c9ea977afa831e570238cccc582a1e9b770dbc7aba58b2ef93502ff654cc"
+    },
+    ".validation/codegen-experiment-ui-complete/pty-transcript.txt": {
+      "bytes": 125620,
+      "sha256": "9a838742addd81528886052e58390e2e238d92953a4d0d984bda2b04731b0b16"
+    },
+    ".validation/codegen-experiment-ui-complete/manifest.json": {
+      "bytes": 1371,
+      "sha256": "fbd2a3a3160df16a32077f00d1d4e10355d27239094cb87be8af4e8c1a43f5b2"
+    },
+    ".validation/codegen-experiment-ui-complete/application.json": {
+      "bytes": 185,
+      "sha256": "2d7e6169deb0602aeb75283a8716c0b14cc0ecc00bbee842e76aa57802d833cc"
+    },
+    ".validation/codegen-experiment-ui-complete/model-requests.json": {
+      "bytes": 107856,
+      "sha256": "bac65ab940bfe028c1ea9a17118eda08714203ea623513826db34f7456eb0d0d"
+    },
+    ".validation/codegen-experiment-ui-complete/state/events.jsonl": {
+      "bytes": 438249,
+      "sha256": "24dc3964e1595a20c35de81365e25c887a013c07a8c350fecea2d2fa94fa8d5c"
+    },
+    ".validation/codegen-experiment-ui-complete/goal-screen.txt": {
+      "bytes": 3511,
+      "sha256": "4dff7f85f09d5a98bfd4a24a285f11e948134aa8d1f1e427f177f70c81b4bd9d"
+    },
+    ".validation/codegen-experiment-ui-complete/submitted-screen.txt": {
+      "bytes": 3487,
+      "sha256": "90fd8935b63d382b58753f061f549e496f1f069abc6d9e78089f69c3a6453d5f"
+    },
+    ".validation/codegen-experiment-ui-complete/narrow-help-screen.txt": {
+      "bytes": 1494,
+      "sha256": "a0c4251dc0750a013532fac850b2e87f9394f13a68003e2f5bf086b6f47b925d"
+    },
+    ".validation/codegen-experiment-ui-complete/last-screen.txt": {
+      "bytes": 1408,
+      "sha256": "cedda1b9ca5ff8ae622038996191174b60aa979b2c2f370c332a9b7f61b4caa0"
+    },
+    ".validation/codegen-experiment-ui-complete/history-screen.txt": {
+      "bytes": 3558,
+      "sha256": "43267e33ffd1b94ba1fc4a2ffcc934593862ca581661d129e4f0d84c963bd131"
+    },
+    ".validation/codegen-experiment-ui-complete/rejected-command-screen.txt": {
+      "bytes": 3532,
+      "sha256": "e59068780d91d4b6cbe32bbd548100149799b2a451ca9194125d02325835a405"
+    },
+    ".validation/codegen-experiment-ui-complete/initial-screen.txt": {
+      "bytes": 3472,
+      "sha256": "eca971c1f65cfdb28af61eb0fdd54993748f3dd60956d8c9db908932d51acd15"
+    },
+    ".validation/codegen-lifecycle-complete/options.json": {
+      "bytes": 532,
+      "sha256": "abc0d979974f001ee4d3d7b0183326ad63e87d51e87fe0d11956508cdb9c679a"
+    },
+    ".validation/codegen-lifecycle-complete/scenario.json": {
+      "bytes": 670,
+      "sha256": "dc08ec2a2a593d313e4a1ae12ce4c8aebe3d7a56e1e57eaf229af3391ecf98f4"
+    },
+    ".validation/codegen-lifecycle-complete/model-requests.json": {
+      "bytes": 312965,
+      "sha256": "ffa823c06d8bc73c5d8c3e95378933926af7913b70c44c3101ebb550b99026cc"
+    },
+    ".validation/codegen-lifecycle-complete/pause/events.jsonl": {
+      "bytes": 282925,
+      "sha256": "d64f40fbb0d40d5f7c500a2e1b665f0c89e0f389826bf0cd9cfed9af82e3c68a"
+    },
+    ".validation/codegen-lifecycle-complete/pause/manifest.json": {
+      "bytes": 1372,
+      "sha256": "127edccafea27a7e4ffccde19f98992d72eda845576c3da8f7ce6bd1ea66e092"
+    },
+    ".validation/codegen-lifecycle-complete/pause/application.json": {
+      "bytes": 186,
+      "sha256": "0a074dd3530426adb274f0ddb5c48cbfd687dde6fc94a680934ad064d4617f46"
+    },
+    ".validation/codegen-lifecycle-complete/detach/events.jsonl": {
+      "bytes": 281253,
+      "sha256": "8d41e830d48530647715fcad29f407258d7338aaa0bc07f1c4eecd502a164c77"
+    },
+    ".validation/codegen-lifecycle-complete/detach/manifest.json": {
+      "bytes": 1374,
+      "sha256": "79a2b56d2b072be39ba1d023817158d100fd070d4f7a1dced60076d488f593f5"
+    },
+    ".validation/codegen-lifecycle-complete/detach/application.json": {
+      "bytes": 186,
+      "sha256": "ff2e0774b69efada73dd108a834fca567c06e817dcadd0f48e05f0abb942ae43"
+    },
+    ".validation/codegen-lifecycle-complete/awaiting_user/events.jsonl": {
+      "bytes": 286567,
+      "sha256": "ffdee9fc2367040935a770834ba293545d86efe67a574a1e99942b90254eb41a"
+    },
+    ".validation/codegen-lifecycle-complete/awaiting_user/manifest.json": {
+      "bytes": 1388,
+      "sha256": "6f1fee47d0048b0dcaae69620073dc699bd317409642c460317a83d047fbc482"
+    },
+    ".validation/codegen-lifecycle-complete/awaiting_user/application.json": {
+      "bytes": 186,
+      "sha256": "3cb2f71ede0b632c93b0a5102da8979068da4d430e41bb8aeea78eb63c29d24d"
+    },
+    ".validation/codegen-lifecycle-complete/seed_credits/events.jsonl": {
+      "bytes": 97959,
+      "sha256": "dcde6df201167f87dd9d9e018e9fd5eccc6b78383912fbb8db6b4b0a453dd0ae"
+    },
+    ".validation/codegen-lifecycle-complete/seed_credits/manifest.json": {
+      "bytes": 1385,
+      "sha256": "1f091a783c8b86141c75b4c1000fecfbf2f75a32dec53354acbaafce7ae5e20d"
+    },
+    ".validation/codegen-lifecycle-complete/seed_credits/application.json": {
+      "bytes": 186,
+      "sha256": "57dd31e866df2d5555ff92a617ac00ae7ec7c63a7b254651657db4b38b4c0c42"
+    },
+    ".validation/codegen-lifecycle-complete/credits/events.jsonl": {
+      "bytes": 181627,
+      "sha256": "bb7b053e83ada7a4a499776f6e1036f3522584d58be8ec6f5950819fb74c36c2"
+    },
+    ".validation/codegen-lifecycle-complete/credits/manifest.json": {
+      "bytes": 1375,
+      "sha256": "f50375b5ac121f771ea3c90915528fb14042e2b5d9b6fb960ec1ca284fd72c1b"
+    },
+    ".validation/codegen-lifecycle-complete/credits/application.json": {
+      "bytes": 186,
+      "sha256": "df265bb0264a82fbb15bdd44d6986737dc41a17e2da18033cbc0a4133bc6c3f6"
+    },
+    ".validation/codegen-lifecycle-complete/budget/events.jsonl": {
+      "bytes": 472004,
+      "sha256": "4769a2f52aebbd2e8ec0d16c82f74b2f748de9f58999ff41074fe6902aa81e54"
+    },
+    ".validation/codegen-lifecycle-complete/budget/manifest.json": {
+      "bytes": 1374,
+      "sha256": "1f1995965e16a57d233816f5d464ca4d6ca33512b743c7843ccb779a80add41f"
+    },
+    ".validation/codegen-lifecycle-complete/budget/application.json": {
+      "bytes": 186,
+      "sha256": "9f4514dbccf817dbf472e3921cfa7c09a2b91979d0d2d5163fb9ffb49974fcca"
+    },
+    ".validation/codegen-lifecycle-complete/pause/state/events.jsonl": {
+      "bytes": 283713,
+      "sha256": "00ea5fbc763d23b67110288ae9b8305d670e1813b8905f31da69ca49666c4a48"
+    },
+    ".validation/codegen-lifecycle-complete/detach/state/events.jsonl": {
+      "bytes": 281699,
+      "sha256": "42e7695cac62e3a61cbef1e309066a6aa9f24a2b4b321be7bef444dee20e2a63"
+    },
+    ".validation/codegen-lifecycle-complete/awaiting_user/state/events.jsonl": {
+      "bytes": 287354,
+      "sha256": "9b721ddc280c4392c07860219aa764b9b2e7e7fe13b758eeb75bf992bb690ea0"
+    },
+    ".validation/codegen-lifecycle-complete/seed_credits/state/events.jsonl": {
+      "bytes": 98404,
+      "sha256": "0d34e04eba954908b775e319aadffb038dca6a88f834aba5dc485b529638a071"
+    },
+    ".validation/codegen-lifecycle-complete/credits/state/events.jsonl": {
+      "bytes": 182072,
+      "sha256": "5d53159db3a05e2b89678d15175a8dcac2b56756ff7f1f5788b89b94ce02e664"
+    },
+    ".validation/codegen-lifecycle-complete/budget/state/events.jsonl": {
+      "bytes": 472613,
+      "sha256": "14d5557574df6070b76621df906799fb99e051aa2bf849544674f3c2bc8dd698"
+    },
+    ".validation/codegen-regression/long/options.json": {
+      "bytes": 523,
+      "sha256": "573de2ca804948b28817feb118afe9e5ac1b9a9fc13edef479d8ded2ab711402"
+    },
+    ".validation/codegen-regression/long/events.jsonl": {
+      "bytes": 4123868,
+      "sha256": "3ab1e5d0e743db4ee36124cad91185119bd194227d6e1172e7ffc6e652afa69e"
+    },
+    ".validation/codegen-regression/long/scenario.json": {
+      "bytes": 42313,
+      "sha256": "59eb3d5e13e754fd046fb554baa02265c1ee84b82deea267894c946bf5364eb1"
+    },
+    ".validation/codegen-regression/long/manifest.json": {
+      "bytes": 4234,
+      "sha256": "412f25f7e9f00ac9679d2ebc88f536fe029657899c3bd0ddf435176000ec96bb"
+    },
+    ".validation/codegen-regression/long/application.json": {
+      "bytes": 186,
+      "sha256": "9cf96ff6893de7b10df21e549cd8cd12b3f0534edbd806dfe7805b237a7e1e7e"
+    },
+    ".validation/codegen-regression/long/model-requests.json": {
+      "bytes": 1223653,
+      "sha256": "c606afbdf3c2ca640a07ca1bf8cb573e7407b7b0e3d115dd23c55820d5e19417"
+    },
+    ".validation/codegen-regression/long/state/events.jsonl": {
+      "bytes": 4124314,
+      "sha256": "0b1b6734d40afe5f55137ae6574ff79f18638e23c9650b87ebfc86a04970bfef"
+    },
+    ".validation/codegen-sdk-complete/sdk/options.json": {
+      "bytes": 526,
+      "sha256": "d03a25bed3b69ec07cbd77abcc487746b2cd33d6d5484e3282b7730b666ab823"
+    },
+    ".validation/codegen-sdk-complete/sdk/events.jsonl": {
+      "bytes": 325416,
+      "sha256": "6bdf4ae8a160d13b390f3271cf89867932192185f5b3a46288426a712d25ebde"
+    },
+    ".validation/codegen-sdk-complete/sdk/scenario.json": {
+      "bytes": 7278,
+      "sha256": "9faf12e7a58447b4aed88b0518410860ad492c431a2d90a726c14d1b37a6be70"
+    },
+    ".validation/codegen-sdk-complete/sdk/manifest.json": {
+      "bytes": 1356,
+      "sha256": "f11911673df7dcc6cada4a8b71206fb2ddda6e445f05f0d8fd4c02839179ed19"
+    },
+    ".validation/codegen-sdk-complete/sdk/application.json": {
+      "bytes": 186,
+      "sha256": "721939c8abf13d229607e06fc1e9d9cc40cb28d5570c03e79bc1a1f1b50a4173"
+    },
+    ".validation/codegen-sdk-complete/sdk/model-requests.json": {
+      "bytes": 81969,
+      "sha256": "eb737b25306cfbcf89b501586acdc70e66c67c2884f5c4915e80892f7347c3f1"
+    },
+    ".validation/codegen-sdk-complete/sdk/state/events.jsonl": {
+      "bytes": 325862,
+      "sha256": "3f185f38525a84827eeaae6a36a9955b4565a03658df78f71e009f85ca5a19db"
+    },
+    ".validation/codegen-sdk-complete/steering/options.json": {
+      "bytes": 541,
+      "sha256": "22a6df5c3b8be2a3846a6b4d9de23ab2c630e0a534f0889bc306af2ce3264b4c"
+    },
+    ".validation/codegen-sdk-complete/steering/events.jsonl": {
+      "bytes": 557570,
+      "sha256": "647cb27f39dd008a4a238d2d3646da92f4aa1db37bcfc28ca9f3ec8d09221bc7"
+    },
+    ".validation/codegen-sdk-complete/steering/scenario.json": {
+      "bytes": 13511,
+      "sha256": "3da759440006d34f739ccb5fb1a819557407861de45833fa57c07705a9b7857e"
+    },
+    ".validation/codegen-sdk-complete/steering/manifest.json": {
+      "bytes": 2518,
+      "sha256": "47de012ab1f61c0ab8c8516102760a64e2bef5cd53e6eba567281e7e1c0fe83d"
+    },
+    ".validation/codegen-sdk-complete/steering/application.json": {
+      "bytes": 186,
+      "sha256": "c7a2ac9998f942acba26dc6551b881db12fd7b70225b780058daa1dc824841bb"
+    },
+    ".validation/codegen-sdk-complete/steering/model-requests.json": {
+      "bytes": 155415,
+      "sha256": "04e07edba525c36af6efc2f8291d27b62b538cbbf96407c50631bfe64dab424c"
+    },
+    ".validation/codegen-sdk-complete/steering/state/events.jsonl": {
+      "bytes": 558185,
+      "sha256": "03d0ec23c3ed67208ef84f58ef5ad4b68a514e913f46359722f145dcabcd6e94"
+    },
+    ".validation/codegen-sdk-complete/recovery/options.json": {
+      "bytes": 541,
+      "sha256": "9a710171767c670e9e718645a135182ef1d3cb4e8653b96c504a1d53eb18b9a3"
+    },
+    ".validation/codegen-sdk-complete/recovery/events.jsonl": {
+      "bytes": 350364,
+      "sha256": "4918dad933a0017c69d379a57e6b0c0ff38021509657f99dc4a48b06830554db"
+    },
+    ".validation/codegen-sdk-complete/recovery/scenario.json": {
+      "bytes": 10541,
+      "sha256": "120c0d535efc963986dd77b7b798f23299a97bf957affaafa189af6930dd733e"
+    },
+    ".validation/codegen-sdk-complete/recovery/manifest.json": {
+      "bytes": 2518,
+      "sha256": "0715947a277ac2adfdc11bbd73dad73d99d0ef6865b7a28429418e4fbd0750a6"
+    },
+    ".validation/codegen-sdk-complete/recovery/application.json": {
+      "bytes": 186,
+      "sha256": "26ffcac2f628696939f841f76d6b7a6da8e2394cc952412d6843e04130d8fd6a"
+    },
+    ".validation/codegen-sdk-complete/recovery/model-requests.json": {
+      "bytes": 83091,
+      "sha256": "50c19a151f826ac91695fbc694e6baa062493de81040ce4482aa289f844a01a2"
+    },
+    ".validation/codegen-sdk-complete/recovery/state/events.jsonl": {
+      "bytes": 350979,
+      "sha256": "ecf486c28308dd7c8bb55b0b21e4efc2efae2d05d270b23324001651c3083ab9"
+    },
+    ".validation/codegen-sdk-complete/transport/options.json": {
+      "bytes": 544,
+      "sha256": "14117867747516e7ea6e49165566af15f947fdc5c45fc47dc6bd58a95e3eb30d"
+    },
+    ".validation/codegen-sdk-complete/transport/events.jsonl": {
+      "bytes": 394739,
+      "sha256": "553b98f72a5a121f320121fd74252a9369f4e7cecfe18269791a07c47aac3ac7"
+    },
+    ".validation/codegen-sdk-complete/transport/scenario.json": {
+      "bytes": 9270,
+      "sha256": "f59bcf2f63f97d5c3d6ff09ccb1bc4434667f9d7955d41c3837f9b0df88cbd1f"
+    },
+    ".validation/codegen-sdk-complete/transport/manifest.json": {
+      "bytes": 1944,
+      "sha256": "5e6e270013aee5209d10af1f076a85555a3cdd8aefb2aac35b1dd960f7154f9d"
+    },
+    ".validation/codegen-sdk-complete/transport/application.json": {
+      "bytes": 186,
+      "sha256": "e3d1db63c7c045f62ca867a390d1b61c4ed135f69c3e08e9e57657015cdae900"
+    },
+    ".validation/codegen-sdk-complete/transport/model-requests.json": {
+      "bytes": 103568,
+      "sha256": "b90dc95075e3b89ee8d444e28d4077f18d83bd97966cdc1f0a6fffac093efc1f"
+    },
+    ".validation/codegen-sdk-complete/transport/state/events.jsonl": {
+      "bytes": 395185,
+      "sha256": "6ebd4a812c7717fe8702bd1cd039bdf319790f5722d0a87d14b4b596b480f663"
+    },
+    ".validation/codegen-sdk-complete/admission/options.json": {
+      "bytes": 544,
+      "sha256": "1e8c727dff2f1a046760d88590d5feb76a680c16896665bddce2fbcf11e6a3c0"
+    },
+    ".validation/codegen-sdk-complete/admission/events.jsonl": {
+      "bytes": 345620,
+      "sha256": "182cc5959b7c6fe799e458bcf992dec273adfe66ac2bdbf76a4625ba0025a0cd"
+    },
+    ".validation/codegen-sdk-complete/admission/scenario.json": {
+      "bytes": 20891,
+      "sha256": "8461636f7325c09e5158c4f5bc8dc49a1da16c6225400506db14525b731eed8b"
+    },
+    ".validation/codegen-sdk-complete/admission/manifest.json": {
+      "bytes": 1371,
+      "sha256": "ad99e89f5375b2dd98ce894c10bfea4bc69770e1dc513e170ad482eaef3c3b5e"
+    },
+    ".validation/codegen-sdk-complete/admission/application.json": {
+      "bytes": 186,
+      "sha256": "2e0e9e700e8b129cddab27fdfafb33f2f484cb7f23512849f234b31d8837545b"
+    },
+    ".validation/codegen-sdk-complete/admission/model-requests.json": {
+      "bytes": 67699,
+      "sha256": "00aaaf1cfdce5facb14d198658d978943a1f17775517af23b711b34496d0ee8b"
+    },
+    ".validation/codegen-sdk-complete/admission/state/events.jsonl": {
+      "bytes": 345960,
+      "sha256": "fe9a6ef2bbe055d63609733842bd50625e543aff6c324bf905a6d64baf6367b4"
+    },
+    ".validation/codegen-agent-complete.log": {
+      "bytes": 8346,
+      "sha256": "b3373fa3631aa9e0d9749d8a4f922f51ef8e4e9bc4d7ec28dd2f47bfec1e7000"
+    },
+    ".validation/codegen-authority-complete.log": {
+      "bytes": 2416,
+      "sha256": "ec945c89cef7c4b84363649652a4af7781d2c7329e74f3caee13ba72bb6f866e"
+    },
+    ".validation/codegen-runtime-complete.log": {
+      "bytes": 1102,
+      "sha256": "d8b3e29b353a69b1c2e92bb75e72d22a2d58635dc666208db612bfb6a8a64a7c"
+    },
+    ".validation/codegen-final-35.log": {
+      "bytes": 298,
+      "sha256": "e8195c5313f1d0360bb21672d6dc0487876d301d62d002c2b6ffa017c5aacbd7"
+    },
+    ".validation/codegen-goal-clear-complete.log": {
+      "bytes": 298,
+      "sha256": "ee7ad1bbe80c2b0176eb93023b094d361e1ce43bdeac583b30954697b3250c6f"
+    },
+    ".validation/codegen-edges-verified.log": {
+      "bytes": 118,
+      "sha256": "15e4e42d172e33707fd59166ab89c17cfef13daccf1d455bdd9721f16f1099fe"
+    },
+    ".validation/codegen-demo-verified-r2.log": {
+      "bytes": 12,
+      "sha256": "ff4b0192f716c3d11ce9bc075bc4d89188e83243f61cc46e75f716ed4137123f"
+    },
+    ".validation/codegen-lifecycle-complete.log": {
+      "bytes": 407,
+      "sha256": "d7522d505d6281d39e7aa4d3a0a05c57c363a611094b5cabd5116ebef43b404b"
+    },
+    ".validation/codegen-experiment-ui-complete.log": {
+      "bytes": 34,
+      "sha256": "9bb598c02a279624e28eb03a64cbcc6da76dbb953a9cee6ba39028ece95bce16"
+    },
+    ".validation/codegen-development-verified.log": {
+      "bytes": 455,
+      "sha256": "f2835ef25cb2da2184434371e0c7ad812632feb0063e23bd629f92c5d86d9428"
+    },
+    ".validation/codegen-cli-help.txt": {
+      "bytes": 1333,
+      "sha256": "e221a3d1def280211f6d2ff6b75011161e92ae4d182300193b85c500777a34f3"
+    },
+    ".validation/codegen-demo-smoke-r2.py": {
+      "bytes": 1621,
+      "sha256": "aa744cfa758e68a789027ce219ca690ad77e2e34502f5f380c1707f3ff9b65ac"
+    }
+  },
+  "corrections": [
+    {
+      "artifact": ".validation/codegen-pty-r1",
+      "reason": "Short-context compaction retained the command in the editor; fixed and rerun."
+    },
+    {
+      "artifact": ".validation/codegen-pty-final",
+      "reason": "Rapid input exposed duplicate delivery and invalid input transition; fixed and rerun."
+    },
+    {
+      "artifact": ".validation/codegen-pty-verified",
+      "reason": "Completed Goal reopened on late interrupt; fixed and rerun."
+    },
+    {
+      "artifact": ".validation/codegen-goal-clear-verified",
+      "reason": "Harness incorrectly expected historical Goal Trials to disappear after clear; now checks no additional Trial and preserves completed status."
+    },
+    {
+      "artifact": ".validation/codegen-pty-complete",
+      "reason": "Stopped redundant run with the obsolete total-Trial-count assertion; retained logs."
+    },
+    {
+      "artifact": ".validation/codegen-demo-verified",
+      "reason": "Smoke harness matched the pre-start banner before the editor was ready; corrected readiness condition and rerun."
+    }
+  ],
+  "limitations": [
+    "Real model endpoints not exercised.",
+    "NPU Vector/Cube and device long-run acceptance deferred by the user.",
+    "Linux and cross-host qualification not performed.",
+    "Recorded runs are combined; this is not a claim that all intermediate attempts passed.",
+    "The 20-turn isolated SDK run predates the terminal Goal-control fix; final lifecycle, steering, recovery, admission and normal codegen cover the changed paths."
+  ]
+}

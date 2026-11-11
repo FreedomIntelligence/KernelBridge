@@ -28,6 +28,8 @@ class ProviderConfig(Contract):
     wire_options: WireOptions = Field(default_factory=WireOptions)
     max_response_bytes: int = Field(ge=4096, le=16777216, default=1048576)
     max_tokens: int = Field(gt=0, default=8192)
+    # User-declared model context capacity, separate from execution budgets.
+    context_window: int = Field(ge=4096, le=2097152, default=65536)
     timeout: float = Field(gt=0, default=120.0)
 
 
@@ -99,11 +101,12 @@ class Config(Contract):
     required_checks: tuple[RequiredCheck, ...] = ()
     state_dir: str = ".state"
     workspace: str = "workspace"
+    workspace_mode: Literal["isolated", "project"] = "isolated"
     writable_paths: tuple[str, ...] | None = None
     readonly_paths: tuple[str, ...] = ("reference", "AGENTS.md", "AGENTS.task.md")
     knowledge_root: str | None = Field(default=None, min_length=1)
     skill_roots: tuple[str, ...] = ()
-    credits: int = Field(gt=0, default=200)
+    credits: int | None = Field(gt=0, default=None)
     policy: Policy = Field(default_factory=Policy)
     agent_options: AgentOptions = Field(default_factory=AgentOptions)
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)

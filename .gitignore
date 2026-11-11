@@ -4,3 +4,7 @@
 __pycache__/
 *.pyc
 /.restore/
+/.validation/
+/.development/
+/.installation/
+/runtime/

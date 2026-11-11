@@ -3,8 +3,14 @@ import { canonicalKey } from "./run/scoring/canonical.ts";
 import { HELP, parseArguments } from "./cli/arguments.ts";
 import { runProduct } from "./bootstrap.ts";
 
+const legacyCommands = new Set(['run', 'pursue', 'loopx-cycle', 'rsi-collect', 'rsi-replay', 'account-create', 'runtime-state', 'stop-run', 'knowledge-fence', 'knowledge-sync']);
+
 export async function main(args: readonly string[]): Promise<number> {
   try {
+    if (!legacyCommands.has(args[0])) {
+      const { applicationMain } = await import("./application/cli.mjs");
+      return await applicationMain(args.length === 0 ? ['tui'] : args);
+    }
     const options = parseArguments(args);
     if (options === null) {
       process.stdout.write(HELP);
@@ -22,7 +28,7 @@ export async function main(args: readonly string[]): Promise<number> {
     return success ? 0 : 1;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    process.stdout.write(canonicalKey({ status: "error", error: message }) + "\n");
+    if (legacyCommands.has(args[0])) process.stdout.write(canonicalKey({ status: "error", error: message }) + "\n");
     process.stderr.write(message + "\n");
     return 1;
   }

@@ -1,0 +1,38 @@
+{
+  "providers": {
+    "ds": {
+      "provider": "openai",
+      "base_url": "https://api.deepseek.com",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "context_window": 1048576,
+      "max_tokens": 16384,
+      "timeout": 180,
+      "wire_options": {
+        "native_turns": true,
+        "tool_choice": "auto",
+        "thinking": "disabled"
+      },
+      "model": "deepseek-flash"
+    },
+    "ds-pro": {
+      "provider": "openai",
+      "base_url": "https://api.deepseek.com",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "context_window": 1048576,
+      "max_tokens": 16384,
+      "timeout": 180,
+      "wire_options": {
+        "native_turns": true,
+        "tool_choice": "auto",
+        "thinking": "disabled"
+      },
+      "model": "deepseek-v4-pro"
+    }
+  },
+  "policy": {
+    "routes": [
+      "ds",
+      "ds-pro"
+    ]
+  }
+}

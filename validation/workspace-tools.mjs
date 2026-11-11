@@ -59,7 +59,8 @@ test('bash runs in isolation and applies only an authorized complete diff', () =
   const result=await call('bash',{command:"printf 'x = 5\n' > solution.py; cat solution.py",timeout:5});
   assert.match(result.content[0].text,/x = 5/);
   assert.equal(await fs.readFile(join(root,'solution.py'),'utf8'),'x = 5\n');
-  await assert.rejects(call('bash',{command:"printf bad > reference/semantics.txt; printf bad > solution.py",timeout:5}),/Read-only/);
+  const denied = await call('bash',{command:"printf bad > reference/semantics.txt; printf bad > solution.py",timeout:5});
+  assert.notEqual(denied.structuredContent.exit_code, 0);
   assert.equal(await fs.readFile(join(root,'solution.py'),'utf8'),'x = 5\n');
   assert.equal(await fs.readFile(join(root,'reference/semantics.txt'),'utf8'),'immutable reference');
   const escaped=await call('bash',{command:`cat '${join(base,'private.txt')}'`,timeout:5});

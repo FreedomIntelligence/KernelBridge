@@ -21,6 +21,7 @@ export interface ReplayContextBinding {
   readonly metadata?: (messages: readonly AgentMessage[], context: ExtensionContext) => readonly ReplayResultMetadata[];
   readonly receipts?: ReceiptContextBinding;
   readonly replayOnCompaction?: boolean;
+  readonly semanticCompaction?: boolean;
   /** A closed invocation cannot append a boundary beyond its admitted checkpoint. */
   readonly isStopped?: () => boolean;
 }
@@ -299,6 +300,10 @@ export function createReplayContextExtension(binding: ReplayContextBinding): Ext
     });
     if (binding.replayOnCompaction) {
       registerCompactionHooks(pi, state);
+    } else if (binding.semanticCompaction) {
+      pi.on("session_compact", async (_event, context) => {
+        await state.prepare(buildSessionContext(context.sessionManager.getBranch()).messages, context);
+      });
     }
   };
 }

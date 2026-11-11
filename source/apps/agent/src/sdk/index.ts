@@ -4,6 +4,8 @@ import { runWithWorker } from "../clients/worker-client.ts";
 import { withPreparedPi } from "../loopx/pi-host.ts";
 import type { HarnessOptions } from "../harness/types.ts";
 import { KernelCatSession } from "./session.ts";
+import { ApplicationSession } from "./application-session.mjs";
+import type { ApplicationOptions } from "./application-session.mjs";
 
 export interface SessionSelection {
   readonly manifest: string;
@@ -37,7 +39,10 @@ export class KernelCat {
       rpc => run(rpc, { signal, onEvent: options.onEvent })), { signal });
   }
 
-  async createSession(selection: SessionSelection): Promise<KernelCatSession> {
+  createSession(selection: SessionSelection): Promise<KernelCatSession>;
+  createSession(selection: Omit<ApplicationOptions, "config" | "python" | "expectedPythonModules">): Promise<ApplicationSession>;
+  async createSession(selection: SessionSelection | Omit<ApplicationOptions, "config" | "python" | "expectedPythonModules">): Promise<KernelCatSession | ApplicationSession> {
+    if (!("manifest" in selection)) return this.createApplicationSession(selection);
     this.worker.signal?.throwIfAborted();
     await readBoundedUtf8(this.worker.config, "Worker configuration", MAX_LAUNCH_BYTES);
     const loaded = await loadLaunchManifest(selection.manifest);
@@ -51,7 +56,19 @@ export class KernelCat {
   selectSession(selection: SessionSelection): Promise<KernelCatSession> {
     return this.createSession(selection);
   }
+
+  createApplicationSession(options: Omit<ApplicationOptions, "config" | "python" | "expectedPythonModules">): Promise<ApplicationSession> {
+    return ApplicationSession.create({ ...options, config: this.worker.config, python: this.worker.python,
+      expectedPythonModules: this.worker.expectedPythonModules });
+  }
+
+  attachApplicationSession(identity: string): Promise<ApplicationSession> {
+    return ApplicationSession.attach(identity);
+  }
 }
+
+export { ApplicationSession } from "./application-session.mjs";
+export type { ApplicationOptions, ApplicationInputOptions } from "./application-session.mjs";
 
 export { KernelCatSession, SessionLifecycleError, UnsupportedCapabilityError } from "./session.ts";
 export type { SessionStatus, SessionResult, StreamedRun } from "./session.ts";

@@ -7,6 +7,7 @@ from typing import Literal, cast
 import httpx
 
 from kernelcat_executor.capabilities.http import request_json
+from kernelcat_executor.capabilities.streaming import prepare_stream, request_stream
 from kernelcat_executor.capabilities.messages import conversation, harness_conversation, parse_turn
 from kernelcat_executor.contracts.messages import AssistantTurn
 from kernelcat_executor.contracts.models import (
@@ -110,6 +111,7 @@ class APIProposer:
             if not tools:
                 for key in ("tools", "tool_choice", "parallel_tool_calls"):
                     payload.pop(key, None)
+        prepare_stream(payload, self.provider)
         return ModelRequest(provider=self.provider, endpoint=self.base_url + endpoint,
                             body_json=canonical(payload), public_headers_json=canonical(headers),
                             timeout=float(self.timeout), allow_insecure_http=self.allow_insecure_http)
@@ -149,6 +151,7 @@ class APIProposer:
         if not tools:
             for key in ("tools", "tool_choice", "parallel_tool_calls"):
                 payload.pop(key, None)
+        prepare_stream(payload, self.provider)
         return ModelRequest(provider=self.provider, endpoint=self.base_url + endpoint,
                             body_json=canonical(payload), public_headers_json=canonical(headers),
                             timeout=float(self.timeout), allow_insecure_http=self.allow_insecure_http)
@@ -170,9 +173,13 @@ class APIProposer:
                        else {"x-api-key": self.api_key})
         usage: Json = {}
         try:
-            data = request_json("POST", request.endpoint, headers,
-                body=request.body_json.encode("utf-8"), timeout=request.timeout,
-                max_bytes=self.max_response_bytes, client=self.client)
+            if request.payload().get("stream") is True:
+                data = request_stream(request, headers, provider=self.provider,
+                    max_bytes=self.max_response_bytes, client=self.client, secret=self.api_key)
+            else:
+                data = request_json("POST", request.endpoint, headers,
+                    body=request.body_json.encode("utf-8"), timeout=request.timeout,
+                    max_bytes=self.max_response_bytes, client=self.client)
             raw_usage = data.get("usage", {})
             if isinstance(raw_usage, dict):
                 usage = {key: value for key, value in raw_usage.items()

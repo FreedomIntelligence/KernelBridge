@@ -3,12 +3,13 @@ import { canonicalKey } from './scoring/canonical.ts';
 
 /** Pi executes owner-admitted turns and sealed tools; LoopX owns model decisions. */
 export class RunController {
-  constructor(rpc, native, delegate, isNested, receipts) {
+  constructor(rpc, native, delegate, isNested, receipts, { persistent = false } = {}) {
     this.rpc = rpc;
     this.native = native;
     this.delegate = delegate;
     this.isNested = isNested;
     this.receipts = receipts;
+    this.persistent = persistent;
     this.active = null;
     this.stopped = false;
     this.failure = null;
@@ -24,6 +25,7 @@ export class RunController {
     const reply = await this.rpc.call('model_turn', params);
     if (reply.stop) {
       this.stopped = true;
+      this.stopResult = reply.result;
       this.active = null;
       return { text: 'Invocation stopped by host.', calls: [] };
     }
@@ -120,8 +122,13 @@ export class RunController {
     this.active = null;
     if (ended.stop) {
       this.stopped = true;
+      this.stopResult = ended.result;
       return { action: 'end' };
     }
+    // A final model answer already has a durable end_turn checkpoint. Let Pi
+    // settle (or deliver its queued user input) without requesting a synthetic
+    // assistant turn merely to rediscover that the invocation has finished.
+    if (this.persistent && !message.content.some(item => item.type === 'toolCall')) return { action: 'end' };
     return { action: 'continue' };
   }
 }

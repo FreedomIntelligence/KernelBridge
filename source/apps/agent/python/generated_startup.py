@@ -598,7 +598,7 @@ def main(argv: list[str] | None = None) -> int | None:
     parser.add_argument("--expected-python-modules", type=Path, required=True)
     parser.add_argument("--startup-report", type=Path)
     parser.add_argument("mode", choices=("worker", "worker-admin", "knowledge-cli",
-                                        "knowledge-mcp", "ingestion", "loopx-host"))
+                                        "knowledge-mcp", "ingestion", "loopx-host", "application-host"))
     parser.add_argument("application_args", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     required = ("kernelcat_knowledge",) if args.mode.startswith("knowledge-") else PRODUCT_MODULES
@@ -612,6 +612,7 @@ def main(argv: list[str] | None = None) -> int | None:
         "worker": "kernelcat_worker.cli", "ingestion": "kernelcat_worker.ingestion",
         "worker-admin": "kernelcat_worker.admin",
         "loopx-host": "kernelcat_worker.loopx_host",
+        "application-host": "kernelcat_worker.application_host",
         "knowledge-cli": "kernelcat_knowledge.api.cli",
         "knowledge-mcp": "kernelcat_knowledge.api.mcp.server",
     }

@@ -60,9 +60,11 @@ class RsiController {
   readonly rpc: EffectRpc;
   readonly records: Records;
   private status: RsiStatus | null = null;
+  private readonly applicationBaseline?: () => Promise<{ baseline_record_id: string; record_sequence: number } | undefined>;
 
-  constructor(rpc: EffectRpc) {
+  constructor(rpc: EffectRpc, applicationBaseline?: () => Promise<{ baseline_record_id: string; record_sequence: number } | undefined>) {
     this.rpc = rpc;
+    this.applicationBaseline = applicationBaseline;
     this.records = new Records(rpc);
   }
 
@@ -103,6 +105,7 @@ class RsiController {
       throw new Error("RSI task or operator configuration changed during the session");
     }
     await this.records.refresh();
+    this.records.applicationBaseline = await this.applicationBaseline?.();
     if (status.record_sequence !== this.records.sequence) throw new Error("RSI status is stale relative to original records");
     this.status = status;
     return status;
@@ -405,6 +408,6 @@ class RsiController {
   }
 }
 
-export function createRsiController(rpc: EffectRpc): EffectRpc {
-  return new RsiController(rpc);
+export function createRsiController(rpc: EffectRpc, applicationBaseline?: () => Promise<{ baseline_record_id: string; record_sequence: number } | undefined>): EffectRpc {
+  return new RsiController(rpc, applicationBaseline);
 }
