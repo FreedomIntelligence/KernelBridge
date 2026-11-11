@@ -102,6 +102,8 @@ def prepare(task_path, profile_path, output, mode=None, session_seed=None, sessi
         raise ValueError('expected one frozen installed Python module root')
     python_path = roots.pop()
     config = profile['config']
+    config['application'] = dict(profile.get('application', {}), max_trials=max_trials,
+        complete_on_acceptance=goal_policy.get('complete_on_acceptance', True))
     config.update(python_modules=bindings, workspace=str(output / 'workspace'),
                   state_dir=str(output / 'state'), writable_paths=['solution.py'], readonly_paths=['reference', 'AGENTS.md', 'AGENTS.task.md'])
     if session_seed is not None:

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import time
+from threading import Event, RLock
+from functools import wraps
 from typing import Any
 
 from kernelcat_executor.contracts.messages import AssistantTurn, turn_actions
@@ -25,6 +27,14 @@ READ_TOOLS = frozenset({"read_file", "list_files", "search_text", "load_skill", 
                         "knowledge_search", "knowledge_show", "knowledge_source", "knowledge_read"})
 
 
+def ordered_effect(method):
+    @wraps(method)
+    def invoke(self, *args, **kwargs):
+        with self.operation_lock:
+            return method(self, *args, **kwargs)
+    return invoke
+
+
 class DelegatedEffects:
     """One plugin permit, restricted tool view, shared credits, host-authored history.
 
@@ -34,6 +44,9 @@ class DelegatedEffects:
     """
     def __init__(self, owner: Any, action: Action, proposal_id: str) -> None:
         self.owner, self.action = owner, action
+        self.operation_lock = RLock()
+        self.stop_event = Event()
+        self.stop_reason = "cancelled"
         self.mode = action.arguments.get("mode", "read_only")
         effect = owner.gateway.tools["delegate"]
         settings = effect.settings
@@ -77,7 +90,7 @@ class DelegatedEffects:
         project = Path(owner.workspace_policy["root"])
         if self.kind == "test":
             tools = [tool for name, tool in owner.gateway.tools.items() if name in READ_TOOLS and name != "read_receipt"]
-            view = Gateway(owner.gateway.store, [*tools, run_command_tool(project)], owner.gateway.scope)
+            view = Gateway(owner.gateway.store, [*tools, run_command_tool(project, self.cancelled)], owner.gateway.scope)
             view._guards = owner.gateway._guards
             return view
         home = Path(os.environ.get("KERNELBRIDGE_HOME") or Path.home() / ".kernelbridge")
@@ -85,13 +98,24 @@ class DelegatedEffects:
         workspace = Workspace(self.worktree.path, create=False)
         names = {"load_skill", "read_file", "list_files", "search_text", "write_file", "edit_file"}
         tools = [tool for tool in builtin_tools(workspace, owner.skills) if tool.spec.name in names]
-        return Gateway(owner.gateway.store, [*tools, run_command_tool(self.worktree.path)], owner.gateway.scope)
+        return Gateway(owner.gateway.store, [*tools, run_command_tool(self.worktree.path, self.cancelled)], owner.gateway.scope)
 
     def _stop(self, reason: str) -> Json:
         self.failure = reason
         return {"failed": True, "stop": True, "reason": reason, "receipt": self.receipt}
 
+    def cancel(self, reason="cancelled") -> None:
+        self.stop_reason = reason
+        self.stop_event.set()
+
+    def cancelled(self) -> bool:
+        return (self.stop_event.is_set()
+            or self.action.id in getattr(self.owner, "stopped_children", ())
+            or (self.owner._cancelled() and not self.action.arguments.get("background")))
+
     def _check(self) -> Json | None:
+        if self.stop_event.is_set():
+            return self._stop(self.stop_reason)
         if self.failure is not None:
             return self._stop(self.failure)
         if self.owner._cancelled() and not self.action.arguments.get("background"):
@@ -102,6 +126,7 @@ class DelegatedEffects:
             return self._stop("timeout")
         return None
 
+    @ordered_effect
     def model(self, route: str) -> Json:
         if self.summary is not None:
             raise Conflict("child already has a final model receipt")
@@ -199,6 +224,7 @@ class DelegatedEffects:
     def wire(action: Action) -> Json:
         return {"id": "kc_" + digest(action.id), "name": action.tool, "arguments": action.arguments}
 
+    @ordered_effect
     def tool(self, call: Json) -> Json:
         stopped = self._check()
         if stopped:

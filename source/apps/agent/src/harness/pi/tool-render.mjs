@@ -300,7 +300,7 @@ export function delegateTitle(args) {
 }
 
 export function childMetrics(child, durationMs) {
-  return [child.tool_calls != null ? `读取 ${child.tool_calls}` : '', child.steps != null ? `模型 ${child.steps}` : '',
+  return [child.tool_calls != null ? `工具 ${child.tool_calls} 次` : '', child.steps != null ? `模型 ${child.steps}` : '',
     child.tokens ? `${formatTokens(child.tokens)} tokens` : '', formatDuration(durationMs)].filter(Boolean).join(' · ');
 }
 

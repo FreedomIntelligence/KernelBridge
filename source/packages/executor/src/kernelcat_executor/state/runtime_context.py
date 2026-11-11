@@ -19,8 +19,14 @@ def context_event(state: Json, record: Json, adoption: ContextAdmission) -> Json
     policy = Policy.model_validate_json(canonical(record["policy"]))
     require(adoption.source["runtime"], expected, "context source execution stamp")
     validate_submission(dict(adoption.source), dict(adoption.context), policy)
-    require(adoption.context["budget"], {key: state[key] for key in ("limit", "spent", "reserved")},
-            "current input credit budget")
+    if adoption.concurrent_budget:
+        # validate_submission above binds the prompt to its real observed
+        # budget. Shared child spending may advance that observation; the
+        # enclosing atomic admission checks the actual account/Run/Trial caps.
+        require(adoption.context["budget"]["limit"], state["limit"], "current input credit limit")
+    else:
+        require(adoption.context["budget"], {key: state[key] for key in ("limit", "spent", "reserved")},
+                "current input credit budget")
     raw = commit["input_json"].encode("utf-8", errors="strict")
     actual = decode_object(raw)
     checked_input = validate_context_value(actual, "runtime input")

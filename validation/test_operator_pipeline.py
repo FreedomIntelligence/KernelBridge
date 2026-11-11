@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'examples/operator_pipeline'))
 from pipeline import main, Pipeline
 from prepare import prepare
+from diagnostic_policy import assess_diagnostics, diagnostic_reason
 
 
 def load(path, name):
@@ -56,6 +57,9 @@ mode=sys.argv[1]
 if mode=='launch': result={'handle': {'job': 'original-123', 'pid': 123, 'log': 'original.log'}}
 elif mode=='collect': result={'original': r['handle'], 'phase': 'complete'}
 elif mode=='calibrate': result={'receipt': 'local-fixture-receipt', 'scope': 'protocol_fixture', 'official_submission': False}
+elif mode in ('check_ok','check_bad'):
+ result={'checks':dict.fromkeys(['build','semantics','full'],mode=='check_ok'),'case_count':len(ids),'case_ids':ids,
+         'oracle_sha256':r['contract']['oracle']['files']['sha256'],'scope':'protocol_fixture'}
 else:
  value=100 if r['role']=='A' or mode=='equal' else 99
  result={'correct': True, 'environment': {'scope': 'protocol_fixture'}, 'measurement': r['contract']['measurement'],
@@ -69,6 +73,157 @@ print(json.dumps(result))
 
     def baseline(self):
         self.call('pipeline_baseline', selection='files', files={'native.cpp': str(self.root / 'campaign/native.cpp')})
+
+    def diagnostics(self, *, mode='ok', required=False, scope='protocol_fixture'):
+        path = self.root / ('diagnostic-' + mode + '.py')
+        path.write_text('''import hashlib,json,sys,time
+from pathlib import Path
+r=json.load(sys.stdin);kind=sys.argv[1];mode=sys.argv[2]
+with Path(sys.argv[3]).open('a') as stream: stream.write(kind+'\\n')
+if mode=='timeout': time.sleep(2)
+p=Path(r['output'])/(kind+'.txt');p.write_text('Original fixture artifact for '+r['source']['sha256'])
+artifacts={} if mode=='empty' else {p.name:hashlib.sha256(p.read_bytes()).hexdigest()}
+print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['source']['sha256'],
+ 'artifacts':artifacts,'status':'unavailable' if mode=='unavailable' else 'completed',
+ 'reason':'fixture backend unavailable' if mode=='unavailable' else None}))
+''')
+        for kind in ('ir', 'profiler'):
+            self.config['drivers']['diag_' + kind] = {'kind': 'diagnostic',
+                'argv': [sys.executable, '-B', str(path), kind, mode, str(self.root / 'diagnostic-count.txt')],
+                'files': {str(path): hashlib.sha256(path.read_bytes()).hexdigest()},
+                'timeout': .5 if mode == 'timeout' else 30}
+        self.config['diagnostics'] = {'on_failure': True, 'on_regression': True, 'required': required,
+            'scope': scope, 'drivers': {'ir': 'diag_ir', 'profiler': 'diag_profiler'}}
+
+    def test_failed_check_invokes_bound_diagnostics_and_retains_original_handle(self):
+        self.freeze(); self.diagnostics(); self.fixture_driver('check_bad', 'check'); self.fixture_driver('launch', 'launch')
+        handle = self.call('pipeline_run', stage='E', driver='launch')['result']['result']['handle']
+        result = self.call('pipeline_run', stage='F', driver='check_bad')
+        reports = result['result']['diagnostics']['reports']
+        self.assertEqual([row['status'] for row in reports], ['completed', 'completed'])
+        self.assertEqual((self.root / 'diagnostic-count.txt').read_text(), 'ir\nprofiler\n')
+        for row in reports:
+            request = json.loads(Path(row['receipt']).with_name('request.json').read_text())
+            self.assertEqual(request['trigger']['run'], result['run'])
+            self.assertEqual(request['handle'], handle)
+            self.assertEqual(request['binding']['source'], row['source'])
+        self.assertFalse(Pipeline(self.config).state['check']['passed'])
+        self.call('pipeline_plan', stage='C', record={'diagnostic_run': result['run'], 'hypothesis': 'Correct the demonstrated contract failure'})
+
+    def test_regression_diagnostics_reuse_original_source_and_new_source_reruns(self):
+        self.freeze(); self.baseline(); self.diagnostics()
+        self.fixture_driver('check_ok', 'check'); self.fixture_driver('positive', 'measure'); self.fixture_driver('equal', 'measure')
+        self.call('pipeline_run', stage='F', driver='check_ok')
+        self.call('pipeline_pair', driver='positive')
+        self.assertFalse((self.root / 'diagnostic-count.txt').exists())
+        first = self.call('pipeline_pair', driver='equal')['result']['diagnostics']['reports']
+        second = self.call('pipeline_pair', driver='equal')['result']['diagnostics']['reports']
+        self.assertTrue(all(row['reused'] for row in second))
+        self.assertEqual([row['receipt'] for row in first], [row['receipt'] for row in second])
+        self.assertEqual(len((self.root / 'diagnostic-count.txt').read_text().splitlines()), 2)
+        with (self.root / 'campaign/native.cpp').open('a') as stream: stream.write('\n// new candidate\n')
+        self.freeze(); self.call('pipeline_run', stage='F', driver='check_ok')
+        self.call('pipeline_pair', driver='equal')
+        self.assertEqual(len((self.root / 'diagnostic-count.txt').read_text().splitlines()), 4)
+
+    def test_required_actual_cpu_diagnostics_and_artifact_tamper_gate(self):
+        self.freeze()
+        self.config['diagnostics'] = {'required': True, 'scope': 'local_cpu_diagnostic', 'drivers': {'ir': 'ir', 'profiler': 'profiler'}}
+        result = self.check()['result']['diagnostics']['reports']
+        self.assertEqual([r['status'] for r in result], ['completed', 'completed'])
+        self.assertTrue(self.call('pipeline_promote')['result']['bootstrap'])
+        ir = Path(result[0]['receipt']).parent / 'kernel-O2.ll'
+        self.assertTrue(ir.exists()); ir.write_text('tampered')
+        self.call('pipeline_promote', failed=True)
+        repeated = self.check()['result']['diagnostics']['reports']
+        self.assertEqual(repeated[0]['status'], 'failed')
+        self.assertTrue(repeated[0]['reused'])
+
+    def test_scope_empty_and_unavailable_diagnostics_never_satisfy_required(self):
+        self.freeze(); self.fixture_driver('check_ok', 'check')
+        for mode, scope, expected in [('ok', 'npu_diagnostic', 'failed'), ('empty', 'protocol_fixture', 'failed'),
+                                      ('unavailable', 'protocol_fixture', 'unavailable')]:
+            self.diagnostics(mode=mode, required=True, scope=scope)
+            reports = self.call('pipeline_run', stage='F', driver='check_ok')['result']['diagnostics']['reports']
+            self.assertTrue(all(row['status'] == expected for row in reports), reports)
+            self.assertTrue(Pipeline(self.config).state['check']['passed'])
+            self.call('pipeline_promote', failed=True)
+
+    def test_missing_driver_is_unavailable_and_policy_validated(self):
+        self.freeze(); self.fixture_driver('check_ok', 'check')
+        self.config['diagnostics'] = {'required': True, 'scope': 'npu_diagnostic'}
+        reports = self.call('pipeline_run', stage='F', driver='check_ok')['result']['diagnostics']['reports']
+        self.assertEqual([row['status'] for row in reports], ['unavailable', 'unavailable'])
+        self.call('pipeline_promote', failed=True)
+        for policy in ({'required': True}, {'scope': 'npu_diagnostic', 'required': 'true'},
+                       {'scope': 'npu_diagnostic', 'drivers': {'ir': 'check_ok'}}):
+            with self.assertRaises(ValueError): Pipeline(dict(self.config, diagnostics=policy))
+
+    def test_timeout_diagnostic_retains_original_intent_and_never_relaunches(self):
+        self.freeze(); self.fixture_driver('check_ok', 'check'); self.diagnostics(mode='timeout', required=True)
+        first = self.call('pipeline_run', stage='F', driver='check_ok')['result']['diagnostics']['reports']
+        self.assertEqual([row['status'] for row in first], ['unknown', 'unknown'])
+        second = self.call('pipeline_run', stage='F', driver='check_ok')['result']['diagnostics']['reports']
+        self.assertTrue(all(row['status'] == 'unknown' and row['reused'] for row in second))
+        self.assertEqual(len((self.root / 'diagnostic-count.txt').read_text().splitlines()), 2)
+        self.call('pipeline_promote', failed=True)
+
+    def test_uncommitted_diagnostic_intent_blocks_implicit_retry(self):
+        self.freeze(); self.fixture_driver('check_ok', 'check'); self.diagnostics(required=True)
+        pipeline = Pipeline(self.config)
+        key = pipeline.diagnostic_key('ir', 'diag_ir', pipeline.current())
+        folder = Path(self.config['state']) / ('e' * 64) / 'diagnostic-ir'; folder.mkdir(parents=True)
+        (folder / 'diagnostic-intent.json').write_text(json.dumps({'key': key, 'kind': 'ir'}))
+        reports = self.call('pipeline_run', stage='F', driver='check_ok')['result']['diagnostics']['reports']
+        self.assertEqual(reports[0]['status'], 'unknown')
+        self.assertEqual((self.root / 'diagnostic-count.txt').read_text(), 'profiler\n')
+
+    def test_unresolved_check_timeout_blocks_diagnostic_device_execution(self):
+        self.freeze(); self.diagnostics(); path = self.root / 'slowcheck.py'; path.write_text('import time; time.sleep(2)')
+        self.config['drivers']['slowcheck'] = {'kind': 'check', 'argv': [sys.executable, '-B', str(path)],
+            'files': {str(path): hashlib.sha256(path.read_bytes()).hexdigest()}, 'timeout': .1}
+        result = self.call('pipeline_run', stage='F', driver='slowcheck', failed=True)['result']
+        self.assertEqual(result['evaluation_outcome'], 'unknown')
+        self.assertTrue(all(row['status'] == 'blocked' for row in result['diagnostics']['reports']))
+        self.assertFalse((self.root / 'diagnostic-count.txt').exists())
+
+    def test_in_process_diagnostic_assessment_uses_original_artifacts(self):
+        source = 'a' * 64
+        policy = {'on_failure': True, 'on_regression': True, 'required': False, 'scope': 'protocol_fixture'}
+        result = {'status': 'completed', 'correct': True, 'geomean_speedup': .99}
+        records = []
+        for kind in ('ir', 'profiler'):
+            artifact = self.root / (kind + '.txt'); artifact.write_text('original ' + kind)
+            records.append({'kind': kind, 'scope': 'protocol_fixture', 'candidate_sha256': source,
+                            'artifacts': {artifact.name: hashlib.sha256(artifact.read_bytes()).hexdigest()}})
+        assessment = assess_diagnostics(policy, result, records, self.root, source, binding={'original_result': 'original-job/result.json'}, handle={'pid': 123})
+        self.assertEqual(assessment['reason'], 'regression'); self.assertTrue(assessment['satisfied'])
+        self.assertEqual(assessment['original_handle'], {'pid': 123})
+        records[0]['scope'] = 'npu_diagnostic'
+        assessment = assess_diagnostics(policy, result, records, self.root, source)
+        self.assertFalse(assessment['satisfied']); self.assertEqual(assessment['reports'][0]['status'], 'failed')
+        records[0] = {'kind': 'ir', 'status': 'unavailable', 'reason': 'No device compiler'}
+        assessment = assess_diagnostics(policy, dict(result, status='failed'), records, self.root, source)
+        self.assertEqual(assessment['reason'], 'failure'); self.assertFalse(assessment['satisfied'])
+        records[1]['status'] = 'pending'
+        assessment = assess_diagnostics(policy, result, records, self.root, source)
+        self.assertEqual(assessment['reports'][1]['status'], 'failed')
+        self.assertIsNone(diagnostic_reason(policy, failed=False, regression=False))
+        self.assertEqual(diagnostic_reason(dict(policy, required=True), failed=False, regression=False), 'required')
+        self.assertIsNone(diagnostic_reason(None, failed=True, regression=True))
+
+    def test_prepared_tool_timeout_covers_pair_and_serial_diagnostics(self):
+        profile = json.loads((self.root / 'campaign/pipeline-profile.json').read_text())['operator_pipeline']
+        profile['diagnostics'] = {'required': True, 'scope': 'local_cpu_diagnostic', 'drivers': {'ir': 'ir', 'profiler': 'profiler'}}
+        profile['drivers']['measure']['timeout'] = 1000
+        profile['drivers']['ir']['timeout'] = 1800
+        profile['drivers']['profiler']['timeout'] = 1800
+        tools = prepare(profile, self.root / 'timed-inputs', sys.executable)
+        self.assertTrue(all(tool['timeout'] >= 7630 for tool in tools))
+        self.assertTrue((self.root / 'timed-inputs/diagnostic_policy.py').is_file())
+        reply = subprocess.run(tools[0]['argv'], input=json.dumps({'id': 'frozen-status', 'tool': 'pipeline_status', 'arguments': {}}),
+                               text=True, capture_output=True, check=True)
+        self.assertEqual(json.loads(reply.stdout)['data']['result']['diagnostic_policy']['scope'], 'local_cpu_diagnostic')
 
     def test_protocol_positive_pair_promotes_without_predicted_gain_gate(self):
         self.freeze(); self.baseline(); self.check(); self.fixture_driver('positive', 'measure')
@@ -170,7 +325,7 @@ r=json.load(sys.stdin)
 if sys.argv[1]=='launch':
  with Path(sys.argv[2]).open('a') as f: f.write('dispatch\\n')
  Path(r['output'],'job.json').write_text(json.dumps({'job':'original-before-timeout'}))
- time.sleep(5)
+ time.sleep(30)
 else:
  original=Path(r['recovery']['output'],'job.json')
  print(json.dumps({'handle':json.loads(original.read_text()),'phase':'collected','scope':'protocol_fixture'}))
@@ -178,7 +333,7 @@ else:
         for name, kind in [('slow', 'launch'), ('recover', 'collect')]:
             self.config['drivers'][name] = {'kind': kind,
                 'argv': [sys.executable, '-B', str(path), 'launch' if kind == 'launch' else 'collect', str(counter)],
-                'files': {str(path): hashlib.sha256(path.read_bytes()).hexdigest()}, 'timeout': 0.5 if kind == 'launch' else 10}
+                'files': {str(path): hashlib.sha256(path.read_bytes()).hexdigest()}, 'timeout': 5 if kind == 'launch' else 10}
         first = self.call('pipeline_run', stage='E', driver='slow', failed=True)
         self.assertEqual(first['result']['launch_outcome'], 'unknown')
         original = Pipeline(self.config).state['candidate']['sha256']

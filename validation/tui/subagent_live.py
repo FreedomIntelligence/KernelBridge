@@ -1,4 +1,4 @@
-"""Opt-in real-model delegation routing, foreground children and visible Pi status."""
+"""Opt-in real-model delegation routing, foreground/background results and native Pi status."""
 import argparse
 import json
 import os
@@ -34,28 +34,39 @@ def main():
     for name in ('DEEPSEEK_API_KEY', 'KERNELBRIDGE_HOME', 'KERNELBRIDGE_CONFIG'):
         env.pop(name, None)
     ui = Terminal([str(args.launcher.resolve()), '--output', str(run)], project, env)
-    client = None; checks = []; observations = []
+    client = None; checks = []; observations = []; phase_facts = {}
 
-    def send(label, prompt):
+    def send(label, prompt, *, background=False):
         before = client.call('status'); ui.send(prompt)
-        deadline = time.monotonic() + 360
-        running_seen = False
+        deadline = time.monotonic() + (600 if background else 360)
+        running_seen = False; foreground_returned = False
         while time.monotonic() < deadline:
-            ui.pump()
+            tick = time.monotonic()
+            while time.monotonic() - tick < .5: ui.pump()
             state = client.call('status')
-            if state['subagents'] != (observations[-1]['subagents'] if observations else None):
+            stable = lambda children: [{key: value for key, value in row.items() if key != 'elapsed_ms'} for row in children]
+            changed = not observations or stable(state['subagents']) != stable(observations[-1]['subagents'])
+            if changed:
                 observations.append({'phase': label, 'subagents': state['subagents']})
             if any(row['status'] == 'running' for row in state['subagents']):
                 running_seen = True
-                if '子代理' in ui.text(): (output / (label + '-running-screen.txt')).write_text(ui.text())
+                if changed and '子代理' in ui.text(): (output / (label + '-running-screen.txt')).write_text(ui.text())
             receipt = next((v for k, v in state['inputs'].items() if k not in before['inputs'] and v['text'] == prompt), None)
             if receipt and receipt['status'] in {'completed', 'failed', 'interrupted'}:
                 assert receipt['status'] == 'completed', receipt
-                break
+                new_children = state['subagents'][len(before['subagents']):]
+                if any(row['status'] == 'running' for row in new_children): foreground_returned = True
+                notifications = [v for k, v in state['inputs'].items() if k not in before['inputs'] and v['initiator'] == 'agent']
+                if not state['pending_effect_ids'] and not state['calls'] and all(row['status'] != 'running' for row in new_children):
+                    if not background or (len(notifications) == 2 and all(v['status'] == 'completed' for v in notifications)):
+                        break
         else: raise AssertionError('Live prompt did not settle; original receipts retained')
         ui.until(lambda: '等待输入' in ui.text())
         assert not state['pending_effect_ids'] and state['budget']['reserved'] == 0
         assert state['budget']['limit'] is None and not state['goal'] and not state['trials']
+        phase_facts[label] = {'foreground_returned_while_children_running': foreground_returned,
+                              'notification_ids': [v['input_id'] for k, v in state['inputs'].items()
+                                                   if k not in before['inputs'] and v['initiator'] == 'agent']}
         (output / (label + '-state.json')).write_text(json.dumps(state, ensure_ascii=False, indent=2) + '\n')
         (output / (label + '-screen.txt')).write_text(ui.text())
         return state['subagents'][len(before['subagents']):], running_seen
@@ -63,6 +74,7 @@ def main():
     try:
         ui.until(lambda: '等待输入' in ui.text() and '/help · /latest' in ui.text())
         binding = json.loads((run / 'application.json').read_text()); client = Client(Path(binding['host_directory']))
+        client.socket.settimeout(120)
         assert client.call('status')['model_turns'] == 0
         children, _ = send('simple', '读取 README.md，只说项目包含哪两个子目录。')
         assert not children, children
@@ -80,6 +92,28 @@ def main():
         children, _ = send('disabled_by_user', '这次不要启动任何子代理。请你自己读取 recovery/implementation.py，简述缺失 handle 时返回什么。')
         assert not children, children
         checks.append('user_no_delegation_constraint_respected')
+        # New evidence was never in the earlier parent conversation. Both child
+        # receipts and the parent's final synthesis must contain these markers.
+        markers = ['BACKGROUND_CONTRACT_' + uuid.uuid4().hex[:8], 'BACKGROUND_RECOVERY_' + uuid.uuid4().hex[:8]]
+        for directory, marker in zip(['contract', 'recovery'], markers):
+            name = directory + '/verification.txt'; files[name] = marker + '\n'
+            (project / name).write_text(files[name])
+        children, running = send('background',
+            '后台启动两个只读子代理，分别审查 contract/ 与 recovery/ 的文档和实现，并读取各自新加入的 verification.txt 校验标识。'
+            '先给我启动确认，两个后台结果返回后你自行合并成一份简短报告，写出这次读取的两个完整校验标识。'
+            '只有两个任务都返回结果后才能输出 BACKGROUND_PAIR_COMPLETE。不要修改文件或运行设备。', background=True)
+        assert len(children) == 2 and running and all(row['background'] and row['status'] == 'completed' for row in children), children
+        assert phase_facts['background']['foreground_returned_while_children_running'], phase_facts['background']
+        assert len(set(phase_facts['background']['notification_ids'])) == 2
+        merged = '\n'.join(row['summary'] for row in children)
+        assert all(marker in merged for marker in markers), merged
+        session_file = max((run / 'state/pi-sessions').glob('*/sessions/*.jsonl'), key=lambda path: path.stat().st_mtime_ns)
+        records = [json.loads(line) for line in session_file.read_text().splitlines()]
+        answer = next(row['message'] for row in reversed(records) if row.get('type') == 'message' and row['message'].get('role') == 'assistant')
+        summary = '\n'.join(block['text'] for block in answer['content'] if block['type'] == 'text')
+        assert 'BACKGROUND_PAIR_COMPLETE' in summary and all(marker in summary for marker in markers), summary
+        (output / 'background-parent-summary.txt').write_text(summary)
+        checks.append('two_live_background_children_notify_once_then_parent_synthesizes_new_evidence')
         ui.send('/agents'); ui.until(lambda: 'kernel-scout' in ui.text() and '本会话（' in ui.text())
         (output / 'subagents-screen.txt').write_text(ui.text())
         os.write(ui.master, b'\x1b'); ui.until(lambda: '本会话（' not in ui.text())
@@ -91,10 +125,13 @@ def main():
         print(json.dumps({'status': 'passed', 'checks': checks}), flush=True)
     finally:
         (output / 'observations.json').write_text(json.dumps(observations, ensure_ascii=False, indent=2) + '\n')
+        (output / 'phase-facts.json').write_text(json.dumps(phase_facts, ensure_ascii=False, indent=2) + '\n')
         (output / 'last-screen.txt').write_text(ui.text())
-        ui.close(output / 'transcript.txt')
-        if client: client.close()
-        cleanup_fixture_hosts(run)
+        (output / 'transcript.txt').write_bytes(ui.transcript)
+        try: ui.close(output / 'transcript.txt')
+        finally:
+            if client: client.close()
+            cleanup_fixture_hosts(run)
 
 
 if __name__ == '__main__': main()

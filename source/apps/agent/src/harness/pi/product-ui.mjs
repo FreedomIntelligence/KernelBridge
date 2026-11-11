@@ -22,7 +22,9 @@ const CHILD_STATUS = { running: '运行中', completed: '完成', failed: '失�
 export function subagentStatus(child) {
   const status = child.partial ? `部分结果（${reasonLabel(child.reason)}）`
     : child.status === 'failed' ? `失败${child.reason ? '：' + reasonLabel(child.reason) : ''}` : CHILD_STATUS[child.status] ?? child.status;
-  return plain([child.agent, status, childMetrics(child), delegateTitle(child)].filter(Boolean).join(' · '));
+  const elapsed = child.elapsed_ms ?? child.duration_ms ?? (child.started_at_ns == null ? undefined
+    : Math.max(0, (child.ended_at_ns == null ? Date.now() : Number(child.ended_at_ns) / 1e6) - Number(child.started_at_ns) / 1e6));
+  return plain([child.agent, status, childMetrics(child, elapsed), delegateTitle(child)].filter(Boolean).join(' · '));
 }
 
 export function goalSummary(state) {
@@ -68,16 +70,19 @@ export function installProductUI(context, getState, { demo = false } = {}) {
       const state = getState();
       if (!state) return [];
       const goal = currentGoal(state), budget = state.budget ?? {};
+      const children = runningChildren(state).length;
+      const activity = Object.values(state.inputs ?? {}).some(item => item.status === 'applied') ? '执行中'
+        : children ? '后台任务运行中' : '等待输入';
       const color = (name, text) => theme?.fg(name, text) ?? text;
       const branch = footerData?.getGitBranch();
       return new Text([
         ...(state.cwd ? [color('dim', state.cwd + (branch ? ` (${branch})` : ''))] : []),
         state.workspace_mode === 'project'
-          ? `${color('accent', state.model ?? '未配置模型')} · ${goal ? 'Goal ' + (STATUSES[goal.status] ?? goal.status) : color('dim', Object.values(state.inputs ?? {}).some(item => item.status === 'applied') ? '执行中' : '等待输入')}`
+          ? `${color('accent', state.model ?? '未配置模型')} · ${goal ? 'Goal ' + (STATUSES[goal.status] ?? goal.status) : color('dim', activity)}`
           : `${goal ? `Goal ${STATUSES[goal.status] ?? goal.status}` : 'Session'} · task v${state.task_version} · Trial ${state.trials?.length || 0}`,
         ...(budget.limit == null ? [] : [`预算 ${budget.spent ?? 0}/${budget.limit} · 预留 ${budget.reserved ?? 0}`
           + (state.workspace_mode !== 'project' ? ` · 待处理 ${state.pending_effect_ids?.length ?? 0}` : '')]),
-        ...(runningChildren(state).length ? [color('accent', truncateToWidth(`子代理 ${runningChildren(state).length} 个运行中 · /agents 查看`, width))] : []),
+        ...(children ? [color('accent', truncateToWidth(`等待 ${children} 个子代理完成 · /agents 查看`, width))] : []),
         `${goal || state.workspace_mode !== 'project' ? `退出${goal?.on_detach === 'continue' ? '继续' : '暂停'} · ` : ''}/help · /latest`,
       ].join('\n'), 0, 0).render(width);
     },

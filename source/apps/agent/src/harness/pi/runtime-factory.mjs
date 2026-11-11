@@ -17,6 +17,7 @@ import { projectHarness } from './input.ts';
 import { randomUUID, createHash } from 'node:crypto';
 import { directRenderers, explorationBoundary } from './tool-render.mjs';
 import { DELEGATION_PROMPT } from './delegation-prompt.mjs';
+import { OPERATOR_WORKFLOW_PROMPT } from './operator-workflow-prompt.mjs';
 
 const SYSTEM = 'You are a kernel engineering agent. Use Pi file tools to inspect and implement the candidate. Use the configured evaluation, knowledge, and receipt tools for domain work. Treat task references as read-only. Only original evaluation receipts establish correctness or performance. After an error, inspect the returned evidence and revise the candidate.';
 
@@ -70,7 +71,8 @@ async function runtimeServices(options, dependencies, provider, factories, repla
     agentsFilesOverride: () => structuredClone(frozenInstructions),
     extensionFactories: factories, appendSystemPrompt: [options.project
       ? 'You are a coding assistant working in the user project. Read the project instructions, inspect relevant files, implement the requested changes, and verify them. Tools operate directly in the current project. Finish with a concise account of changes and checks. Do not start autonomous goals, trials, or device evaluations unless the user explicitly requests them.' : SYSTEM,
-      ...(options.delegation ? [DELEGATION_PROMPT] : [])] });
+      ...(options.delegation ? [DELEGATION_PROMPT] : []),
+      ...(options.operatorWorkflow ? [OPERATOR_WORKFLOW_PROMPT] : [])] });
   await resourceLoader.reload();
   if (resourceLoader.getExtensions().errors.length) throw new Error('Required Pi extension failed to load');
   return { cwd: options.cwd, agentDir: options.agentDir, modelRuntime,
@@ -149,9 +151,10 @@ export async function createGovernedRuntime(client, home, dependencies, options 
     function stream(model, context, streamOptions) {
       const events = createAssistantMessageEventStream();
       const partial = assistant({ text: '', calls: [] }, model);
-      let streamed = false, generation, open;
-      // Presentation deltas: lock onto this call's generation so concurrent
-      // host calls (children, reviews) never interleave into this reply.
+      let streamed = false, open;
+      // Allocate identity before requesting a model. Claiming the first global
+      // broadcast races with concurrent children and background completions.
+      const generation = randomUUID();
       const close = () => {
         if (!open) return;
         const block = partial.content[open.index];
@@ -161,7 +164,7 @@ export async function createGovernedRuntime(client, home, dependencies, options 
         open = undefined;
       };
       const stopDeltas = options.subscribeModelDeltas?.((delta, id) => {
-        if (id !== undefined) { generation ??= id; if (id !== generation) return; }
+        if (id !== generation) return;
         const kind = delta.type === 'text_delta' ? 'text' : delta.type === 'thinking_delta' ? 'thinking' : null;
         if (!kind || !delta.delta) return;
         if (kind === 'text') explorationBoundary();
@@ -176,7 +179,7 @@ export async function createGovernedRuntime(client, home, dependencies, options 
         if (kind === 'text') block.text += delta.delta; else block.thinking += delta.delta;
         events.push({ type: kind === 'text' ? 'text_delta' : 'thinking_delta', contentIndex: open.index, delta: delta.delta, partial });
       });
-      void (async () => {
+      const generate = async () => {
         try {
           if (controller.failure) throw controller.failure;
           const child = childContext.getStore();
@@ -213,7 +216,8 @@ export async function createGovernedRuntime(client, home, dependencies, options 
           events.push({ type: 'error', reason: message.stopReason, error: message });
           events.end(message);
         } finally { stopDeltas?.(); }
-      })();
+      };
+      void (options.withModelGeneration ? options.withModelGeneration(generation, generate) : generate());
       return events;
     }
     const provider = providerDefinition(stream, hello.model_info);
@@ -236,7 +240,9 @@ export async function createGovernedRuntime(client, home, dependencies, options 
         ...(replayPlugin ? [replayPlugin.factory] : []),
         createReplayContextExtension({ rpc, fail: error => controller.fail(error), receipts,
           replayOnCompaction, semanticCompaction: options.semanticCompaction, isStopped: () => controller.stopped })];
-      const services = await runtimeServices({ ...runtimeOptions, project, delegation: hello.tools.some(tool => tool.name === 'delegate') }, dependencies, provider, factories, replay, replayOnCompaction, frozenInstructions, options.semanticCompaction === true);
+      const services = await runtimeServices({ ...runtimeOptions, project,
+        delegation: hello.tools.some(tool => tool.name === 'delegate'),
+        operatorWorkflow: hello.tools.some(tool => tool.name === 'pipeline_status') }, dependencies, provider, factories, replay, replayOnCompaction, frozenInstructions, options.semanticCompaction === true);
       const created = await sdk.createAgentSession({ ...runtimeOptions, ...services,
         model: services.modelRuntime.getModel('kernelcat', provider.models[0].id), noTools: 'builtin',
         // Delegation uses the admitted event bridge. Exclude the plugin's model

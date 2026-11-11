@@ -1,6 +1,9 @@
 --- a/dist/modes/interactive/interactive-mode.js
 +++ b/dist/modes/interactive/interactive-mode.js
-@@ -237,1 +237,14 @@
+@@ -234,6 +234,19 @@
+         .join("/");
+     return provider.name === provider.id ? authTypes : `${provider.name} · ${authTypes}`;
+ }
 +/** KernelBridge: "⏺ " before the first visible assistant line; continuation lines indent by two. */
 +function withAssistantBullet(component, enabled) {
 +    if (!enabled)
@@ -15,14 +18,36 @@
 +    return component;
 +}
  export class InteractiveMode {
-@@ -273,2 +286,2 @@
+     runtimeHost;
+     renderer;
+@@ -270,8 +283,8 @@
+     workingMessage = undefined;
+     workingVisible = true;
+     workingIndicatorOptions = undefined;
 -    defaultWorkingMessage = "Working";
 -    defaultHiddenThinkingLabel = "Thinking...";
 +    defaultWorkingMessage = "执行中";
 +    defaultHiddenThinkingLabel = "思考中…";
-@@ -386,1 +399,2 @@
+     hiddenThinkingLabel = this.defaultHiddenThinkingLabel;
+     lastSigintTime = 0;
+     lastEscapeTime = 0;
+@@ -384,6 +397,7 @@
+             fullscreenWheelScrollLines: this.settingsManager.getFullscreenWheelScrollLines(),
+         });
          this.ui = createInteractiveTuiReference(() => this.renderer);
 +        if (this.options.hostActions && "scrollToEndIndicator" in this.renderer) this.renderer.scrollToEndIndicator = () => theme.bg("selectedBg", theme.fg("text", ` ↓ 回到最新消息 · ${keyDisplayText("tui.altScreen.bottom") || "Ctrl+End"} `));
+         this.ui.setClearOnShrink(this.settingsManager.getClearOnShrink());
+         this.headerContainer = new Container();
+         this.loadedResourcesContainer = new Container();
+@@ -412,7 +426,7 @@
+         this.footer = new FooterComponent(this.session, this.footerDataProvider);
+         this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
+         this.footerContainer = new Container();
+-        this.footerContainer.addChild(this.footer);
++        if (!this.options.hostActions) this.footerContainer.addChild(this.footer);
+         // Load hide thinking block setting
+         this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
+         this.outputPad = this.settingsManager.getOutputPad();
 @@ -466,6 +480,9 @@
          }));
      }
@@ -41,10 +66,15 @@
              provider = wrapProvider(provider);
              triggerCharacters.push(...(provider.triggerCharacters ?? []));
          }
-@@ -662,1 +680,2 @@
+@@ -660,6 +678,7 @@
+             nextUi.restoreRenderState(this.mainScreenRenderState);
+         }
          this.renderer = nextUi;
 +        if (this.options.hostActions && "scrollToEndIndicator" in nextUi) nextUi.scrollToEndIndicator = () => theme.bg("selectedBg", theme.fg("text", ` ↓ 回到最新消息 · ${keyDisplayText("tui.altScreen.bottom") || "Ctrl+End"} `));
-@@ -735,10 +754,10 @@
+         this.options.tuiMode = mode;
+         this.mountInteractiveTui(nextUi, components);
+         nextUi.invalidate();
+@@ -735,45 +754,45 @@
              // Built on demand so the header follows theme changes. The logo's first line carries the version,
              // its second line the first line of key hints. Terminals that cannot render the logo get a
              // "Pi vX" line instead, with the key hints below it.
@@ -57,7 +87,8 @@
                  const [top, bottom] = piLogoLines();
                  return `${top} ${theme.fg("dim", `v${this.version}`)}\n${bottom} ${hints}`;
              };
-@@ -747,33 +766,33 @@
+             // Build startup instructions using keybinding hint helpers
+             const hint = (keybinding, description) => keyHint(keybinding, description);
              const expandedInstructions = () => [
 -                hint("app.interrupt", "to interrupt"),
 -                hint("app.clear", "to clear"),
@@ -78,16 +109,6 @@
 -                hint("app.message.dequeue", "to edit all queued messages"),
 -                hint("app.clipboard.pasteImage", "to paste files on macOS, images, or text"),
 -                rawKeyHint("drop files", "to attach"),
--            ].join("\n");
--            const compactInstructions = () => [
--                hint("app.interrupt", "interrupt"),
--                rawKeyHint(`${keyText("app.clear")}/${keyText("app.exit")}`, "clear/exit"),
--                rawKeyHint("/", "commands"),
--                rawKeyHint("!", "bash"),
--                hint("app.tools.expand", "more"),
--            ].join(theme.fg("muted", " · "));
--            const compactOnboarding = () => theme.fg("dim", `Press ${keyText("app.tools.expand")} to show full startup help${showDetails ? " and loaded resources" : ""}.`);
--            const onboarding = () => theme.fg("dim", `Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.`);
 +                hint("app.interrupt", "中断"),
 +                hint("app.clear", "清空"),
 +                rawKeyHint(`${keyText("app.clear")} 两次`, "退出"),
@@ -107,14 +128,21 @@
 +                hint("app.message.dequeue", "编辑排队消息"),
 +                hint("app.clipboard.pasteImage", "粘贴文件、图片或文本"),
 +                rawKeyHint("拖入文件", "附加"),
-+            ].join("\n");
-+            const compactInstructions = () => [
+             ].join("\n");
+             const compactInstructions = () => [
+-                hint("app.interrupt", "interrupt"),
+-                rawKeyHint(`${keyText("app.clear")}/${keyText("app.exit")}`, "clear/exit"),
+-                rawKeyHint("/", "commands"),
+-                rawKeyHint("!", "bash"),
+-                hint("app.tools.expand", "more"),
 +                hint("app.interrupt", "中断"),
 +                rawKeyHint(`${keyText("app.clear")}/${keyText("app.exit")}`, "清空/退出"),
 +                rawKeyHint("/", "命令"),
 +                rawKeyHint("!", "shell"),
 +                hint("app.tools.expand", "更多"),
-+            ].join(theme.fg("muted", " · "));
+             ].join(theme.fg("muted", " · "));
+-            const compactOnboarding = () => theme.fg("dim", `Press ${keyText("app.tools.expand")} to show full startup help${showDetails ? " and loaded resources" : ""}.`);
+-            const onboarding = () => theme.fg("dim", `Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.`);
 +            const compactOnboarding = () => theme.fg("dim", `按 ${keyText("app.tools.expand")} 展开启动帮助${showDetails ? "和已加载资源" : ""}。`);
 +            const onboarding = () => theme.fg("dim", `KernelBridge 可以帮助你读写代码、运行工具和管理子任务。输入 /help 查看命令。`);
              const header = new BuiltInHeader(() => `${withLogo(compactInstructions())}\n${compactOnboarding()}\n\n${onboarding()}`, () => `${withLogo(expandedInstructions())}\n\n${onboarding()}`, this.getStartupExpansionState(), 1, 0);
@@ -163,6 +191,15 @@
      }
      /**
       * Get a registered tool definition by name (for custom rendering).
+@@ -2054,7 +2077,7 @@
+         else {
+             // Restore built-in footer
+             this.customFooter = undefined;
+-            this.footerContainer.addChild(this.footer);
++            if (!this.options.hostActions) this.footerContainer.addChild(this.footer);
+         }
+         this.ui.requestRender();
+     }
 @@ -2367,6 +2390,11 @@
       * Show a notification for extensions.
       */
@@ -213,9 +250,15 @@
              text = text.trim();
              if (!text)
                  return;
-@@ -2890,1 +2942,1 @@
+@@ -2887,7 +2939,7 @@
+                     this.ui.requestRender();
+                 }
+                 else if (event.message.role === "assistant") {
 -                    this.streamingComponent = new AssistantMessageComponent(undefined, this.hideThinkingBlock, this.getMarkdownThemeWithSettings(), this.hiddenThinkingLabel, this.outputPad, this.getMarkdownTransformers());
 +                    this.streamingComponent = withAssistantBullet(new AssistantMessageComponent(undefined, this.hideThinkingBlock, this.getMarkdownThemeWithSettings(), this.hiddenThinkingLabel, this.outputPad, this.getMarkdownTransformers()), this.options.hostActions);
+                     this.streamingMessage = event.message;
+                     this.chatContainer.addChild(this.streamingComponent);
+                     this.streamingComponent.updateContent(this.streamingMessage, true);
 @@ -3239,7 +3291,8 @@
              case "system":
                  break;
@@ -226,7 +269,7 @@
                  if (textContent) {
                      if (this.chatContainer.children.length > 0) {
                          this.chatContainer.addChild(new Spacer(1));
-@@ -3261,7 +3314,7 @@
+@@ -3261,14 +3314,14 @@
                          const userComponent = new UserMessageComponent(textContent, this.getMarkdownThemeWithSettings(), this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp);
                          this.chatContainer.addChild(userComponent);
                      }
@@ -235,9 +278,14 @@
                          this.editor.addToHistory?.(textContent);
                      }
                  }
-@@ -3271,1 +3324,1 @@
+                 break;
+             }
+             case "assistant": {
 -                const assistantComponent = new AssistantMessageComponent(message, this.hideThinkingBlock, this.getMarkdownThemeWithSettings(), this.hiddenThinkingLabel, this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp);
 +                const assistantComponent = withAssistantBullet(new AssistantMessageComponent(message, this.hideThinkingBlock, this.getMarkdownThemeWithSettings(), this.hiddenThinkingLabel, this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp), this.options.hostActions);
+                 this.chatContainer.addChild(assistantComponent);
+                 break;
+             }
 @@ -3500,6 +3553,7 @@
          }
      }
@@ -266,12 +314,24 @@
          if (resumeCommand) {
              process.stdout.write(`${chalk.dim("To resume this session:")} ${resumeCommand}\n`);
          }
-@@ -3819,1 +3877,1 @@
+@@ -3816,7 +3874,7 @@
+                 }
+             }
+         }
 -        this.showStatus(`Tool output: ${expanded ? "expanded" : "collapsed"}`);
 +        this.showStatus(this.options.hostActions ? `工具输出：${expanded ? "已展开" : "已折叠"}` : `Tool output: ${expanded ? "expanded" : "collapsed"}`);
-@@ -3834,1 +3892,1 @@
+     }
+     /** Update rendered assistant messages without rebuilding live tool components. */
+     updateThinkingBlockVisibility() {
+@@ -3831,7 +3889,7 @@
+         this.hideThinkingBlock = !this.hideThinkingBlock;
+         this.settingsManager.setHideThinkingBlock(this.hideThinkingBlock);
+         this.updateThinkingBlockVisibility();
 -        this.showStatus(`Thinking blocks: ${this.hideThinkingBlock ? "hidden" : "visible"}`);
 +        this.showStatus(this.options.hostActions ? `思考内容：${this.hideThinkingBlock ? "已隐藏" : "已显示"}` : `Thinking blocks: ${this.hideThinkingBlock ? "hidden" : "visible"}`);
+     }
+     async handleOpenExternalEditor() {
+         const editorCmd = this.settingsManager.getExternalEditorCommand();
 @@ -4792,6 +4850,7 @@
                      // Update UI
                      this.chatContainer.clear();

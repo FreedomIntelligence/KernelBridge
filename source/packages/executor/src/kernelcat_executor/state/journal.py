@@ -9,6 +9,7 @@ import fcntl
 import json
 import os
 import threading
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -449,7 +450,7 @@ class Journal:
                 raise BudgetExceeded("campaign resource ceiling reached")
         row = {"kind": "admitted", "action": action.model_dump(mode="json"),
                "action_digest": digest(action), "credits": credits,
-               "policy_digest": digest(policy)}
+               "policy_digest": digest(policy), "time_ns": time.time_ns()}
         if quote:
             row["resources"] = quote
         return row, None
@@ -473,7 +474,7 @@ class Journal:
             return None
         kind = "uncertain" if outcome.status == "unknown" else "settled"
         row = {"kind": kind, "action_id": action.id,
-               "outcome": outcome.model_dump(mode="json"), "elapsed_ms": elapsed_ms}
+               "outcome": outcome.model_dump(mode="json"), "elapsed_ms": elapsed_ms, "time_ns": time.time_ns()}
         quote = prior.get("resources", {})
         if kind == "settled" and quote:
             usage = resources(outcome.data.get("resource_usage", quote))

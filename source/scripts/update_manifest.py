@@ -9,6 +9,7 @@ adds any extra repository files named on the command line (docs, validation).
 from __future__ import annotations
 
 import hashlib
+import fcntl
 import json
 import os
 import sys
@@ -35,7 +36,7 @@ def inventory() -> set[str]:
     return found
 
 
-def main(extras: list[str]) -> int:
+def refresh(extras: list[str]) -> int:
     path = ROOT / "PIN_MANIFEST.json"
     manifest = json.loads(path.read_text())
     files = manifest["files"]
@@ -53,9 +54,27 @@ def main(extras: list[str]) -> int:
             files[relative] = entry(relative)
             changes.append("+ " + relative)
     manifest["files"] = dict(sorted(files.items()))
-    path.write_text(json.dumps(manifest, indent=2) + "\n")
+    temporary = path.with_name(path.name + f".{os.getpid()}.tmp")
+    try:
+        with temporary.open("w") as stream:
+            stream.write(json.dumps(manifest, indent=2) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
     print("\n".join(changes) or "PIN_MANIFEST.json is current")
     return 0
+
+
+def main(extras: list[str]) -> int:
+    # Serialize the entire read/scan/replace operation. Atomic replacement alone
+    # lets an earlier scan overwrite a newer writer's manifest with stale hashes.
+    state = ROOT / '.development'
+    state.mkdir(exist_ok=True)
+    with (state / 'manifest.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return refresh(extras)
 
 
 if __name__ == "__main__":

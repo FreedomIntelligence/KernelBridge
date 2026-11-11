@@ -4,6 +4,16 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { frames } from '../clients/protocol.mjs';
 
+/** Durable boundary operations queue behind the original finite effects.
+ * snapshot also prepares fork/reset/clone transitions; select_session(path)
+ * validates retained bytes and may restore source. Keep ordinary control
+ * replies short while allowing these known operations to finish their fsyncs.
+ * Effect/provider deadlines remain owned by WorkerLease and the executor.
+ */
+export function acknowledgementTimeout(method, params = {}) {
+  return method === 'snapshot' || (method === 'select_session' && params.path) ? 300000 : 30000;
+}
+
 /** Multiplexed control connection. Lost replies are uncertain, never retried. */
 export class ApplicationClient {
   constructor(socket) {
@@ -50,7 +60,7 @@ export class ApplicationClient {
     }
     this.fail(new Error('Application host disconnected; inspect original receipts'));
   }
-  call(method, params = {}, timeoutMs = 30000) {
+  call(method, params = {}, timeoutMs = acknowledgementTimeout(method, params)) {
     if (this.closed) return Promise.reject(this.failure ?? new Error('Application connection is closed'));
     const id = ++this.sequence;
     const bytes = JSON.stringify({ id, method, params }) + '\n';
@@ -58,7 +68,13 @@ export class ApplicationClient {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`${method} acknowledgement timed out; outcome is unknown, retain the original input/call ID`));
+        const error = new Error(`${method} acknowledgement timed out; outcome is unknown, retain the original input/call ID`);
+        error.code = 'ACKNOWLEDGEMENT_TIMEOUT';
+        error.method = method;
+        error.requestId = id;
+        error.original = Object.fromEntries(['input_id', 'call_id', 'pi_session_id', 'entry_id', 'operation']
+          .filter(key => params[key] !== undefined).map(key => [key, params[key]]));
+        reject(error);
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       this.socket.write(bytes, error => { if (error) this.fail(error); });
