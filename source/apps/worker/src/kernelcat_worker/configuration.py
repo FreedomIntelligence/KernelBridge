@@ -96,11 +96,17 @@ class RequiredCheck(Contract):
 class SubagentConfig(Contract):
     enabled: bool = True
     policy: Literal["auto", "explicit"] = "auto"
-    max_per_turn: int = Field(ge=1, le=32, default=4)
+    # Like other coding CLIs: bound how many children run at once (extra calls
+    # queue), not how far each child may go. A child ends when it answers; near
+    # its context bound it is asked for a final summary instead.
+    max_concurrent: int | None = Field(ge=1, le=32, default=6)
+    background: bool = True
+    # Optional hard ceilings for operators; unset means no limit.
+    max_per_turn: int | None = Field(ge=1, le=32, default=None)
     max_total: int | None = Field(ge=1, default=None)
-    max_steps: int = Field(ge=1, le=64, default=20)
-    tool_limit: int = Field(ge=0, le=256, default=64)
-    timeout: int = Field(ge=1, le=3600, default=600)
+    max_steps: int | None = Field(ge=1, le=256, default=None)
+    tool_limit: int | None = Field(ge=0, le=4096, default=None)
+    timeout: int | None = Field(ge=1, le=86400, default=None)
 
 
 class GoalReviewConfig(Contract):

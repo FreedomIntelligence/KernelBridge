@@ -62,6 +62,7 @@ class ChildRun:
         self.thread: Thread | None = None
         self.result: Future[Outcome] = Future()
         self.effects: DelegatedEffects | None = None
+        self.closed = False
 
 
 class ExecutionRPC:
@@ -97,6 +98,10 @@ class ExecutionRPC:
         self.children: dict[str, ChildRun] = {}
         self.child_results: dict[int, tuple[Action, Outcome]] = {}
         self.child_lock = RLock()
+        # Background delegations outlive the reply that started them. Their
+        # delegate call settles at once; the child's own result is recorded
+        # later and announced to the conversation by the host.
+        self.background: dict[str, ChildRun] = {}
         self.harness: HarnessInput | None = None
         self.harness_tools: dict[str, Json] = {}
         self.native_leaves = frozenset(self.allowed) - {"delegate", "finish"}
@@ -560,8 +565,12 @@ class ExecutionRPC:
             settings = remote.settings
             prior_children = sum(a.tool == "delegate" for a in self.calls[:index])
             total = sum(item["action"]["tool"] == "delegate" for item in self.store.snapshot()["actions"].values())
-            denial = ("Configured subagent count reached" if prior_children >= settings["max_per_turn"]
-                or settings["max_total"] is not None and total >= settings["max_total"] else None)
+            live = sum(1 for run in self.children.values() if run.effects is not None)
+            denial = (("count_limit", "Configured subagent count reached")
+                      if settings.get("max_per_turn") is not None and prior_children >= settings["max_per_turn"]
+                      or settings.get("max_total") is not None and total >= settings["max_total"] else
+                      ("concurrency_limit", "Configured concurrent subagent limit reached; retry after a child finishes")
+                      if settings.get("max_concurrent") is not None and live >= settings["max_concurrent"] else None)
             started = remote.arm(action.id, denial)
             run = ChildRun(action, index)
 
@@ -581,18 +590,35 @@ class ExecutionRPC:
                 self._abandon(action.id)
                 raise CallCancelled()
         run.effects = DelegatedEffects(self.owner, action, self.proposal_id)
+        # Background needs a host that announces results and runs children
+        # concurrently; elsewhere the same call simply runs in the foreground.
+        if (action.arguments.get("background") is True and settings.get("background", True)
+                and getattr(self.owner, "concurrent_delegation", False)):
+            started_outcome = Outcome(data={"background": True, "agent_id": action.id, "agent": action.arguments["agent"],
+                "status": "running", "advisory": True, "promoted": False})
+            self.remote.resolve(action.id, started_outcome)
+            collected = self._collect_plugin(action.id, background=True)
+            return {"permit": action.id, "agent": action.arguments["agent"], "task": action.arguments["task"],
+                    "timeout_ms": settings["timeout"] * 1000 if settings.get("timeout") else None,
+                    "tool_limit": settings.get("tool_limit"), "routes": list(self.store.policy().routes),
+                    "mode": run.effects.mode, "max_steps": run.effects.max_steps,
+                    "background": True, "outcome": collected.model_dump(mode="json")}
         return {"permit": action.id, "agent": action.arguments["agent"],
-                "task": action.arguments["task"], "timeout_ms": settings["timeout"] * 1000,
-                "tool_limit": settings["tool_limit"],
+                "task": action.arguments["task"],
+                "timeout_ms": settings["timeout"] * 1000 if settings.get("timeout") else None,
+                "tool_limit": settings.get("tool_limit"),
                 "routes": list(self.store.policy().routes),
                 "mode": run.effects.mode, "max_steps": run.effects.max_steps}
 
     def _child(self, params: Json) -> DelegatedEffects:
         with self.child_lock:
             run = self.children.get(params.get("permit"))
-            if run is None or run.effects is None or run.result.done():
-                raise Conflict("child request has no live delegation permit")
-            return run.effects
+            if run is not None and run.effects is not None and not run.result.done():
+                return run.effects
+            run = self.background.get(params.get("permit"))
+            if run is not None and run.effects is not None and not run.closed:
+                return run.effects
+            raise Conflict("child request has no live delegation permit")
 
     def child_model(self, params: Json) -> Json:
         child = self._child(params)
@@ -611,6 +637,15 @@ class ExecutionRPC:
                 or not isinstance(params["text"], str) or len(params["text"].encode()) > 65536):
             raise Conflict("invalid child settlement")
         child = self._child(params)
+        outcome = self._child_outcome(child, params)
+        if params["permit"] in self.background:
+            self._finish_background(params["permit"], outcome)
+            return {"outcome": outcome.model_dump(mode="json")}
+        self.remote.resolve(params["permit"], outcome)
+        settled = self._collect_plugin(params["permit"])
+        return {"outcome": settled.model_dump(mode="json")}
+
+    def _child_outcome(self, child: DelegatedEffects, params: Json) -> Outcome:
         # Child model/read RPCs and settlement share the child's ordered lane.
         # A cancellation may discard a reply in Pi, but cannot discard its
         # original receipt or turn an unknown effect into a known failure.
@@ -629,13 +664,25 @@ class ExecutionRPC:
                 "partial": child.completion_reason != "answer",
                 "mode": child.mode, "steps": child.step + 1, "tool_calls": child.tool_count})
         else:
-            outcome = Outcome(status="failed", data={"error": "foreground subagent failed",
+            outcome = Outcome(status="failed", data={"error": "subagent failed",
                 "reason": child.failure or "plugin_failed", "model_receipt": child.receipt,
                 "agent": child.action.arguments["agent"], "steps": child.step + 1, "tool_calls": child.tool_count,
                 "advisory": True})
-        self.remote.resolve(params["permit"], outcome)
-        settled = self._collect_plugin(params["permit"])
-        return {"outcome": settled.model_dump(mode="json")}
+        return outcome
+
+    def _finish_background(self, identity: str, outcome: Outcome) -> None:
+        """Record a background child's own result and let the host announce it."""
+        with self.child_lock:
+            run = self.background.pop(identity, None)
+            if run is None or run.closed:
+                return
+            run.closed = True
+        recorded = self.gateway.internal(Action(id=identity + "/background", task=run.action.task,
+            tool="__background_result__", arguments={"agent_id": identity}, parents=(identity,)), 0,
+            lambda: outcome)
+        hook = getattr(self.owner, "background_settled", None)
+        if hook is not None:
+            hook(run.action, recorded)
 
     def _flush_children(self) -> None:
         """Record settled delegations in reply order; later ones wait for earlier ones."""
@@ -644,7 +691,7 @@ class ExecutionRPC:
             self.owner._observe(action, outcome)
             self.outcomes.append(outcome)
 
-    def _collect_plugin(self, identity: str) -> Outcome:
+    def _collect_plugin(self, identity: str, *, background: bool = False) -> Outcome:
         run = self.children[identity]
         assert run.thread is not None
         run.thread.join()
@@ -655,6 +702,8 @@ class ExecutionRPC:
             with self.child_lock:
                 self.child_results[run.index] = (run.action, result)
                 self._flush_children()
+                if background:
+                    self.background[identity] = run
             return result
         finally:
             if not self.remote.done(identity):
@@ -680,6 +729,18 @@ class ExecutionRPC:
             invocation.close()
         for identity in list(self.children):
             self._abandon(identity, "Pi worker interrupted")
+        # A background child cannot outlive its Pi worker. Record that it was
+        # interrupted (never a success) so the next session reports it.
+        for identity in list(self.background):
+            run = self.background[identity]
+            child = run.effects
+            try:
+                self._finish_background(identity, Outcome(status="failed", data={
+                    "error": "background subagent interrupted", "reason": "worker_exited",
+                    "agent": run.action.arguments["agent"], "advisory": True,
+                    "steps": (child.step + 1) if child else 0, "tool_calls": child.tool_count if child else 0}))
+            except Exception:
+                pass
 
     def handle(self, method: str, params: Json) -> Json:
         if method in {"prepare_turn", "complete"} and params:

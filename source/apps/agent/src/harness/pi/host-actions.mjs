@@ -352,7 +352,9 @@ export function createHostActions(control, effects) {
     commands: () => PRODUCT_COMMANDS.filter(command => state?.workspace_mode !== 'project'
       || !['import', 'detach', 'changelog', 'login', 'logout'].includes(command.name)).map(command => ({ ...command,
         ...(state?.workspace_mode === 'project' && command.name === 'new' ? { description: '开始新对话，保留工作文件' } : {}) })),
-    presentInput: text => policyInputs.has(text)
+    presentInput: text => text.startsWith('[子代理结果] ') && Object.values(state?.inputs ?? {}).some(receipt => receipt.initiator === 'agent' && receipt.text === text)
+      ? '⏺ ' + text.split('\n')[0].slice('[子代理结果] '.length).replace(/（agent_id: [^）]*）/, '')
+      : policyInputs.has(text)
       && !Object.values(state?.inputs ?? {}).some(receipt => receipt.initiator === 'user' && receipt.text === text)
       ? 'Goal 自动继续' : text,
     feedback: (message, error) => showProductFeedback(context, message, error),
@@ -440,8 +442,12 @@ export function createHostActions(control, effects) {
           return { action: 'handled', message: [...types.map(type => `${type.name} · ${type.description}`),
             ...(current.subagents ?? []).map(child => `${child.agent} · ${child.status} · ${child.summary || child.task}`)].join('\n') };
         }
-        await context.ui.custom((tui, _theme, _keybindings, done) => agentsPanel(current.subagents ?? [], types, done,
+        const choice = await context.ui.custom((tui, _theme, _keybindings, done) => agentsPanel(current.subagents ?? [], types, done,
           () => tui.requestRender(), () => tui.terminal.rows));
+        if (choice?.stop) {
+          await effects.call('application_stop_child', { agent_id: choice.stop });
+          return { action: 'handled', message: '已请求停止该子代理；它会在当前步骤结束后报告结果。' };
+        }
         return { action: 'handled' };
       }
       if (command === '/goal') {

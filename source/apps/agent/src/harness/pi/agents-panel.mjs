@@ -60,7 +60,8 @@ export function agentsPanel(children, types, finish, requestRender, rows = () =>
       const view = Math.max(4, rows() - 4);
       const cursor = lines.findIndex(line => line.startsWith('❯'));
       const start = Math.max(0, Math.min(cursor - Math.floor(view / 2), lines.length - view));
-      return [...lines.slice(start, start + view), '', clip('↑↓ 选择 · Enter 查看 · Esc 关闭')];
+      const stoppable = entries[selected]?.kind === 'run' && entries[selected].child.status === 'running';
+      return [...lines.slice(start, start + view), '', clip(`↑↓ 选择 · Enter 查看${stoppable ? ' · s 停止' : ''} · Esc 关闭`)];
     },
     handleInput(data) {
       if (detail) {
@@ -73,6 +74,9 @@ export function agentsPanel(children, types, finish, requestRender, rows = () =>
       else if (matchesKey(data, 'up')) selected = Math.max(0, selected - 1);
       else if (matchesKey(data, 'down')) selected = Math.min(Math.max(0, entries.length - 1), selected + 1);
       else if (matchesKey(data, 'enter') && entries[selected]) { detail = entries[selected]; offset = 0; }
+      else if (data === 's' && entries[selected]?.kind === 'run' && entries[selected].child.status === 'running') {
+        return finish({ stop: entries[selected].child.id });
+      }
       requestRender();
     },
   };

@@ -17,30 +17,42 @@ class SubagentEffect:
     # protocol, one rendezvous per delegate action.
     execution_mode = "sequential"
 
+    BUILTIN_AGENTS = (
+        {"name": "kernel-scout", "description": "discovers files, searches code and traces implementations", "tools": "read"},
+        {"name": "kernel-reviewer", "description": "checks a focused change or claim against original evidence", "tools": "read"},
+    )
+
     def __init__(self, settings=None) -> None:
-        self.settings = settings or {"max_per_turn": 4, "max_total": None, "max_steps": 20,
-                                     "tool_limit": 64, "timeout": 600}
+        self.settings = {"max_concurrent": 6, "max_per_turn": None, "max_total": None, "max_steps": None,
+                         "tool_limit": None, "timeout": None, "background": True, **(settings or {})}
+        self.agents = {agent["name"]: agent for agent in (*self.BUILTIN_AGENTS, *self.settings.get("agents", ()))}
         guidance = (
             "Use proactively for independent codebase exploration or a focused second review when delegation saves main-context work. "
             "Respect user/project instructions that disable delegation; handle trivial lookups directly. "
             if self.settings.get("policy", "auto") == "auto" else
             "Use only when the user or applicable project instructions explicitly request delegation. "
         )
+        background = self.settings.get("background", True)
+        catalogue = "; ".join(f"{name} {agent['description']}" for name, agent in self.agents.items())
         self.spec = ToolSpec(name="delegate", description=(
             guidance + "Launch a child agent with an independent context and return its findings. "
             "Always give a short description (3-6 words) that the user sees while the child runs. "
-            "kernel-scout discovers files, searches code and traces implementations; kernel-reviewer checks a focused change or claim against evidence. "
+            f"Agents: {catalogue}. "
             "Supply a self-contained task, relevant paths/constraints and expected output; children do not inherit the conversation. "
-            "Default mode read_only can list/search/read project files, skills and receipts; analysis uses supplied text only. "
+            "Read agents can list/search/read project files, skills and receipts (mode analysis uses supplied text only). "
             "Split independent questions into separate calls in the same reply; those children run concurrently. Then synthesize their results. "
-            "No child may write, run shell/devices or delegate. Answers are advisory, not validation."), credits=1,
+            + ("Set background=true only for long work the user need not wait for: the call returns at once and the result arrives later "
+               "as a [子代理结果] message; agents_status shows progress and stop_agent cancels. " if background else "")
+            + "Children cannot spawn further children. Answers are advisory, not validation."), credits=1,
             parameters={"type": "object", "additionalProperties": False,
-                "properties": {"agent": {"type": "string", "enum": ["kernel-scout", "kernel-reviewer"]},
+                "properties": {"agent": {"type": "string", "enum": list(self.agents)},
                     "description": {"type": "string", "minLength": 1, "maxLength": 80,
                                     "description": "Short user-visible label for this child, e.g. 'Trace build flow'."},
                     "task": {"type": "string", "minLength": 1, "maxLength": 32768},
                     "mode": {"type": "string", "enum": ["analysis", "read_only"], "default": "read_only"},
-                    "max_steps": {"type": "integer", "minimum": 1, "maximum": self.settings["max_steps"]}},
+                    "max_steps": {"type": "integer", "minimum": 1, "maximum": self.settings["max_steps"] or 256},
+                    **({"background": {"type": "boolean", "default": False,
+                        "description": "Run without blocking; the result is delivered later as a notification."}} if background else {})},
                 "required": ["agent", "task"]})
         self.lock = Lock()
         self.denials: dict[str, str | None] = {}
@@ -66,7 +78,7 @@ class SubagentEffect:
                 # A denied call settles as cached; it must never hand Pi a permit.
                 self.started[action.id].set()
         if denial:
-            return Outcome(status="failed", data={"error": denial, "reason": "count_limit"})
+            return Outcome(status="failed", data={"error": denial[1], "reason": denial[0]})
         return future.result()
 
     def resolve(self, identity: str, outcome: Outcome) -> None:

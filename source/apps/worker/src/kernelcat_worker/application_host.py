@@ -146,6 +146,13 @@ class ApplicationHost:
                 description="For an explicitly active codegen Goal only: report completion after doing and checking the requested work. Include the checks and any limits. This does not certify device acceptance.",
                 parameters={"type": "object", "properties": {"summary": {"type": "string", "minLength": 1, "maxLength": 4096}},
                             "required": ["summary"], "additionalProperties": False}), self.finish_codegen_goal)
+            agents_status = FunctionTool(ToolSpec(name="agents_status", credits=0,
+                description="List this session's subagents with status, progress and (when finished) their result summaries. Use it to check background subagents.",
+                parameters={"type": "object", "properties": {"agent_id": {"type": "string"}}, "additionalProperties": False}), self.agents_status)
+            stop_agent = FunctionTool(ToolSpec(name="stop_agent", credits=0,
+                description="Stop a running background subagent by agent_id. Its partial work is reported as a stopped result.",
+                parameters={"type": "object", "properties": {"agent_id": {"type": "string", "minLength": 1}},
+                            "required": ["agent_id"], "additionalProperties": False}), self.stop_agent)
             get_goal = FunctionTool(ToolSpec(name="get_goal", credits=0,
                 description="Read the current explicit Goal and its receipt-derived progress and optional budget.",
                 parameters={"type": "object", "properties": {}, "additionalProperties": False}), self.get_codegen_goal)
@@ -155,10 +162,12 @@ class ApplicationHost:
                     "summary": {"type": "string", "minLength": 1, "maxLength": 4096}},
                     "required": ["status", "summary"], "additionalProperties": False}), self.update_codegen_goal)
             owner = build(config, config_path.parent, task, probe_versions=False, external_context=True, startup=startup,
-                          extra_tools=(finish_goal, get_goal, update_goal) if config.workspace_mode == "project" else (transition,))
+                          extra_tools=(finish_goal, get_goal, update_goal, agents_status, stop_agent) if config.workspace_mode == "project" else (transition,))
             # This host runs child model calls on their own threads, so
             # independent delegate calls from one reply may overlap.
             owner.concurrent_delegation = True
+            owner.background_settled = self.background_settled
+            owner.stopped_children = set()
             self.owner, self.task, self.config = owner, task, config
             self.evaluator = evaluator_identity(config, Path(self.descriptor["task"]))
             self.journal = ApplicationJournal(owner.gateway.store, self.identity)
@@ -242,6 +251,8 @@ class ApplicationHost:
                         identity = owner.enqueue_input(task, accepted["text"],
                             "prompt" if accepted["kind"] == "policy" else accepted["kind"], accepted["input_id"])
                         result = {"executor_input_id": identity}
+                    elif method == "application_stop_child":
+                        result = self.stop_child(params.get("agent_id"))
                     elif method == "application_compact":
                         result = self.compact(params)
                     elif method == "application_admin":
@@ -302,6 +313,7 @@ class ApplicationHost:
                                         result = {"stop": True, "result": {"status": stopped.status}}
                                     if method == "hello":
                                         result["project_tools"] = [tool.name for tool in config.business_tools]
+                                        result["subagents"] = {"max_concurrent": config.subagents.max_concurrent}
                                         provider = config.providers[owner.gateway.store.policy().routes[0]]
                                         if config.workspace_mode == "project":
                                             result["model_info"] = {"name": provider.model, "max_tokens": provider.max_tokens,
@@ -385,6 +397,43 @@ class ApplicationHost:
             future.set_exception(error)
         finally:
             self.broadcast({"type": "state", "state": self.status()})
+
+    def background_settled(self, action, outcome):
+        """Announce a finished background child as a queued conversation input."""
+        data = outcome.data
+        label = action.arguments.get("description") or " ".join(action.arguments["task"].split())[:60]
+        status = ("已完成" if outcome.status == "completed" and not data.get("partial") else
+                  "部分完成" if outcome.status == "completed" else "已中断" if data.get("reason") == "worker_exited" else "失败")
+        body = data.get("summary") or data.get("reason") or data.get("error") or ""
+        text = (f"[子代理结果] {action.arguments['agent']}「{label}」{status}（agent_id: {action.id}）\n\n{body}").strip()[:65536]
+        receipt = self.journal.command("accept", {"input_id": "subagent-" + uuid.uuid5(uuid.NAMESPACE_URL, action.id).hex,
+            "text": text, "kind": "follow_up", "channel": "policy", "initiator": "agent"})
+        self.broadcast({"type": "input", "receipt": receipt})
+
+    def stop_child(self, agent_id):
+        running = {child["id"] for child in self.status()["subagents"] if child["status"] == "running"}
+        if agent_id not in running:
+            raise Conflict("no running subagent with that agent_id")
+        self.owner.stopped_children.add(agent_id)
+        return {"agent_id": agent_id, "stopping": True}
+
+    def agents_status(self, action):
+        from kernelcat_executor.contracts.models import Outcome
+        children = [{key: child.get(key) for key in ("id", "agent", "description", "status", "background", "partial",
+                     "reason", "steps", "tool_calls", "summary")} for child in self.status()["subagents"]]
+        wanted = action.arguments.get("agent_id")
+        if wanted:
+            children = [child for child in children if child["id"] == wanted]
+        for child in children:
+            child["summary"] = (child["summary"] or "")[:4000]
+        return Outcome(data={"subagents": children})
+
+    def stop_agent(self, action):
+        from kernelcat_executor.contracts.models import Outcome
+        try:
+            return Outcome(data=self.stop_child(action.arguments["agent_id"]))
+        except Conflict as error:
+            return Outcome(status="failed", data={"error": str(error)})
 
     def user_bash(self, connection, params):
         # The native bash wrapper is executed by Pi with an Executor-owned intent.
@@ -489,14 +538,21 @@ class ApplicationHost:
                     progress["latest_tool"] = item["action"]["tool"]
                     arguments = item["action"]["arguments"]
                     progress["latest_detail"] = str(arguments.get("path") or arguments.get("query") or arguments.get("name") or "")[:120] or None
+        def child_result(key, item):
+            """A background child's own result supersedes its immediate 'started' receipt."""
+            outcome = item.get("outcome", {})
+            if outcome.get("data", {}).get("background"):
+                return execution["actions"].get(key + "/background", {}).get("outcome") or {"status": "running", "data": {"background": True}}
+            return outcome
         state["subagents"] = [{"id": key, "tool_call_id": "kc_" + digest(key),
             "agent": item["action"]["arguments"]["agent"],
             "description": item["action"]["arguments"].get("description"),
             "task": item["action"]["arguments"]["task"],
-            "status": item.get("outcome", {}).get("status", "running"),
-            "summary": item.get("outcome", {}).get("data", {}).get("summary", ""),
-            "partial": item.get("outcome", {}).get("data", {}).get("partial", False),
-            "reason": item.get("outcome", {}).get("data", {}).get("reason") or item.get("outcome", {}).get("data", {}).get("completion_reason"),
+            "status": child_result(key, item).get("status", "running"),
+            "background": bool(item.get("outcome", {}).get("data", {}).get("background") or item["action"]["arguments"].get("background")),
+            "summary": child_result(key, item).get("data", {}).get("summary", ""),
+            "partial": child_result(key, item).get("data", {}).get("partial", False),
+            "reason": child_result(key, item).get("data", {}).get("reason") or child_result(key, item).get("data", {}).get("completion_reason"),
             **child_activity.get(key + "/leaf", {"steps": 0, "tool_calls": 0, "latest_tool": None,
                                                  "latest_detail": None, "tokens": 0})}
             for key, item in execution["actions"].items() if item["action"]["tool"] == "delegate"]
@@ -618,9 +674,19 @@ class ApplicationHost:
             "initiator": "loopx", "channel": "policy", "decision_id": decision["decision_id"]})
         return {**decision, "receipt": receipt}
 
+    def unsettled_foreground(self, state):
+        """Pending work excluding running background children (read-only, own child tasks)."""
+        background = {child["id"] for child in state["subagents"] if child.get("background") and child["status"] == "running"}
+        effects = [key for key in state["pending_effect_ids"] if not any(key.startswith(agent + "/") for agent in background)]
+        calls = [key for key, call in self.journal.state()["calls"].items() if call.get("status") == "pending"
+                 and not (call.get("method") in {"child_model", "child_tool", "plugin_settle"}
+                          and (call.get("params") or {}).get("permit") in background)]
+        return effects, calls
+
     def snapshot(self, connection, params):
         state = self.status()
-        if state["pending_effect_ids"] or state["calls"]:
+        effects, calls = self.unsettled_foreground(state)
+        if effects or calls:
             raise Conflict("source transition requires a settled execution boundary")
         workspace = Path(self.owner.workspace_policy["root"])
         policy = self.owner.workspace_policy

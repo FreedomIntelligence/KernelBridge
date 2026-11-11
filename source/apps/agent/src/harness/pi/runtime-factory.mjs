@@ -30,7 +30,7 @@ function providerDefinition(stream, modelInfo) {
 
 function directTools(hello, controller) {
   return hello.tools.filter(tool => hello.native_harness?.workspace?.mode === 'project'
-    ? ['read_receipt', 'finish_goal', 'get_goal', 'update_goal', 'delegate', ...(hello.project_tools ?? [])].includes(tool.name)
+    ? ['read_receipt', 'finish_goal', 'get_goal', 'update_goal', 'delegate', 'agents_status', 'stop_agent', ...(hello.project_tools ?? [])].includes(tool.name)
     : !['read_file', 'write_file', 'edit_file', RSI_TOOL, REPLAY_TOOL].includes(tool.name)).map(tool => ({
     name: tool.name, label: tool.name, description: tool.description, parameters: tool.parameters,
     exposure: 'model-only',
@@ -204,7 +204,7 @@ export async function createGovernedRuntime(client, home, dependencies, options 
     const tools = native ? directTools(hello, controller) : [legacyTool(Type, controller)];
     async function createRuntime(runtimeOptions) {
       const continuation = createControlledContinuation(controller);
-      plugin = createPluginBridge(rpc, provider, cwd);
+      plugin = createPluginBridge(rpc, provider, cwd, { maxConcurrent: hello.subagents?.max_concurrent ?? undefined });
       const bridgeTools = hello.tools.filter(tool => tool.name !== REPLAY_TOOL && (!rsi || tool.name !== RSI_TOOL));
       if (native) bridge = createNativeBridge(sdk, rpc, bridgeTools, home,
         (id, name, arguments_) => controller.sealedCall(id, name, arguments_), error => controller.fail(error), receipts, {

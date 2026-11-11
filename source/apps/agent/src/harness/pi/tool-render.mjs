@@ -222,7 +222,7 @@ export function updateSubagentProgress(children = []) {
   }
 }
 
-const REASONS = { count_limit: '超出数量上限', step_limit: '模型调用上限', tool_limit: '读取上限', timeout: '超时', cancelled: '已取消',
+const REASONS = { stopped: '已停止', worker_exited: '会话退出时中断', count_limit: '超出数量上限', concurrency_limit: '超出并发上限', context_limit: '上下文已满', step_limit: '模型调用上限', tool_limit: '读取上限', timeout: '超时', cancelled: '已取消',
   budget_exhausted: '预算耗尽', providers_failed: '模型调用失败', provider_unconfigured: '模型未配置',
   output_limit: '输出过长', unexpected_tool: '分析模式调用了工具', plugin_failed: '子会话失败' };
 export const reasonLabel = reason => REASONS[reason] ?? reason ?? '';
@@ -241,42 +241,60 @@ export function childMetrics(child, durationMs) {
     child.tokens ? `${formatTokens(child.tokens)} tokens` : '', formatDuration(durationMs)].filter(Boolean).join(' · ');
 }
 
+function activityLine(child, elapsed) {
+  const activity = child?.latest_tool ? `${TOOL_LABELS[child.latest_tool] ?? child.latest_tool}${child.latest_detail ? ' ' + oneLine(child.latest_detail) : ''}`
+    : child?.steps ? '思考中' : '启动中';
+  return [activity, childMetrics(child ?? {}, elapsed)].filter(Boolean).join(' · ');
+}
+
 function delegateCall(args, theme, context) {
   if (context.executionStarted && !context.state.startedAt) context.state.startedAt = Date.now();
   subagentViews.set(context.toolCallId, context.invalidate);
   return new Rows(width => {
     const rows = headerRows(theme, context, oneLine(args?.agent) || '子代理', delegateTitle(args), width);
     if (!context.isPartial) return rows;
-    const child = subagentRows.get(context.toolCallId);
     const elapsed = context.state.startedAt ? Date.now() - context.state.startedAt : undefined;
-    const activity = child?.latest_tool ? `${TOOL_LABELS[child.latest_tool] ?? child.latest_tool}${child.latest_detail ? ' ' + oneLine(child.latest_detail) : ''}`
-      : child?.steps ? '思考中' : '启动中';
-    return [...rows, ...hanging([theme.fg('muted', [activity, childMetrics(child ?? {}, elapsed)].filter(Boolean).join(' · '))], width, theme)];
+    return [...rows, ...hanging([theme.fg('muted', activityLine(subagentRows.get(context.toolCallId), elapsed))], width, theme)];
   }, context.outputPad);
+}
+
+function settledRows(child, durationMs, expanded, theme, context, width) {
+  const failed = child.status === 'failed' || child.status === 'unknown';
+  const metrics = childMetrics(child, durationMs);
+  const head = failed ? theme.fg('error', `失败：${reasonLabel(child.reason) || child.error || '子代理未完成'}`)
+    : child.partial ? theme.fg('warning', `部分结果（${reasonLabel(child.completion_reason ?? child.reason)}）`) : theme.fg('success', '完成');
+  const rows = [head + (metrics ? theme.fg('muted', ' · ' + metrics) : '')];
+  if (!expanded) {
+    if (child.summary) rows.push(theme.fg('muted', `${expandKey(context)} 查看报告`));
+    return hanging(rows, width, theme);
+  }
+  const output = hanging(rows, width, theme);
+  if (child.summary) {
+    const markdown = new Markdown(clean(child.summary), 0, 0, getMarkdownTheme());
+    output.push(...markdown.render(Math.max(10, width - 5)).map(line => '     ' + line));
+  }
+  output.push('     ' + theme.fg('dim', `${child.mode ?? ''} · 建议性结论，不是验收证据`));
+  return output;
 }
 
 function delegateResult(result, options, theme, context) {
   const outcome = result.details?.outcome ?? {};
   const data = outcome.data ?? {};
-  const child = { ...subagentRows.get(context.toolCallId), ...data };
   return new Rows(width => {
     if (result.details?.stopped) return hanging([theme.fg('warning', '已停止')], width, theme);
-    const failed = result.isError || outcome.status !== 'completed';
-    const metrics = childMetrics(child, context.durationMs);
-    const head = failed ? theme.fg('error', `失败：${reasonLabel(data.reason) || data.error || '子代理未完成'}`)
-      : data.partial ? theme.fg('warning', `部分结果（${reasonLabel(data.completion_reason)}）`) : theme.fg('success', '完成');
-    const rows = [head + (metrics ? theme.fg('muted', ' · ' + metrics) : '')];
-    if (!options.expanded) {
-      if (data.summary) rows.push(theme.fg('muted', `${expandKey(context)} 查看报告`));
-      return hanging(rows, width, theme);
+    const live = subagentRows.get(context.toolCallId);
+    if (data.background) {
+      const child = { ...data, ...live };
+      if (!live || live.status === 'running') {
+        const elapsed = context.state.startedAt ? Date.now() - context.state.startedAt : undefined;
+        return hanging([theme.fg('accent', '后台运行') + theme.fg('muted', ' · ' + activityLine(live, elapsed))], width, theme);
+      }
+      context.state.finishedAt ??= Date.now();
+      const duration = context.state.startedAt ? context.state.finishedAt - context.state.startedAt : undefined;
+      return settledRows(child, duration, options.expanded, theme, context, width);
     }
-    const output = hanging(rows, width, theme);
-    if (data.summary) {
-      const markdown = new Markdown(clean(data.summary), 0, 0, getMarkdownTheme());
-      output.push(...markdown.render(Math.max(10, width - 5)).map(line => '     ' + line));
-    }
-    output.push('     ' + theme.fg('dim', `${data.mode ?? ''} · 建议性结论，不是验收证据`));
-    return output;
+    const child = { ...live, ...data, status: result.isError || outcome.status !== 'completed' ? 'failed' : 'completed' };
+    return settledRows(child, context.durationMs, options.expanded, theme, context, width);
   }, context.outputPad);
 }
 

@@ -57,6 +57,13 @@ class Provider(BaseHTTPRequestHandler):
                     ('read_file', {'path': 'solution.py'})]
             if step < len(plan): calls, content = [plan[step]], ''
             else: content = f'{label} 结论：solution.py 定义 add，证据 solution.py:1。'
+        elif tools and '[子代理结果]' in text:
+            content = 'BACKGROUND_SEEN 已读取后台子代理结果。'
+        elif tools and not answered and 'BACKGROUND_START' in text:
+            content = '后台启动扫描。'
+            calls = [('delegate', {'agent': 'kernel-scout', 'description': '后台扫描', 'task': 'CHILD_BG scan in background', 'background': True})]
+        elif tools and answered and 'BACKGROUND_START' in text:
+            content = 'BACKGROUND_STARTED 我先继续，结果稍后送达。'
         elif tools and not answered and 'PARALLEL' in text:
             content = '分两个子代理并行调查。'
             calls = [('delegate', {'agent': 'kernel-scout', 'description': '梳理开发流程', 'task': 'CHILD_A trace the development flow'}),
@@ -157,6 +164,21 @@ def main():
         error = next(line for line in screen.splitlines() if '失败：ENOENT' in line)
         assert str(project) not in error and "'missing.py'" in error
         checks.append('tool_rows_status_header_summary_and_relative_errors')
+        ui.send('BACKGROUND_START')
+        ui.until(lambda: 'BACKGROUND_STARTED' in ui.text() and '后台运行' in ui.text() and '等待输入' in ui.text(), timeout=60)
+        (output / 'background-running-screen.txt').write_text(ui.text())
+        assert '子代理 1 个运行中' in ui.text()
+        ui.until(lambda: 'BACKGROUND_SEEN' in ui.text() and '等待输入' in ui.text(), timeout=90)
+        settle(1)
+        screen = ui.text(); (output / 'background-done-screen.txt').write_text(screen)
+        assert '⏺ kernel-scout「后台扫描」已完成' in screen, screen
+        state = client.call('status')
+        background = state['subagents'][-1]
+        assert background['background'] and background['status'] == 'completed' and 'CHILD_BG' in background['summary']
+        assert not state['pending_effect_ids'] and state['budget']['reserved'] == 0
+        assert any(item['initiator'] == 'agent' and item['text'].startswith('[子代理结果]') and item['status'] == 'completed'
+                   for item in state['inputs'].values())
+        checks.append('background_child_notifies_and_parent_continues')
         ui.send('/quit'); ui.until(lambda: ui.child.poll() is not None); assert ui.child.returncode == 0
         (output / 'scenario.json').write_text(json.dumps({'status': 'passed', 'checks': checks}, ensure_ascii=False, indent=2) + '\n')
         print(json.dumps({'status': 'passed', 'checks': checks}, ensure_ascii=False), flush=True)

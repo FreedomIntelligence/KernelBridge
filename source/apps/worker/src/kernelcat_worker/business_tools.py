@@ -8,7 +8,7 @@ from kernelcat_executor.capabilities.runtime_artifacts import RuntimeArtifacts
 from kernelcat_executor.contracts.models import Outcome, ToolSpec, canonical
 
 RESERVED = {'read', 'write', 'edit', 'bash', 'grep', 'find', 'ls', 'codemode', 'tool_search',
-            'get_goal', 'update_goal', 'finish_goal', 'evaluate', 'read_file', 'write_file', 'edit_file', 'exec_command', 'finish', 'delegate',
+            'get_goal', 'update_goal', 'finish_goal', 'agents_status', 'stop_agent', 'evaluate', 'read_file', 'write_file', 'edit_file', 'exec_command', 'finish', 'delegate',
             'read_receipt', 'run_experiment', 'replay', 'knowledge_search', 'knowledge_show',
             'knowledge_read', 'knowledge_source', 'load_skill', 'read_learned_skill', 'list_files', 'search_text'}
 
