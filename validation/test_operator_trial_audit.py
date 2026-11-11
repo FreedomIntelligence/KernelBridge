@@ -25,6 +25,10 @@ class AuditTests(unittest.TestCase):
                 {'kind': 'atomic', 'events': [settled('parent', {'usage': {'total_tokens': 12}}),
                     admitted('child', 'task/leaf', '__propose__')]},
                 settled('child', {}), admitted('task/compact/1', 'task', '__propose__'),
+                admitted('failed-model', 'task', '__propose__'),
+                {'kind': 'settled', 'action_id': 'failed-model', 'outcome': {'status': 'failed',
+                    'data': {'error': 'malformed provider response', 'failure_details': {
+                        'category': 'protocol', 'usage': {'prompt_tokens': 13, 'completion_tokens': 4}}}}},
                 admitted('j', 'task', 'pipeline_run', {'stage': 'J', 'driver': 'ir'}),
                 settled('j', {'run': 'original', 'result': {'status': 'unavailable'}}),
                 admitted('read', 'task', 'pipeline_read', {'run': 'original', 'path': 'compiler.log'}),
@@ -37,8 +41,9 @@ class AuditTests(unittest.TestCase):
                 rows.append(dict(row, digest=previous))
             path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
             result = module.audit(root)
-            self.assertEqual(result['model_turns'], 3)
-            self.assertEqual(result['tokens'], 12)
+            self.assertEqual(result['model_turns'], 4)
+            self.assertEqual(result['tokens'], 29)
+            self.assertEqual(result['by_role']['parent']['usage_unknown_calls'], 0)
             self.assertEqual(result['by_role']['child']['usage_unknown_calls'], 1)
             self.assertEqual(result['by_role']['compact']['pending_calls'], 1)
             self.assertEqual(len(result['explicit_diagnostic_calls']), 1)

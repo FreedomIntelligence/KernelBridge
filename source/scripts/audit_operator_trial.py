@@ -63,7 +63,9 @@ def audit(run):
     for index, row in enumerate(models):
         action = row['action']; category = role(action); group = groups[category]
         end = settled.get(action['id']); outcome = (end or {}).get('outcome', {})
-        usage = outcome.get('data', {}).get('usage') or outcome.get('details', {}).get('usage')
+        usage = (outcome.get('data', {}).get('usage')
+                 or outcome.get('details', {}).get('usage')
+                 or outcome.get('data', {}).get('failure_details', {}).get('usage'))
         group['calls'] += 1
         group['pending_calls'] += int(end is None)
         if isinstance(usage, dict) and usage:
