@@ -314,3 +314,52 @@ parallel/background's eight checks. Paths are
 r1 was interrupted by the observer and is not classified as a product failure.
 The subsequent advanced run naturally completed the large output and compaction.
 No real-model context-retention trial had started during this qualification.
+
+### Context retention variant 3 — completed, unsuccessful
+
+Inference mechanism: `1a61ba6`, with the same task, interface document, model
+routes, output token cap and measurement contracts. The later `284e5fc` only
+corrects read-only audit accounting for usage nested in failure receipts; it
+does not change model requests or the Goal ledger. Fresh directories are
+`.validation/harness-trials/context-retention-{max,min,matmul}-01/run`.
+The verified index is `.validation/context-retention-summary.json`.
+
+| Task | Calls (parent / child) | Known tokens | Calls without usage | Outcome | Device / E3 |
+| --- | --- | --- | --- | --- | --- |
+| max | 7 / 0 | 106,940 | 0 | Both routes returned malformed responses; awaiting_user | 0 / no |
+| min | 20 / 0 | 337,603 | 4 | Shared ceiling; candidate written at call 19, local format check at 20 | 0 / no |
+| Cube | 16 / 4 | 336,169 | 1 | Shared ceiling; late child exhausted remaining allowance | 0 / no |
+
+Elapsed times were 42.38, 255.51 and 163.14 seconds. No compaction/review calls
+occurred. Max completed A only; min and Cube completed A/B/C. No D/E/F/G/H/J or
+paired measurements exist. Missing usage belongs to failed stream-limit calls
+and is not zero tokens. Max's two parse failures included 42,197 reported tokens
+in original `failure_details.usage`, now included in the audit. The original
+SSE responses and exact parser exceptions were not retained, so their precise
+malformation cannot be reconstructed. No replacement request was sent by the
+observer.
+
+Actual-wire retention is confirmed: max's full ABI and benchmark persisted
+through call 7; min's persisted through call 20; Cube's persisted through its
+16 parent calls (child inputs are accounted separately). Min read ABI and
+benchmark once each, with zero `read_receipt` calls versus eleven in the document
+variant. It produced a candidate and the model's own local six-literal/JSON
+check passed. This supports keeping retention as a functional repair, but one
+trial per variant is not a causal success-rate estimate, and no NPU benefit has
+been established. Missing SDK/audit resources still prompted failed searches.
+Cube delegated at parent call 16; four actual child model calls consumed the
+remaining shared allowance without a candidate or device run.
+
+**Hypothesis 4:** the 1 MiB response-body cap truncates otherwise bounded long
+coding streams. Use the already supported provider `max_response_bytes` field
+to set 16 MiB for both routes; change no inference code, model, route order,
+timeout, `max_tokens=16384`, context limit, call ceiling or evaluation setting.
+The finite 16 MiB maximum remains enforced. Four offline checks verified actual
+prepared-profile loading into parent/child proposers and failure at the exact
+configured boundary. A synthetic fragmented SSE fixture produced 1,736,919 body
+bytes for 8,192 text bytes: the same request failed at 1 MiB and completed at
+16 MiB. This is transport-mechanism evidence, **not a measured DeepSeek overhead
+ratio**. The original stream bodies were not saved. Profile diff and checks are
+under `.validation/stream-response-limit-audit/`; fresh input equivalence is
+`harness-trials/stream16m-input-equivalence.json`. Provider-error observability,
+Goal remainder telemetry and automatic-J defaults remain unapplied drafts.

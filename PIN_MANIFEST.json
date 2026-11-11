@@ -616,8 +616,8 @@
       "sha256": "8b753b3f64fefda655c88dd4fb8605d86174a8ee69db59b093780df1ef766336"
     },
     "docs/architecture/harness-optimization-log.md": {
-      "bytes": 20024,
-      "sha256": "4a8f4a84e2a63c0f646d6d81e81a56229b4545d399d0e0f707c8c8570f688eb0"
+      "bytes": 23323,
+      "sha256": "712804ba9c5f388be7e7a6aafa48dcd36ecaf4d68e20128a43173ab26bc3ee25"
     },
     "docs/architecture/tui-implementation-plan.md": {
       "bytes": 44715,
