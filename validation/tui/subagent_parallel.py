@@ -151,7 +151,10 @@ def main():
         checks.append('ctrl_o_shows_reports_not_receipt_json')
         ui.send('/agents'); ui.until(lambda: '本会话（2）' in ui.text() and '查找文件、搜索代码' in ui.text())
         assert '每次回复最多' not in ui.text() and '可以直接说' not in ui.text()
-        for _ in range(2): os.write(ui.master, b'\x1b[B')
+        assert all(name in ui.text() for name in ('kernel-tester', 'kernel-worker', 'kernel-scout'))
+        for _ in range(8):
+            if any(line.startswith('❯ kernel-') and '完成' in line for line in ui.text().splitlines()): break
+            os.write(ui.master, b'\x1b[B'); settle(.3)
         os.write(ui.master, b'\r'); ui.until(lambda: '任务：CHILD_' in ui.text() and '结论' in ui.text())
         os.write(ui.master, b'\x1b'); ui.until(lambda: '本会话（2）' in ui.text())
         os.write(ui.master, b'\x1b'); ui.until(lambda: '本会话（2）' not in ui.text())

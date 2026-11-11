@@ -149,17 +149,31 @@ export async function createGovernedRuntime(client, home, dependencies, options 
     function stream(model, context, streamOptions) {
       const events = createAssistantMessageEventStream();
       const partial = assistant({ text: '', calls: [] }, model);
-      let streamed = false;
-      const stopDeltas = options.subscribeModelDeltas?.(delta => {
-        if (delta.type !== 'text_delta' || !delta.delta) return;
-        if (!streamed) {
-          partial.content = [{ type: 'text', text: '' }];
-          events.push({ type: 'start', partial });
-          events.push({ type: 'text_start', contentIndex: 0, partial });
-          streamed = true;
+      let streamed = false, generation, open;
+      // Presentation deltas: lock onto this call's generation so concurrent
+      // host calls (children, reviews) never interleave into this reply.
+      const close = () => {
+        if (!open) return;
+        const block = partial.content[open.index];
+        events.push(open.kind === 'thinking'
+          ? { type: 'thinking_end', contentIndex: open.index, content: block.thinking, partial }
+          : { type: 'text_end', contentIndex: open.index, content: block.text, partial });
+        open = undefined;
+      };
+      const stopDeltas = options.subscribeModelDeltas?.((delta, id) => {
+        if (id !== undefined) { generation ??= id; if (id !== generation) return; }
+        const kind = delta.type === 'text_delta' ? 'text' : delta.type === 'thinking_delta' ? 'thinking' : null;
+        if (!kind || !delta.delta) return;
+        if (!streamed) { partial.content = []; events.push({ type: 'start', partial }); streamed = true; }
+        if (open?.kind !== kind) {
+          close();
+          partial.content.push(kind === 'text' ? { type: 'text', text: '' } : { type: 'thinking', thinking: '' });
+          open = { kind, index: partial.content.length - 1 };
+          events.push({ type: kind === 'text' ? 'text_start' : 'thinking_start', contentIndex: open.index, partial });
         }
-        partial.content[0].text += delta.delta;
-        events.push({ type: 'text_delta', contentIndex: 0, delta: delta.delta, partial });
+        const block = partial.content[open.index];
+        if (kind === 'text') block.text += delta.delta; else block.thinking += delta.delta;
+        events.push({ type: kind === 'text' ? 'text_delta' : 'thinking_delta', contentIndex: open.index, delta: delta.delta, partial });
       });
       void (async () => {
         try {
@@ -186,7 +200,7 @@ export async function createGovernedRuntime(client, home, dependencies, options 
             message.content = [];
             message.kernelbridgeHostStop = true;
           }
-          if (streamed) events.push({ type: 'text_end', contentIndex: 0, content: partial.content[0].text, partial });
+          if (streamed) close();
           events.push({ type: 'done', reason: message.stopReason, message });
           events.end(message);
         } catch (error) {
@@ -204,7 +218,9 @@ export async function createGovernedRuntime(client, home, dependencies, options 
     const tools = native ? directTools(hello, controller) : [legacyTool(Type, controller)];
     async function createRuntime(runtimeOptions) {
       const continuation = createControlledContinuation(controller);
-      plugin = createPluginBridge(rpc, provider, cwd, { maxConcurrent: hello.subagents?.max_concurrent ?? undefined });
+      const delegateSpec = hello.tools.find(tool => tool.name === 'delegate');
+      plugin = createPluginBridge(rpc, provider, cwd, { maxConcurrent: hello.subagents?.max_concurrent ?? undefined,
+        ...(delegateSpec ? { agents: delegateSpec.parameters.properties.agent.enum } : {}) });
       const bridgeTools = hello.tools.filter(tool => tool.name !== REPLAY_TOOL && (!rsi || tool.name !== RSI_TOOL));
       if (native) bridge = createNativeBridge(sdk, rpc, bridgeTools, home,
         (id, name, arguments_) => controller.sealedCall(id, name, arguments_), error => controller.fail(error), receipts, {

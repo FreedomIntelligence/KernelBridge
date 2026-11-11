@@ -33,7 +33,7 @@ export async function runApplicationWorker(directory, ticket, { interactive = fa
       interactive, persistent: true, semanticCompaction: true, extensionFactories: [actions.extension],
       beforeModel: () => actions.beforeModel(),
       subscribeModelDeltas: listener => control.subscribe(event => {
-        if (event.type === 'model_delta') listener(event.delta);
+        if (event.type === 'model_delta') listener(event.delta, event.generation_id);
       }),
       onEvent(event) {
         if (event.type !== 'message_update') void control.call('event', event).catch(() => {});

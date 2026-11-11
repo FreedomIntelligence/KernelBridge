@@ -29,7 +29,7 @@ function slots(limit) {
   };
 }
 
-export function createPluginBridge(rpc,provider,cwd,{maxConcurrent}={}) {
+export function createPluginBridge(rpc,provider,cwd,{maxConcurrent,agents=['kernel-scout','kernel-reviewer']}={}) {
   let api;
   const queue=slots(maxConcurrent);
   const model = 'kernelcat/' + provider.models[0].id;
@@ -37,9 +37,11 @@ export function createPluginBridge(rpc,provider,cwd,{maxConcurrent}={}) {
   const extension=(pi)=>{
     api=pi;
     pi.registerProvider('kernelcat',provider);
-    for(const name of ['kernel-scout','kernel-reviewer']) {
+    // The host composes each child's instructions and tools; the plugin only
+    // needs every host-declared agent name to run its child session.
+    for(const name of agents) {
       registrations.push(registerAgentViaEvents({pi,name,definition:{
-        description:name === 'kernel-scout' ? 'Discover project files, search code and trace a focused implementation question.' : 'Review a focused change or claim against original source and receipt evidence.',
+        description:`KernelBridge host-governed subagent ${name}.`,
         systemPrompt:'Use supplied material and host-permitted discovery/read tools. Follow the host remaining-call instructions and return findings with paths, evidence and unresolved questions before the limit. Never invent measurements. Return an advisory answer, not independent validation.',
         tools:['kernelcat_child_effect'],excludeTools:[],allowNestedSubagents:false,model,thinking:'off',
         systemPromptMode:'replace',inheritProjectContext:false,inheritGlobalContext:false,inheritSkills:false,
@@ -52,7 +54,7 @@ export function createPluginBridge(rpc,provider,cwd,{maxConcurrent}={}) {
         extensions:[{id:'kernelcat-readonly-rpc',path:childExtension}],requireForAllRunners:true}));
       registrations.push(registerSubagentCapabilityCeiling({
         sessionId:ctx.sessionManager.getSessionId(),source:'kernelcat',
-        ceiling:{allowedAgents:['kernel-scout','kernel-reviewer'],allowedTools:['kernelcat_child_effect'],denyExtensions:false},
+        ceiling:{allowedAgents:[...agents],allowedTools:['kernelcat_child_effect'],denyExtensions:false},
       }));
     });
     pi.on('session_shutdown',()=>{for(const r of registrations.splice(0))r.dispose();});

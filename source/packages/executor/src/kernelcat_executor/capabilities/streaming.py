@@ -43,21 +43,25 @@ def _secret_prefix_suffix(text, secret):
 
 def request_stream(request, headers, *, provider, max_bytes, client=None, secret=""):
     callback = observer.get()
-    text, pending_text, calls, blocks, usage = "", "", {}, {}, {}
+    text, calls, blocks, usage = "", {}, {}, {}
     reason = None
     ended = False
 
-    def emit_text(delta, final=False):
-        nonlocal pending_text
-        pending_text += delta
-        if secret and secret in pending_text:
+    pending = {"text_delta": "", "thinking_delta": ""}
+
+    def emit(kind, delta, final=False):
+        pending[kind] += delta
+        if secret and secret in pending[kind]:
             raise ToolFailure("provider returned authentication material", details={"category": "credential_echo"})
         # Hold only a suffix that could still become the credential. Emitted
         # text never contains a full secret, and ordinary prose is not delayed.
-        size = len(pending_text) if final else len(pending_text) - _secret_prefix_suffix(pending_text, secret)
+        size = len(pending[kind]) if final else len(pending[kind]) - _secret_prefix_suffix(pending[kind], secret)
         if size and callback:
-            callback({"type": "text_delta", "delta": pending_text[:size]})
-        pending_text = pending_text[size:]
+            callback({"type": kind, "delta": pending[kind][:size]})
+        pending[kind] = pending[kind][size:]
+
+    def emit_text(delta, final=False):
+        emit("text_delta", delta, final)
 
     def consume(value):
         nonlocal text, reason, ended
@@ -70,6 +74,10 @@ def request_stream(request, headers, *, provider, max_bytes, client=None, secret
                 if choice.get("index", 0) != 0:
                     raise ValueError("unexpected streaming choice")
                 delta = choice.get("delta", {})
+                # Reasoning is presentation only; it is not part of the settled reply.
+                thinking = delta.get("reasoning_content") or ""
+                if thinking:
+                    emit("thinking_delta", thinking)
                 piece = delta.get("content") or ""
                 text += piece
                 emit_text(piece)
@@ -141,6 +149,7 @@ def request_stream(request, headers, *, provider, max_bytes, client=None, secret
         else:
             with httpx.Client(follow_redirects=False, trust_env=False) as session:
                 send(session)
+        emit("thinking_delta", "", final=True)
         emit_text("", final=True)
     except httpx.HTTPError as error:
         raise ToolFailure("provider streaming transport failure", details={

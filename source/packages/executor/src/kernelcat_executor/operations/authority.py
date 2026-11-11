@@ -600,14 +600,14 @@ class ExecutionRPC:
             collected = self._collect_plugin(action.id, background=True)
             return {"permit": action.id, "agent": action.arguments["agent"], "task": action.arguments["task"],
                     "timeout_ms": settings["timeout"] * 1000 if settings.get("timeout") else None,
-                    "tool_limit": settings.get("tool_limit"), "routes": list(self.store.policy().routes),
+                    "tool_limit": settings.get("tool_limit"), "routes": list(run.effects.routes),
                     "mode": run.effects.mode, "max_steps": run.effects.max_steps,
                     "background": True, "outcome": collected.model_dump(mode="json")}
         return {"permit": action.id, "agent": action.arguments["agent"],
                 "task": action.arguments["task"],
                 "timeout_ms": settings["timeout"] * 1000 if settings.get("timeout") else None,
                 "tool_limit": settings.get("tool_limit"),
-                "routes": list(self.store.policy().routes),
+                "routes": list(run.effects.routes),
                 "mode": run.effects.mode, "max_steps": run.effects.max_steps}
 
     def _child(self, params: Json) -> DelegatedEffects:
@@ -655,6 +655,13 @@ class ExecutionRPC:
                 raise InDoubt(f"unresolved child action {item['action']['id']}")
         if params["status"] == "cancelled":
             child.failure = "cancelled"
+        changes = {}
+        if child.worktree is not None:
+            label = child.action.arguments.get("description") or child.action.arguments["task"][:60]
+            try:
+                changes = {"worktree": child.worktree.finish(f"kernelbridge subagent: {label}")}
+            except Exception as error:  # the branch keeps whatever was written
+                changes = {"worktree": {"changed": None, "error": str(error)[:400]}}
         if params["status"] == "completed":
             if child.summary is None or params["text"] != child.summary or child.failure is not None:
                 raise Conflict("child output differs from its authoritative model receipt")
@@ -662,12 +669,12 @@ class ExecutionRPC:
                 "plugin": "pi-subagents@0.87.0", "advisory": True, "promoted": False,
                 "agent": child.action.arguments["agent"], "completion_reason": child.completion_reason,
                 "partial": child.completion_reason != "answer",
-                "mode": child.mode, "steps": child.step + 1, "tool_calls": child.tool_count})
+                "mode": child.mode, "steps": child.step + 1, "tool_calls": child.tool_count, **changes})
         else:
             outcome = Outcome(status="failed", data={"error": "subagent failed",
                 "reason": child.failure or "plugin_failed", "model_receipt": child.receipt,
                 "agent": child.action.arguments["agent"], "steps": child.step + 1, "tool_calls": child.tool_count,
-                "advisory": True})
+                "advisory": True, **changes})
         return outcome
 
     def _finish_background(self, identity: str, outcome: Outcome) -> None:

@@ -226,7 +226,7 @@ const REASONS = { stopped: '已停止', worker_exited: '会话退出时中断', 
   budget_exhausted: '预算耗尽', providers_failed: '模型调用失败', provider_unconfigured: '模型未配置',
   output_limit: '输出过长', unexpected_tool: '分析模式调用了工具', plugin_failed: '子会话失败' };
 export const reasonLabel = reason => REASONS[reason] ?? reason ?? '';
-const TOOL_LABELS = { read_file: '读取', list_files: '列出文件', search_text: '搜索', load_skill: '读取技能',
+const TOOL_LABELS = { run_command: '运行', write_file: '写入', edit_file: '编辑', read_file: '读取', list_files: '列出文件', search_text: '搜索', load_skill: '读取技能',
   read_receipt: '读取回执', knowledge_search: '检索知识库', knowledge_show: '查看知识', knowledge_read: '读取知识',
   knowledge_source: '查看来源', read_learned_skill: '读取技能' };
 

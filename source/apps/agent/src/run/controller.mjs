@@ -2,6 +2,19 @@ import { projectHarness } from '../harness/pi/input.ts';
 import { canonicalKey } from './scoring/canonical.ts';
 
 /** Pi executes owner-admitted turns and sealed tools; LoopX owns model decisions. */
+function delegateText(outcome) {
+  const data = outcome.data ?? {};
+  if (data.background && data.status === 'running') {
+    return `Background subagent ${data.agent} started (agent_id: ${data.agent_id}). Continue other work; its result will arrive as a [子代理结果] message.`;
+  }
+  const status = outcome.status !== 'completed' ? `failed (${data.reason ?? data.error ?? 'unknown'})`
+    : data.partial ? `returned a partial result (${data.completion_reason})` : 'completed';
+  const worktree = data.worktree?.changed ? `\n\nChanges are on branch ${data.worktree.branch} in ${data.worktree.worktree}.\n${data.worktree.diffstat}\nApply after review: ${data.worktree.apply_hint}`
+    : data.worktree?.changed === false ? '\n\nThe worktree agent made no file changes.' : '';
+  return `Subagent ${data.agent ?? ''} ${status}; ${data.steps ?? 0} model calls, ${data.tool_calls ?? 0} tool calls. Advisory, not validation.`
+    + (data.summary ? `\n\n${data.summary}` : '') + worktree;
+}
+
 export class RunController {
   constructor(rpc, native, delegate, isNested, receipts, { persistent = false } = {}) {
     this.rpc = rpc;
@@ -95,7 +108,10 @@ export class RunController {
         this.active = null;
         return this.stoppedResult();
       }
-      const result = { content: [{ type: 'text', text: canonicalKey(response) }],
+      // The model needs the child's findings, not receipt plumbing; the full
+      // receipt stays in details and the Journal.
+      const text = name === 'delegate' && response.outcome ? delegateText(response.outcome) : canonicalKey(response);
+      const result = { content: [{ type: 'text', text }],
         details: response, isError: response.outcome?.status !== 'completed' };
       // Delegation's public settlement lacks the leaf receipt identity; retain
       // that output without fabricating cleanup provenance from wrapper success.

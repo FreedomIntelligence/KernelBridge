@@ -248,7 +248,7 @@ def build(config: Config, base: Path, task: Task, *,
           guards: tuple[ExecutionGuard, ...] = (),
           extra_tools: tuple[Tool, ...] = (),
           probe_versions: bool = True, external_context: bool = False,
-          startup: PythonStartup | None = None) -> ExecutionSession:
+          startup: PythonStartup | None = None, subagent_home: Path | None = None) -> ExecutionSession:
     startup = admit_config(config) if startup is None else startup
     config = startup.bind_config(config)
     _preflight(config, base)
@@ -288,7 +288,12 @@ def build(config: Config, base: Path, task: Task, *,
     validator_hashes = inputs["validator_files"]
     tools.extend(builtin_tools(workspace, skills))
     if config.subagents.enabled:
-        tools.append(SubagentEffect(config.subagents.model_dump()))
+        settings = config.subagents.model_dump()
+        if subagent_home is not None:
+            # Definitions are part of the frozen tool schema: discover before the Gateway seals it.
+            from kernelcat_worker.subagent_definitions import discover
+            settings["agents"] = discover(workspace.root, subagent_home, project_mode=config.workspace_mode == "project")
+        tools.append(SubagentEffect(settings))
     from kernelcat_worker.business_tools import configured_tools
     tools.extend(configured_tools(config.business_tools, workspace, state_dir))
     if config.rsi is not None:

@@ -162,6 +162,7 @@ class ApplicationHost:
                     "summary": {"type": "string", "minLength": 1, "maxLength": 4096}},
                     "required": ["status", "summary"], "additionalProperties": False}), self.update_codegen_goal)
             owner = build(config, config_path.parent, task, probe_versions=False, external_context=True, startup=startup,
+                          subagent_home=Path(os.environ.get("KERNELBRIDGE_HOME") or Path.home() / ".kernelbridge"),
                           extra_tools=(finish_goal, get_goal, update_goal, agents_status, stop_agent) if config.workspace_mode == "project" else (transition,))
             # This host runs child model calls on their own threads, so
             # independent delegate calls from one reply may overlap.
@@ -188,7 +189,7 @@ class ApplicationHost:
                 if item is None:
                     break
                 connection, request, future = item
-                if request.get("method") == "child_model" and handle is not None:
+                if request.get("method") in {"child_model", "child_tool"} and handle is not None:
                     # A child model call waits on the provider. Run it on its own
                     # thread so concurrent children (and their reads) proceed;
                     # each child's requests stay ordered by its Pi lane.
@@ -509,6 +510,15 @@ class ApplicationHost:
         state["host_pid"] = os.getpid()
         state["workspace_mode"] = self.config.workspace_mode
         state["subagent_config"] = self.config.subagents.model_dump()
+        delegate = self.owner.gateway.tools.get("delegate")
+        labels = {"read": "只读", "test": "可运行命令", "write": "独立 worktree 可写"}
+        sources = {"builtin": "内置", "project": "项目（.kernelbridge/agents）", "user": "用户（~/.kernelbridge/agents）"}
+        builtin = {"kernel-scout": "查找文件、搜索代码、追踪实现", "kernel-reviewer": "对改动或结论做独立复核",
+                   "kernel-tester": "运行测试、构建和诊断，报告失败及证据", "kernel-worker": "在独立 Git worktree 分支中实现并验证改动"}
+        state["subagent_types"] = [{"name": name, "description": builtin.get(name) if agent.get("source", "builtin") == "builtin" and name in builtin else agent["description"],
+                                    "tools": labels.get(agent.get("tools", "read")),
+                                    "source": sources.get(agent.get("source", "builtin"), "内置"), "prompt": agent.get("prompt", "")}
+                                   for name, agent in (delegate.agents.items() if delegate is not None and hasattr(delegate, "agents") else ())]
         state["goal_review"] = next((item for item in reversed(state["configurations"])
             if item.get("operation") == "goal_review" and item.get("goal_id") == (state["goal"] or {}).get("goal_id")), None)
         state["fork_policy"] = (state.get("goal") or self.descriptor["goal_defaults"]).get("fork_policy", {})
@@ -537,7 +547,8 @@ class ApplicationHost:
                     progress["tool_calls"] += 1
                     progress["latest_tool"] = item["action"]["tool"]
                     arguments = item["action"]["arguments"]
-                    progress["latest_detail"] = str(arguments.get("path") or arguments.get("query") or arguments.get("name") or "")[:120] or None
+                    progress["latest_detail"] = str(arguments.get("path") or arguments.get("query") or arguments.get("command")
+                                                    or arguments.get("name") or "")[:120] or None
         def child_result(key, item):
             """A background child's own result supersedes its immediate 'started' receipt."""
             outcome = item.get("outcome", {})

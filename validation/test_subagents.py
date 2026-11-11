@@ -134,6 +134,69 @@ class SubagentTests(unittest.TestCase):
         self.assertFalse(any(key.endswith('/batch') for key in self.store.snapshot()['actions']))
         replay._boundary()
 
+    def run_typed(self, agent, calls, extra=None):
+        import os
+        effect = SubagentEffect(SubagentConfig().model_dump(exclude={'enabled'}))
+        effect.add_agents([{'name': agent, 'tools': extra or 'read', 'description': 'fixture'}])
+        session, _, replay = self.session([('delegate', {'agent': agent, 'description': 'typed', 'task': 'Typed fixture'})], extra_tools=[effect])
+        child = Child(calls); session.child_proposers = {'primary': child}
+        result = session.run(self.task)
+        rows = [r for r in self.store.snapshot()['actions'].values() if r['action']['tool'] == 'delegate']
+        replay._boundary()
+        return result, rows, child
+
+    def test_tester_runs_commands_without_host_credentials(self):
+        import os
+        os.environ['KERNELBRIDGE_FIXTURE_SECRET'] = 'must-not-leak'
+        try:
+            _, rows, child = self.run_typed('fixture-tester', [('run_command', {'command': 'echo ok-$((1+2)); echo "[$KERNELBRIDGE_FIXTURE_SECRET]"; exit 3'})], 'test')
+        finally:
+            del os.environ['KERNELBRIDGE_FIXTURE_SECRET']
+        self.assertEqual(rows[0]['outcome']['status'], 'completed')
+        self.assertTrue(all('run_command' in names and 'write_file' not in names for names in child.tools[:1]))
+        command = next(r for r in self.store.snapshot()['actions'].values() if r['action']['tool'] == 'run_command')
+        self.assertEqual(command['outcome']['data']['exit_code'], 3)
+        self.assertIn('ok-3', command['outcome']['data']['output'])
+        self.assertIn('[]', command['outcome']['data']['output'])
+
+    def test_worker_edits_only_its_worktree_branch(self):
+        import subprocess, os
+        root = self.workspace.root
+        subprocess.run(['git', 'init', '-q', '-b', 'main', str(root)], check=True)
+        (root / 'solution.py').write_text('x = 1\n')
+        subprocess.run(['git', '-C', str(root), 'add', '-A'], check=True)
+        subprocess.run(['git', '-C', str(root), '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'base'], check=True)
+        os.environ['KERNELBRIDGE_HOME'] = str(self.base / 'kbhome')
+        try:
+            _, rows, child = self.run_typed('fixture-worker', [('write_file', {'path': 'notes.md', 'text': 'worker change\n', 'expected_sha256': None}),
+                                                               ('run_command', {'command': 'cat notes.md'})], 'write')
+        finally:
+            del os.environ['KERNELBRIDGE_HOME']
+        data = rows[0]['outcome']['data']
+        self.assertFalse((root / 'notes.md').exists())
+        self.assertTrue(data['worktree']['changed'], data)
+        branch = data['worktree']['branch']
+        shown = subprocess.run(['git', '-C', str(root), 'show', f'{branch}:notes.md'], capture_output=True, text=True, check=True).stdout
+        self.assertEqual(shown, 'worker change\n')
+        self.assertIn('notes.md', data['worktree']['diffstat'])
+        command = next(r for r in self.store.snapshot()['actions'].values() if r['action']['tool'] == 'run_command')
+        self.assertIn('worker change', command['outcome']['data']['output'])
+
+    def test_definition_files_follow_claude_code_format(self):
+        from kernelcat_worker.subagent_definitions import discover, tools_class
+        project, home = self.base / 'defs-project', self.base / 'defs-home'
+        (project / '.kernelbridge/agents').mkdir(parents=True); (home / 'agents').mkdir(parents=True)
+        (home / 'agents/docs.md').write_text('---\nname: docs-writer\ndescription: user version\n---\nUser prompt')
+        (project / '.kernelbridge/agents/docs.md').write_text('---\nname: docs-writer\ndescription: project version\ntools: Read, Grep, Bash\nmodel: primary\n---\nProject prompt')
+        (project / '.kernelbridge/agents/bad.md').write_text('no frontmatter')
+        agents = {agent['name']: agent for agent in discover(project, home, project_mode=True)}
+        self.assertEqual(agents['docs-writer']['description'], 'project version')
+        self.assertEqual((agents['docs-writer']['tools'], agents['docs-writer']['source'], agents['docs-writer']['model']), ('test', 'project', 'primary'))
+        self.assertIn('kernel-worker', agents); self.assertNotIn('bad', agents)
+        isolated = {agent['name'] for agent in discover(project, home, project_mode=False)}
+        self.assertNotIn('kernel-worker', isolated); self.assertNotIn('docs-writer', isolated)
+        self.assertEqual([tools_class(v) for v in ('Read, Edit', 'Bash', 'Read, Grep', 'write')], ['write', 'test', 'read', 'write'])
+
     def test_forged_write_never_changes_workspace(self):
         result, rows, _, _ = self.run_child([('write_file', {'path': 'solution.py', 'text': 'bad'})])
         self.assertFalse((self.workspace.root / 'solution.py').exists())

@@ -195,7 +195,7 @@ def main():
         client = original; assert len(Provider.requests) == count
         # Lease acquisition precedes native terminal initialization. Wait for
         # the restored conversation, otherwise Enter can arrive during startup.
-        ui.until(lambda: 'UNBLOCK_COMPLETE' in ui.text() and 'update_goal status="complete"' in ui.text())
+        ui.until(lambda: 'UNBLOCK_COMPLETE' in ui.text() and '⏺ update_goal(complete' in ui.text())
         send('AFTER_CROSS_HOST_RESUME')
         raw = json.dumps(Provider.requests[-1]); assert 'FORK_BRANCH_MARKER' in raw and 'SECOND_SESSION_MARKER' not in raw
         assert status()['application_session_id'] == first_id

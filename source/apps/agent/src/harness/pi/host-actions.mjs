@@ -72,6 +72,8 @@ export function createHostActions(control, effects) {
   const extension = pi => {
     pi.on('session_start', async (_event, ctx) => {
       context = ctx;
+      // Hide Pi's own footer until the host state is known (no startup flash).
+      if (interactive) ctx.ui.setFooter(() => ({ invalidate() {}, render: () => [] }));
       await refresh();
       if (interactive) {
         installProductUI(context, () => state, { demo: process.env.KERNELBRIDGE_DEMO === '1' });
