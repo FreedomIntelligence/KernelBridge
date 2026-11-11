@@ -616,8 +616,8 @@
       "sha256": "8b753b3f64fefda655c88dd4fb8605d86174a8ee69db59b093780df1ef766336"
     },
     "docs/architecture/harness-optimization-log.md": {
-      "bytes": 15619,
-      "sha256": "b7af14aabdc0e3301285ac8a5a1afe66887d0927a43cc7a1799f4a318c8dc479"
+      "bytes": 20024,
+      "sha256": "4a8f4a84e2a63c0f646d6d81e81a56229b4545d399d0e0f707c8c8570f688eb0"
     },
     "docs/architecture/tui-implementation-plan.md": {
       "bytes": 44715,
@@ -1376,8 +1376,8 @@
       "sha256": "4288b1fe92f678367af64ced1e8e836cd54d9ea4baca4e1e99c31a509644a5ba"
     },
     "source/apps/agent/src/application/worker.mjs": {
-      "bytes": 3294,
-      "sha256": "16a4279980a5e4954ebeb095e8767debe7babe4616494ea4c724bccb63255298"
+      "bytes": 3372,
+      "sha256": "f94d0d0d38c0f498b6eebf5acc5eb0f32df9f973f52fcb63d4e4ed594b1a3a97"
     },
     "source/apps/agent/src/bootstrap.ts": {
       "bytes": 7393,
@@ -1424,8 +1424,8 @@
       "sha256": "db5783c5279a140060ce5bf344b2f1337507db66a1af73e0a0378864074763c5"
     },
     "source/apps/agent/src/context/compiler.ts": {
-      "bytes": 6159,
-      "sha256": "5a13cd283e68fd5babaa61161eb7cabeb44af7130f369187be4f9b5f00ed0b72"
+      "bytes": 6166,
+      "sha256": "bfecee219e3950df9db855b0b3d5d5d06cab169c18b8395b26ee0aee4e8a9f36"
     },
     "source/apps/agent/src/context/json-snapshot.ts": {
       "bytes": 1552,
@@ -1476,8 +1476,8 @@
       "sha256": "84ea32fd5cf3277bd23284a3f8d1ac826a5c5bcf3db9b9f1a474c0de6653dad7"
     },
     "source/apps/agent/src/generated/harness.ts": {
-      "bytes": 19946,
-      "sha256": "d09b088241a382e3a65e6d5e2d266b4f3fb5e0c67a2104d15929e9e049d51d90"
+      "bytes": 19993,
+      "sha256": "1f2fe9c4dbf7c9d57752b9345e8f58a9caf17b991e372a40ae429486302487e8"
     },
     "source/apps/agent/src/generated/knowledge-query.ts": {
       "bytes": 9687,
@@ -1572,8 +1572,8 @@
       "sha256": "fa6357fea14f42a5bf00a97dc167c0c0013b3db218983519396f2b2acdb8d1a0"
     },
     "source/apps/agent/src/harness/pi/input.ts": {
-      "bytes": 2080,
-      "sha256": "282f8d012b9449a4ce85ba1ec4323774269d91d1060d3b7821e224ece9aa484f"
+      "bytes": 2101,
+      "sha256": "ef9bf036439fe499e66f28677bdb6bee3325b4d18bc59e9f3047c026860de54f"
     },
     "source/apps/agent/src/harness/pi/interactive-driver.mjs": {
       "bytes": 874,
@@ -1656,8 +1656,8 @@
       "sha256": "1373e3a1f1fbf84f35c06fc7fa47ac90fc267969d05284f30cb90e33d0b58f5b"
     },
     "source/apps/agent/src/loopx/context-control.ts": {
-      "bytes": 2107,
-      "sha256": "e185369f7476c56ee113f2814946eaf8cd1ead84d93db41fe3d7cccaf08e86ff"
+      "bytes": 6165,
+      "sha256": "5e85a3cf84689a68bd5ff8c6e3f2ccce19dcc853fa129597c858b1d77a8200ac"
     },
     "source/apps/agent/src/loopx/host-cli.ts": {
       "bytes": 1556,
@@ -1672,12 +1672,12 @@
       "sha256": "307394aa43cae3e6a27f3544582a5d9d7fd9ce9025a5ee70f5021c1558d9285c"
     },
     "source/apps/agent/src/loopx/model-control.ts": {
-      "bytes": 7069,
-      "sha256": "dbc9211e2a65340d2aeec195a403260f000e4fc30f486fe9ea8238e8ad7355aa"
+      "bytes": 7386,
+      "sha256": "177b0b396ba6924ed6fbbdc6e6663424066bbfada057205759af1f5b955fd07d"
     },
     "source/apps/agent/src/loopx/pi-host.ts": {
-      "bytes": 7888,
-      "sha256": "83fd777a68c7c87e60f551763196de52b405280ad8b15ac310162e881a08aa61"
+      "bytes": 7966,
+      "sha256": "0f1e3b12d57c1f7c3985784330cb3c0d199069670aa1f26bb4cf41e5a414b1d7"
     },
     "source/apps/agent/src/loopx/round-control.ts": {
       "bytes": 9015,
@@ -1700,8 +1700,8 @@
       "sha256": "d6eccf0623f76536efef1bb738459a2ebb61c5256359185b0a7cd9ff5f7f39e1"
     },
     "source/apps/agent/src/replay/context-cleanup.ts": {
-      "bytes": 10799,
-      "sha256": "1763aada2db9be1cd2ba659bc90a7b772e9a7cc18ab9daffd0d948ba97b46f6a"
+      "bytes": 11684,
+      "sha256": "eed74bda1578173aefa36676ccd38c41d66c3071b5ed1699e0e1019f7b89f5d9"
     },
     "source/apps/agent/src/replay/context-contract.ts": {
       "bytes": 2617,
@@ -2216,8 +2216,8 @@
       "sha256": "a95a813ed00a1cb54e64722d73947aa931de8657e946bc40f32f5276540f5cc1"
     },
     "source/contracts/execution/v1/harness.schema.json": {
-      "bytes": 15446,
-      "sha256": "8044ec283bb4ff239fda049dbaa6c87d05dc6b01857f21035520ede7ec13b63e"
+      "bytes": 15475,
+      "sha256": "0cd2de2dffdebd9d32c49f88b59f2ec3a47f752850cc7d548058f1f8e10c0ce3"
     },
     "source/contracts/execution/v1/python_module_observation.schema.json": {
       "bytes": 4909,
@@ -3232,8 +3232,8 @@
       "sha256": "2a663f1ffb76042b09e60e4cefc49f41053ef2df268f07f143c14dbf91020cb8"
     },
     "source/packages/executor/src/kernelcat_executor/generated/harness.py": {
-      "bytes": 27273,
-      "sha256": "f4042f40872fa900a70b15cdbfa729af9ebe082d092cdd49fc49cd233e0d802d"
+      "bytes": 27804,
+      "sha256": "069e6cf9e6db7d2ecb1347d1bda62794ca774178d4f6f4e9619385126434b394"
     },
     "source/packages/executor/src/kernelcat_executor/generated/knowledge_query.py": {
       "bytes": 12542,
@@ -4127,6 +4127,10 @@
       "bytes": 5381,
       "sha256": "3d748bf4bccf649f71433e68491916641bb9dd37e6c523f75f0dfeed1134eccd"
     },
+    "validation/replay-context-retention.mjs": {
+      "bytes": 14751,
+      "sha256": "b253fef3318af5f3c55500ef519ea8aaa13113f0b5684397b5a73a1b9cfeecc4"
+    },
     "validation/rsi-feedback.mjs": {
       "bytes": 1139,
       "sha256": "656f0de44deded05975685d693fcd5d511efda71c84719521350e42f3e77d098"
@@ -4252,8 +4256,8 @@
       "sha256": "bd97e3f6a936b9ae25ca1631304067bff13671367985c85823e77a0a4611c0e7"
     },
     "validation/tui/ACCEPTANCE.md": {
-      "bytes": 32578,
-      "sha256": "69958e10c955a1f872c30f002cf18e8a8c2efdded8f13fa5c514bd6f8b3a2626"
+      "bytes": 33518,
+      "sha256": "5eae6d6affe8681b956ac816af94b2a8a695b08e6c536461ef3c909618d8278b"
     },
     "validation/tui/README.md": {
       "bytes": 9510,

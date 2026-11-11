@@ -1,6 +1,8 @@
 import type { EffectRpc } from "../clients/rpc.ts";
 import { wireValidator } from "../clients/wire-schemas.ts";
 import { compileContext } from "../context/compiler.ts";
+import type { ContextSource } from "../generated/context.ts";
+export type ModelInputProjection = (harness: HarnessInput, source: ContextSource) => HarnessInput;
 import { validatedSnapshot } from "../context/json-snapshot.ts";
 import { SCHEMA } from "../generated/harness.ts";
 import type { ChildModelTurnRequest, HarnessInput, ModelTurnRequest } from "../generated/harness.ts";
@@ -18,7 +20,7 @@ function admittedRoutes(value: unknown): readonly string[] {
   return [...value];
 }
 
-async function modelTurn(rpc: EffectRpc, request: ModelTurnRequest, native: boolean): Promise<Record<string, unknown>> {
+async function modelTurn(rpc: EffectRpc, request: ModelTurnRequest, native: boolean, project?: ModelInputProjection): Promise<Record<string, unknown>> {
   if (native !== (request.harness !== undefined)) throw new Error("Pi input differs from the admitted Harness capability");
   const prepared = await rpc.call("prepare_turn");
   if (prepared.stop === true) return prepared;
@@ -29,9 +31,10 @@ async function modelTurn(rpc: EffectRpc, request: ModelTurnRequest, native: bool
     const params: Record<string, unknown> = { route };
     if (context !== undefined) params.context = context;
     if (request.harness !== undefined) {
-      params.harness = validatedSnapshot({ ...request.harness,
+      const composed = validatedSnapshot({ ...request.harness,
         system_prompt: `KERNELCAT_CONTEXT_V1\n${canonicalKey(context)}\nEND_KERNELCAT_CONTEXT_V1\n${request.harness.system_prompt}`,
       }, validateHarness, "Owner-composed Pi input");
+      params.harness = project && context ? project(composed, context) : composed;
     }
     // Only an acknowledged failed attempt advances the admitted order. Throws
     // (including lost acknowledgements) escape without another model request.
@@ -46,7 +49,7 @@ async function modelTurn(rpc: EffectRpc, request: ModelTurnRequest, native: bool
 }
 
 /** The Pi process supplies a transcript or permit, never a route or budget. */
-export function controlledModels(rpc: EffectRpc): EffectRpc {
+export function controlledModels(rpc: EffectRpc, project?: ModelInputProjection): EffectRpc {
   let native: boolean | undefined;
   // Concurrent delegations each hold their own permit and admitted route order.
   type Child = { readonly permit: string; readonly routes: readonly string[];
@@ -86,7 +89,7 @@ export function controlledModels(rpc: EffectRpc): EffectRpc {
       }
       if (method === "model_turn") {
         if (native === undefined) throw new Error("Model turn precedes the owner handshake");
-        return await modelTurn(rpc, validatedSnapshot(params, validateTurn, "Model turn"), native);
+        return await modelTurn(rpc, validatedSnapshot(params, validateTurn, "Model turn"), native, project);
       }
       if (method === "child_model_turn") return await childTurn(params);
       if (method === "child_tool" && typeof params.permit === "string") {

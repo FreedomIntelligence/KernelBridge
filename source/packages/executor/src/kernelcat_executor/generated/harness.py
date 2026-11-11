@@ -7,7 +7,7 @@ from .context import ContextSource, JsonObject
 from .rsi import ReplayPluginConfiguration, RsiSourceCommit
 from .runtime import ContextCommit
 
-SCHEMA_SHA256 = "8044ec283bb4ff239fda049dbaa6c87d05dc6b01857f21035520ede7ec13b63e"
+SCHEMA_SHA256 = "0cd2de2dffdebd9d32c49f88b59f2ec3a47f752850cc7d548058f1f8e10c0ce3"
 SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/draft/2020-12/schema',
  '$id': 'https://kernelcat.local/contracts/execution/v1/harness.schema.json',
  'title': 'Effective Pi input and Host sealed native tool dispatch',
@@ -71,7 +71,10 @@ SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/draft/2020-12/sche
                                                          'minLength': 1,
                                                          'maxLength': 256},
                                                 'arguments': {'$ref': 'https://kernelcat.local/contracts/execution/v1/context.schema.json#/$defs/JsonObject'}},
-                                 'required': ['permit', 'sequence', 'name', 'arguments'],
+                                 'required': ['permit',
+                                              'sequence',
+                                              'name',
+                                              'arguments'],
                                  'additionalProperties': False},
            'NativeSettleRequest': {'type': 'object',
                                    'properties': {'permit': {'type': 'string',
@@ -113,7 +116,10 @@ SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/draft/2020-12/sche
                                            'checkpoint': {'oneOf': [{'$ref': '#/$defs/NativeCheckpoint'},
                                                                     {'type': 'null'}]},
                                            'plugin': {'$ref': 'https://kernelcat.local/contracts/execution/v1/rsi.schema.json#/$defs/ReplayPluginConfiguration'}},
-                            'required': ['schema_version', 'directory', 'workspace', 'checkpoint'],
+                            'required': ['schema_version',
+                                         'directory',
+                                         'workspace',
+                                         'checkpoint'],
                             'additionalProperties': False},
            'EndTurnRequest': {'type': 'object',
                               'properties': {'proposal_id': {'type': 'string',
@@ -163,7 +169,8 @@ SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/draft/2020-12/sche
                                                                         'no_immutable_reference',
                                                                         'short_result',
                                                                         'duplicate_delivery',
-                                                                        'immutable_reference']}},
+                                                                        'immutable_reference',
+                                                                        'within_budget']}},
                                      'required': ['index', 'action', 'reason'],
                                      'additionalProperties': False},
            'ReplayCleanupReport': {'type': 'object',
@@ -226,7 +233,9 @@ SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/draft/2020-12/sche
                                                                     'maximum': 2147483647},
                                                        'digest': {'type': 'string',
                                                                   'pattern': '^sha256:[a-f0-9]{64}$'}},
-                                        'required': ['path', 'revision', 'digest'],
+                                        'required': ['path',
+                                                     'revision',
+                                                     'digest'],
                                         'additionalProperties': False},
            'ModelTurnRequest': {'type': 'object',
                                 'properties': {'harness': {'$ref': '#/$defs/HarnessInput'}},
@@ -274,7 +283,8 @@ SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/draft/2020-12/sche
                                         'decision_id': {'type': 'string',
                                                         'minLength': 1,
                                                         'maxLength': 512},
-                                        'mode': {'enum': ['reset_context', 'replay']},
+                                        'mode': {'enum': ['reset_context',
+                                                          'replay']},
                                         'target_node_id': {'oneOf': [{'type': 'string',
                                                                       'minLength': 1,
                                                                       'maxLength': 512},
@@ -377,7 +387,7 @@ class ReplayResultMetadata(TypedDict):
 class ReplayCleanupDecision(TypedDict):
     index: int
     action: Literal['keep', 'remove', 'replace']
-    reason: Literal['user', 'non_result', 'unpaired_or_pending', 'recent', 'unproven_or_unsuccessful', 'reference_anchor', 'no_immutable_reference', 'short_result', 'duplicate_delivery', 'immutable_reference']
+    reason: Literal['user', 'non_result', 'unpaired_or_pending', 'recent', 'unproven_or_unsuccessful', 'reference_anchor', 'no_immutable_reference', 'short_result', 'duplicate_delivery', 'immutable_reference', 'within_budget']
 
 class ReplayCleanupReport(TypedDict):
     rule: Literal['kernelcat.replay-context/v2']

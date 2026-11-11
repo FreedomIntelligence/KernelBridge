@@ -347,7 +347,8 @@
             "no_immutable_reference",
             "short_result",
             "duplicate_delivery",
-            "immutable_reference"
+            "immutable_reference",
+            "within_budget"
           ]
         }
       },

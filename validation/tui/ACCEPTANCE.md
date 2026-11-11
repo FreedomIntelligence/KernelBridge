@@ -2,6 +2,19 @@
 
 Current scope: native Pi TUI, concurrent/background subagents and local host recovery in `/Users/jerry/.codex/worktrees/harness-20turn/KernelBridge` (`codex/harness-20turn`). The core behavior below passed. This is combined evidence from separate runs; it is not a claim that every historical acceptance scenario passed in one run or that all original redesign checks are complete. [Redesign §6](../../docs/architecture/tui-subagent-redesign.md#6-实施与验收核对2026-11-11) records the remaining checks and adopted design changes.
 
+Context-retention follow-up: successful outputs now remain available until the
+owner-composed request approaches its authoritative byte limit. Native Pi
+shell/extension/fork/compact messages use the SDK's conversion before trusted
+prefix and receipt-index checks. Final verification: 15 directed checks;
+86 npm tests plus types/managed checks (two original-artifact replay cases skipped
+in discovery and passed separately); codegen 10 checks / 35 ordinary turns /
+48 provider requests, advanced 11 checks, and parallel/background 8 checks.
+Original evidence is `.validation/context-retention-{codegen-r3,advanced-r2,parallel-r2}`.
+Python discovery had 185 passes, one optional skip and one portable-import error;
+the portable module's two tests passed after the native conversion correction.
+Failed/interrupted initial runs remain preserved in `.validation/`; this is
+combined verification and does not imply a device optimization result.
+
 | Current check | Verified result and evidence under `.validation/` |
 | --- | --- |
 | JavaScript and types | 65 tests passed, with TypeScript/managed-continuation checks: `harness-npm-r1.log` |
