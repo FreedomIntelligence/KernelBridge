@@ -620,8 +620,8 @@
       "sha256": "d82cbfab532e22c760560d1d949630428b434f08b5338aed3241fe7a85390b36"
     },
     "docs/architecture/tui-subagent-redesign.md": {
-      "bytes": 54999,
-      "sha256": "3d5c7a950031fb2190c0fa547cb7e5e39b424e173842d14124e1fe51d0c99f68"
+      "bytes": 55124,
+      "sha256": "61d280e85e2a831301ae1865c66e5c3d0c345a9cd55504e7e1c97fd9972c0b52"
     },
     "docs/operator-workflow.md": {
       "bytes": 13111,
@@ -1340,8 +1340,8 @@
       "sha256": "9055d3854e1064930d58af3b8e17f340654861ada4ff59a6c70364046b620651"
     },
     "source/apps/agent/src/application/operator-task.mjs": {
-      "bytes": 5647,
-      "sha256": "2d8d8781151b090c9083f99a3ce2683c1a915a4cad90c8bef986b17685a71e5a"
+      "bytes": 9198,
+      "sha256": "91aba7b78cd0ae7c0377a9879d11098d41d5c0b57cb06afac4e103229bbb7b69"
     },
     "source/apps/agent/src/application/project-info.mjs": {
       "bytes": 844,
@@ -1584,8 +1584,8 @@
       "sha256": "9e21bd59a1ebf027e1dfec0f3916c68f6d6f1a7c1417e24330e11b0dc34f6e64"
     },
     "source/apps/agent/src/harness/pi/operator-workflow-prompt.mjs": {
-      "bytes": 3245,
-      "sha256": "a4ff52a32ec8f88d9dfd83f02952c6ffe7f9490c873fa768e1127d383051a1cf"
+      "bytes": 4020,
+      "sha256": "ae7a454725703e854688a55aa0c704a027148f9139f48d11cc0955c71afd0b3d"
     },
     "source/apps/agent/src/harness/pi/plugin.mjs": {
       "bytes": 6687,
@@ -4104,8 +4104,8 @@
       "sha256": "f021d9c67f985705f288ade24c6a235baabd70591b00ad22223187cbb471c91f"
     },
     "validation/operator-task.mjs": {
-      "bytes": 3760,
-      "sha256": "3eed55fb0f2542ee3c216e8eaa85f0af05b4604689f65491f9a1f1f95caf4713"
+      "bytes": 11557,
+      "sha256": "82a691934624be6149a926a22fea542dba95275aa26ca7359ca915c0a125b35c"
     },
     "validation/pending-effect.mjs": {
       "bytes": 774,
@@ -4240,8 +4240,8 @@
       "sha256": "bd97e3f6a936b9ae25ca1631304067bff13671367985c85823e77a0a4611c0e7"
     },
     "validation/tui/ACCEPTANCE.md": {
-      "bytes": 31733,
-      "sha256": "45b2314c48a8405a8d86330f0c211c606f519f089cf311e95a4477a14d1792e7"
+      "bytes": 32578,
+      "sha256": "69958e10c955a1f872c30f002cf18e8a8c2efdded8f13fa5c514bd6f8b3a2626"
     },
     "validation/tui/README.md": {
       "bytes": 9510,
