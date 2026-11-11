@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT / 'examples/operator_pipeline'))
 from pipeline import main, Pipeline
 from prepare import prepare
 from diagnostic_policy import assess_diagnostics, diagnostic_reason
+from job_identity import wire_handle, wire_handles
 
 
 def load(path, name):
@@ -221,6 +222,7 @@ print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['s
         tools = prepare(profile, self.root / 'timed-inputs', sys.executable)
         self.assertTrue(all(tool['timeout'] >= 7630 for tool in tools))
         self.assertTrue((self.root / 'timed-inputs/diagnostic_policy.py').is_file())
+        self.assertTrue((self.root / 'timed-inputs/job_identity.py').is_file())
         reply = subprocess.run(tools[0]['argv'], input=json.dumps({'id': 'frozen-status', 'tool': 'pipeline_status', 'arguments': {}}),
                                text=True, capture_output=True, check=True)
         self.assertEqual(json.loads(reply.stdout)['data']['result']['diagnostic_policy']['scope'], 'local_cpu_diagnostic')
@@ -261,6 +263,53 @@ print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['s
         self.freeze()
         script = self.fixture_driver('equal', 'measure'); script.write_text('raise RuntimeError("changed")')
         self.baseline(); self.check(); self.call('pipeline_pair', driver='equal', failed=True)
+
+    def test_legacy_nanosecond_state_status_collect_and_workflow_are_lossless(self):
+        self.freeze()
+        raw = json.loads((ROOT / 'validation/fixtures/npu-job-handle.json').read_text())['handle']
+        path = self.root / 'handle-driver.py'
+        count = self.root / 'launch-count.txt'
+        path.write_text('''import json,sys
+from pathlib import Path
+r=json.load(sys.stdin)
+if sys.argv[1]=='launch':
+ with Path(sys.argv[2]).open('a') as stream: stream.write('launch\\n')
+ result={'handle':json.loads(sys.argv[3])}
+else: result={'handle':r['handle'],'original_handle':r['handle'],'status':'completed'}
+print(json.dumps(result))
+''')
+        for kind in ('launch', 'collect'):
+            self.config['drivers'][kind] = {'kind': kind, 'argv': [sys.executable, '-B', str(path), kind, str(count), json.dumps(raw)],
+                'files': {str(path): hashlib.sha256(path.read_bytes()).hexdigest()}, 'timeout': 30}
+        launched = self.call('pipeline_run', stage='E', driver='launch')
+        self.assertEqual(launched['result']['result']['handle'], wire_handle(raw))
+        state = Pipeline(self.config)
+        self.assertEqual(state.state['handles'][0]['handle'], raw)
+        self.assertEqual(state.workflow()['next_actions'][0]['arguments']['handle'], wire_handle(raw))
+        before = {p: p.read_bytes() for p in state.root.rglob('*') if p.is_file()}
+        status = self.call('pipeline_status')
+        self.assertEqual(status['result']['handles'][0]['handle'], wire_handle(raw))
+        self.assertEqual(status['workflow']['next_actions'][0]['arguments']['handle'], wire_handle(raw))
+        original_text = self.call('pipeline_read', run=launched['run'], path='driver/receipt.json', limit=16384)['text']
+        self.assertEqual(json.loads(original_text)['result']['handle'], raw)
+        wrong = dict(raw, started_ns='1794401504504640500')
+        self.call('pipeline_run', stage='E', driver='collect', handle=wrong, failed=True)
+        collected = self.call('pipeline_run', stage='E', driver='collect', handle=wire_handle(raw))
+        self.assertEqual(collected['result']['result']['handle'], wire_handle(raw))
+        self.assertEqual(collected['workflow']['next_actions'][0]['stage'], 'F')
+        self.assertEqual(collected['workflow']['next_actions'][0]['arguments']['handle'], wire_handle(raw))
+        self.assertEqual(Pipeline(self.config).state['handles'][0]['handle'], raw)
+        self.assertEqual({p: p.read_bytes() for p in before}, before)
+        self.assertEqual(count.read_text(), 'launch\n')
+
+    def test_generic_handle_projection_preserves_unrelated_types_and_cached_content(self):
+        generic = {'handle': {'job': 7, 'pid': 23, 'metadata': ['plain', 1.5, True]},
+                   'elsewhere': {'started_ns': 1794401504504640402}, 'original_handle': 'opaque-job-id'}
+        self.assertEqual(wire_handles(generic), generic)
+        old = json.loads((ROOT / 'validation/fixtures/npu-job-handle.json').read_text())['handle']
+        cached = {'diagnostics': {'reports': [{'result': {'original_handle': old}}]}}
+        self.assertEqual(wire_handles(cached)['diagnostics']['reports'][0]['result']['original_handle'], wire_handle(old))
+        self.assertIs(type(cached['diagnostics']['reports'][0]['result']['original_handle']['started_ns']), int)
 
     def test_no_torch_bootstrap_incumbent_pair_and_archive(self):
         self.freeze(); checked = self.check()['result']

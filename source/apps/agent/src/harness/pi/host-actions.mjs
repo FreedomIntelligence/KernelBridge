@@ -56,6 +56,8 @@ export function createHostActions(control, effects, { observer = control } = {})
   let observationFallback;
   let observationTimer;
   let disposed = false;
+  let runGoalId = null;
+  let userInterrupted = false;
   const policyInputs = new Set();
   let consecutiveErrors = 0;
   let compactions = 0;
@@ -176,6 +178,8 @@ export function createHostActions(control, effects, { observer = control } = {})
     // The row stays on one line: details give way at the terminal's current width.
     const tick = started => context?.ui.setWorkingMessage?.(workingMessage(state, started, activity, process.stdout.columns));
     pi.on('agent_start', () => {
+      runGoalId = state?.goal?.goal_id ?? null;
+      userInterrupted = false;
       if (!interactive || !context?.ui.setWorkingMessage) return;
       stopWorking();
       const started = Date.now();
@@ -200,11 +204,21 @@ export function createHostActions(control, effects, { observer = control } = {})
       const providerFailed = governed?.controller.stopResult?.status === 'providers_failed';
       const setupFailed = governed?.controller.stopResult?.status === 'seed_failed';
       const limitReached = ['budget_exhausted', 'budget_limit', 'trial_limit', 'step_limit'].includes(governed?.controller.stopResult?.status);
+      const failure = !userInterrupted && !providerFailed && !setupFailed && !limitReached
+        ? governed?.controller.failure : null;
+      const failureSummary = failure ? Array.from(String(failure)).slice(0, 2048).join('') : undefined;
+      if (failure) {
+        // Record the cause before reconciling effects: an unknown effect may
+        // still prevent settlement. This is never a synthetic user interrupt.
+        await control.call('configuration', { operation: 'harness_failure', reason: 'harness_failure',
+          summary: failureSummary, goal_id: runGoalId, input_ids: [...runningInputs] });
+        showProductFeedback(context, `运行时失败：${failureSummary}`, true);
+      }
       if (limitReached) showProductFeedback(context, '已达到显式设置的执行上限。当前请求已停止，未再调用模型。', true);
       if (providerFailed) {
         await effects.call('end_failed_turn', { native_checkpoint: await governed.checkpoint() });
       }
-      if (event.aborted && governed) {
+      if ((event.aborted || failure) && governed) {
         const interrupted = await effects.call('interrupt_turn');
         const manager = governed.session.sessionManager;
         for (const item of interrupted.calls) {
@@ -229,14 +243,15 @@ export function createHostActions(control, effects, { observer = control } = {})
         }
         governed.controller.active = null;
         governed.controller.stopped = true;
-        await stop();
+        if (!failure && !userInterrupted) await stop();
       }
       // Claude Code leaves a visible mark where a turn stopped; otherwise the
       // transcript ends mid-thought with no explanation.
       if (event.aborted && runningInputs.size) showProductFeedback(context, '已中断。工具调用的回执已保留，可以继续输入。');
       for (const inputId of [...runningInputs]) {
         await control.call('transition', { input_id: inputId,
-          status: event.aborted ? 'interrupted' : governed?.controller.failure || providerFailed || setupFailed || limitReached ? 'failed' : 'completed' });
+          status: failure ? 'failed' : event.aborted ? 'interrupted' : governed?.controller.failure || providerFailed || setupFailed || limitReached ? 'failed' : 'completed',
+          ...(failure ? { reason: 'harness_failure', summary: failureSummary } : {}) });
         runningInputs.delete(inputId);
       }
       activeInput = undefined;
@@ -244,7 +259,7 @@ export function createHostActions(control, effects, { observer = control } = {})
       await refresh();
       const plateau = state.fork_suggestion;
       if (plateau) await suggestFork(plateau, 'plateau-' + state.model_turns);
-      if (interactive && !event.aborted && !exiting) setImmediate(() => { void advance().catch(report); });
+      if (interactive && !event.aborted && !failure && !exiting) setImmediate(() => { void advance().catch(report); });
     });
     pi.on('user_bash', async event => {
       const text = (event.excludeFromContext ? '!!' : '!') + event.command;
@@ -425,6 +440,7 @@ export function createHostActions(control, effects, { observer = control } = {})
       const delivery = deliver(event.receipt).catch(report);
       inputDelivery = Promise.all([inputDelivery, delivery]);
     } else if (event.type === 'control' && ['interrupt', 'pause'].includes(event.operation)) {
+      userInterrupted = true;
       if (event.operation === 'interrupt') void governed?.session.abort();
     } else if (event.type === 'control' && ['resume', 'set'].includes(event.operation)) {
       if (interactive) setImmediate(() => { void advance().catch(report); });
@@ -564,6 +580,8 @@ export function createHostActions(control, effects, { observer = control } = {})
       if (command === '/goal') {
         const { operation, ...values } = parseGoalCommand(text);
         if (operation === 'status') return { action: 'handled', message: statePresentation(await refresh()) };
+        if (operation === 'resume' && governed.controller.failure) return { action: 'handled',
+          message: '当前运行时已失败。先 /quit，重新连接并排除原错误后再显式 /goal resume。若历史消息无效，需依据可信回执或有效检查点修复；重新连接不会修复历史，也不会自动重跑原效果。' };
         await control.control(operation, { channel: 'tui', ...values,
           ...(acceptedCommand ? { input_id: acceptedCommand.input_id + '-goal' } : {}) });
         return { action: 'handled', message: statePresentation(await refresh()) };
@@ -697,7 +715,7 @@ export function createHostActions(control, effects, { observer = control } = {})
       }
       return { action: 'reject', message: `Unknown or unadapted command: ${command}` };
     },
-    interrupt: stop,
+    interrupt: async () => { userInterrupted = true; await stop(); },
     resumeCommand: () => `kernelagent tui --attach ${control.applicationSessionId}`,
     async exit() {
       if (!exiting) {

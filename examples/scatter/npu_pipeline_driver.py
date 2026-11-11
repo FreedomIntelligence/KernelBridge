@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import sys
 
-from npu_trial import attempt_records, attempt_number, invoke_remote, save, transport, trial
+from npu_trial import attempt_records, attempt_number, invoke_remote, save, transport, trial, same_handle, wire_handle, wire_summary
 
 
 def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -47,7 +47,7 @@ def round_for(config, request):
 def original(config, request):
     folder, intent = round_for(config, request)
     result = json.loads((folder / 'device-result.json').read_text())
-    summary = json.loads((folder / 'result.json').read_text())
+    summary = wire_summary(json.loads((folder / 'result.json').read_text()))
     observation = json.loads((folder / 'observation.json').read_text())
     original_bytes = (json.dumps(observation['result'], indent=2, allow_nan=False) + '\n').encode()
     original_sha = hashlib.sha256(original_bytes).hexdigest()
@@ -60,7 +60,7 @@ def original(config, request):
         raise ValueError('Qualified local result differs from the original device receipt')
     if result['source_sha256'] != intent['source_sha256'] or sha(folder / 'candidate.py') != intent['source_sha256']:
         raise ValueError('Original candidate identity changed')
-    if request.get('handle') and request['handle'] != summary['original_handle']:
+    if request.get('handle') and not same_handle(request['handle'], summary['original_handle']):
         raise ValueError('Requested handle differs from the original job')
     oracle = request['contract']['oracle']['files']; verify(oracle)
     if result['driver_sha256'] != oracle['files'].get(config.get('oracle_driver_file', 'npu_benchmark.py')) or result['baseline_sha256'] != oracle['files'].get(config.get('baseline_file', 'npu_eager.py')):
