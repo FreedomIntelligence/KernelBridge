@@ -620,8 +620,8 @@
       "sha256": "d82cbfab532e22c760560d1d949630428b434f08b5338aed3241fe7a85390b36"
     },
     "docs/architecture/tui-subagent-redesign.md": {
-      "bytes": 53282,
-      "sha256": "dca8927a01fe7bc2d27853c54e8ace795c6cf5ec6ef9fcb4a32b9c453fb1c276"
+      "bytes": 54999,
+      "sha256": "3d5c7a950031fb2190c0fa547cb7e5e39b424e173842d14124e1fe51d0c99f68"
     },
     "docs/operator-workflow.md": {
       "bytes": 13111,
@@ -3924,8 +3924,8 @@
       "sha256": "3358c4c00254e681fef0bed80223d55b4f25f13b49ea5f2f542d859224b677e5"
     },
     "source/scripts/audit_operator_trial.py": {
-      "bytes": 7446,
-      "sha256": "7b256355d734e8e5f1c097f48422b5930b119659d3dea11f387e832c309a767f"
+      "bytes": 7670,
+      "sha256": "c86589a4498a37b8090cc18a6fdf951435b0b5fd412644414752ee8e5d023538"
     },
     "source/scripts/develop.py": {
       "bytes": 1862,
@@ -4135,6 +4135,10 @@
       "bytes": 3880,
       "sha256": "a78aa7cd57d3d17d0da212125175720cc4d26c2e7fe0aa82d98aa80fa7e82acc"
     },
+    "validation/test_propose_stress.py": {
+      "bytes": 13999,
+      "sha256": "25b66d747dfc83a2c3f689972a5140bdd3edc17c880cd911841b475a10360fa2"
+    },
     "validation/test_rsi_proposal.py": {
       "bytes": 5920,
       "sha256": "79e45efd612c47635951aca06e74bb6e0d8a14b78509473cf3464703e258d2c1"
@@ -4164,8 +4168,8 @@
       "sha256": "bd97e3f6a936b9ae25ca1631304067bff13671367985c85823e77a0a4611c0e7"
     },
     "validation/tui/ACCEPTANCE.md": {
-      "bytes": 19475,
-      "sha256": "c02d5f8ca7885f64c62191e716d3682312b0508a38c2d8c993fd77b987b8c798"
+      "bytes": 24743,
+      "sha256": "25e1b099ddb482088c8366800e1ff57f05dcbff998286c9340a68339629f200e"
     },
     "validation/tui/README.md": {
       "bytes": 9510,
@@ -4176,8 +4180,8 @@
       "sha256": "074569982c626175499c7d98ab6783cbea654a9291f2f90fbb0af0347cfc3da7"
     },
     "validation/tui/advanced_scenario.py": {
-      "bytes": 15268,
-      "sha256": "6517d24a796a8f32667429bc2dd7245d5a0c02554e8ed28bcd2216a39fcd50b6"
+      "bytes": 15521,
+      "sha256": "ff110f9b28b540532f35fe77a9707a76058745871017352e1ad88528f1505f64"
     },
     "validation/tui/agents-panel.mjs": {
       "bytes": 1785,

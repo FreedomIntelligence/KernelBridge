@@ -85,7 +85,7 @@ def audit(run):
         data = outcome.get('data', {}); result = data.get('result')
         item = {'action_id': identity, 'tool': tool, 'role': role(action), 'admitted_seq': row['seq'],
             'status': outcome.get('status', 'pending'), 'elapsed_ms': (end or {}).get('elapsed_ms'),
-            'run': data.get('run')}
+            'run': data.get('run'), 'initiator': 'host_seed' if '/seed/' in identity else 'model'}
         stage = args.get('stage') or {'pipeline_bind': 'A', 'pipeline_freeze': 'D',
             'pipeline_pair': 'G', 'pipeline_promote': 'H', 'pipeline_archive': 'I'}.get(tool)
         if stage:
@@ -119,7 +119,9 @@ def audit(run):
         'usage_unknown_calls': sum(group['usage_unknown_calls'] for group in groups.values()),
         'within_20_calls': len(models) <= 20, 'goal': goals[-1] if goals else None,
         'evidence': evidence, 'accepted_e3': bool(promoted), 'e4_claimed': False,
-        'stages_called': dict(stages), 'tool_counts': dict(Counter(item['tool'] for item in calls)),
+        'stages_called': dict(stages),
+        'tool_counts': dict(Counter(item['tool'] for item in calls if item['initiator'] == 'model')),
+        'initialization_tool_counts': dict(Counter(item['tool'] for item in calls if item['initiator'] == 'host_seed')),
         'explicit_diagnostic_calls': diagnostics, 'artifact_reads': reads,
         'model_calls': model_rows, 'tool_calls': calls,
         'pending_action_ids': [identity for identity in admitted if identity not in settled],
