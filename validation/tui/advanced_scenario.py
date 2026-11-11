@@ -110,7 +110,10 @@ def main():
     ]
     config = output / 'config.json'; config.write_text(json.dumps({'providers': {'primary': {'model': 'advanced',
         'base_url': f'http://127.0.0.1:{server.server_port}/v1', 'api_key_env': 'KERNELBRIDGE_TEST_KEY'}},
-        'subagents': {'max_per_turn': 2, 'max_total': 6, 'timeout': 15}, **pipeline}))
+        # This scenario checks count limits and recovery, not wall-clock
+        # deadlines (covered by dedicated cancellation tests). Allow loaded CI
+        # machines to finish the two actual provider/tool exchanges.
+        'subagents': {'max_per_turn': 2, 'max_total': 6, 'timeout': 120}, **pipeline}))
     home = output / 'home'; registry = Path('/tmp').resolve() / ('kb-advanced-' + uuid.uuid4().hex[:8])
     env = {**os.environ, 'TERM': 'xterm-256color', 'KERNELBRIDGE_HOME': str(home), 'KERNELBRIDGE_SESSIONS': str(registry),
            'KERNELBRIDGE_CONFIG': str(config), 'KERNELBRIDGE_TEST_KEY': 'local-protocol-fixture'}
@@ -120,7 +123,7 @@ def main():
         term.until(lambda: '等待输入' in term.text() or 'ADVANCED_DONE' in term.text()); return term
     def connect_latest():
         files = sorted(home.glob('runs/*/application.json'), key=lambda p: p.stat().st_mtime)
-        binding = json.loads(files[-1].read_text()); client = Client(Path(binding['host_directory'])); clients.append(client); return client
+        binding = json.loads(files[-1].read_text()); client = Client(Path(binding['host_directory'])); client.socket.settimeout(120); clients.append(client); return client
     def status(): return client.call('status')
     def send(text):
         before = set(status()['inputs']); ui.send(text)

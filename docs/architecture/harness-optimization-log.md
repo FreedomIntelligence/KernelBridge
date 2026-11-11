@@ -97,3 +97,95 @@ rerun with the existing local Torch test dependencies; no packages are installed
 or device results substituted. Enhanced parallel PTY passed all eight checks,
 including foreground independence, original background notifications, Esc
 cancellation, and immediate next input.
+
+### Baseline max 01 — completed, unsuccessful
+
+- Harness: `c5fe484`; fresh session under
+  `.validation/harness-trials/baseline-max-01/run-02`.
+- Original Journal: `run-02/state/events.jsonl`; verified accounting:
+  `run-02-observer/audit.json`; observer terminal result:
+  `run-02-observer/outcome.json`.
+- 20 model admissions, all parent; no child/compact/review calls. Known usage
+  256,776 tokens; **one failed model call returned no usage**, so this is not an
+  exact total token claim. The normal route fallback also consumes the cap.
+- Goal stopped at `budget_limit`, CLI exited normally, elapsed 173.34 seconds.
+- A/B/C each have an original receipt. No candidate was authored; D/E/F/G/H/I/J
+  did not execute. There were no NPU jobs, measurements, diagnostic calls or
+  qualifying speedup. The three `write_file` admissions in the raw audit are
+  initial readonly document seeds, not model-written candidates.
+- Main waste: path/tool discovery. In the first ten completed model calls, eight
+  concerned locating inputs/tools and seven included a failed tool. Host-side
+  absolute reference paths were visible but could not be read through the
+  isolated native tools; driver IDs were mistaken for shell executables.
+  Later `pipeline_read` guessed an artifact path and failed. This baseline is
+  retained as a harness failure, not evidence of device optimization efficiency.
+
+Run min and the preregistered Cube task under the same mechanism before changing
+one general capability/path grounding mechanism. No candidate hint or source
+implementation will be added to the improvement.
+
+### Baseline min 01 — completed, unsuccessful
+
+- Fresh session: `.validation/harness-trials/baseline-min-01/run`, same runtime
+  mechanism as max (`c5fe484`). Journal and verified observer audit remain under
+  that directory and `run-observer/` respectively.
+- 20 model admissions; known usage 301,685 tokens; 244.27 seconds; Goal stopped at
+  the original limit and CLI exited normally. The model authored a candidate and
+  reached D after a rejected freeze using an inaccessible temporary path.
+- The final E call failed the fixed-contract preflight: the model added
+  `candidate_abi` to the exact contract. Original driver stderr retains
+  `Declared semantic, suite, oracle or measurement contract differs from the
+  frozen task`. No F/G/H/J or measured gain exists. The outer launch intent is
+  conservatively unknown; read-only recovery is checking the original identity
+  before another trial is allowed to use the device.
+- The 20-call ceiling was not shown in the actual model request. The first,
+  eighteenth and twentieth max requests contained neither a remaining-call
+  count nor that Goal limit; credits were correctly unlimited. This is a
+  separately recorded harness limitation. It is not being changed in the first
+  resource-access experiment, to keep attribution clear.
+
+Read-only recovery of min's original E identity confirmed no device dispatch:
+`.validation/harness-trials/baseline-min-01/recovery-evidence/d5ee8263bba12032ba12d31094fe28a9fd2bc86a3ce5d310a5b66f4d4e57d773.json`.
+The pinned code rejects the extra field before calling trial/transport; no local
+attempt, live driver, remote namespace, handle, matching process or device lease
+exists. Original unknown intent/receipt bytes were left intact. The separate
+Cube baseline was started only after this confirmation.
+
+### Baseline Cube 01 — completed, unsuccessful
+
+- Fresh session: `.validation/harness-trials/baseline-matmul-01/run`; final
+  audit: `baseline-matmul-01/final-audit.json`.
+- 20 model calls: parent 18 / 315,866 tokens, child 2 / 8,803 tokens; no
+  compaction/review calls. Total reported usage 324,669 tokens with no unknown
+  usage; elapsed 258.93 seconds. The late delegated review consumed the remaining
+  calls reading the candidate and could not complete before the shared ceiling.
+- A/B/C exist. The model wrote and edited a candidate; a successful bash edit was
+  verified byte-for-byte in the persistent file. Bash write-back itself is not
+  the defect. D/E/F/G/H/I/J did not execute. There are no NPU timings or gains.
+
+### Baseline comparison and first hypothesis
+
+All rows are real-model clean trials, **not successful NPU experiments**.
+The model changed no oracle, cases, tolerance or measurement settings accepted
+by a device job. The only attempted E was rejected before dispatch.
+
+| Task | Model calls (parent/child) | Reported tokens | Model tool calls / failures | Stages | Device jobs / E3 |
+| --- | --- | --- | --- | --- | --- |
+| max | 20 / 0 | 256,776; one call unknown | 22 / 13 | A B C | 0 / no |
+| min | 20 / 0 | 301,685 | 25 / 15 | A B C D; E preflight rejected | 0 / no |
+| Cube | 18 / 2 | 324,669 | 26 / 8 | A B C | 0 / no |
+
+The verified machine-readable index is `.validation/harness-baseline-summary.json`.
+Model-tool counts exclude the host's three initial readonly document writes.
+No trial explicitly called J or read an IR/profiler artifact. There are no
+regressing timed cases to enumerate because no paired measurement occurred.
+
+**Hypothesis 1:** model-visible references and capability boundaries disagree.
+Map the already approved, pinned oracle/baseline bytes into readonly workspace
+references, supply an unambiguous mapping to pipeline binding paths, and state
+that driver IDs are pipeline arguments and temporary bash paths are not stable.
+This is generic resource grounding: no operator implementation or candidate
+source is supplied. Test max/min and the independent Cube task from fresh
+sessions. Keep model, 20-call accounting, oracle, measurement, scheduling and
+stream limit fixed. Defer remaining-call telemetry and artifact-index changes
+so this first comparison changes only one mechanism.
