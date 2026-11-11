@@ -43,15 +43,41 @@ def diagnostic_lines(text: str, limit: int = 8) -> list[str]:
     return list(dict.fromkeys(primary or fallback or lines))[:limit]
 
 
-def _run(argv: list[str], cwd: Path) -> None:
+def _project_include_roots(project: Path) -> tuple[Path, ...]:
+    """One ordered, job-local include contract shared by all generated phases."""
+    root = project.resolve(strict=True)
+    paths = tuple((root / relative).resolve(strict=True) for relative in (".", "op_host", "op_kernel"))
+    if any(not path.is_dir() or not path.is_relative_to(root) for path in paths):
+        raise ValueError("generated include roots must be directories inside the native project")
+    # CPATH uses a path separator, and the existing kernel CMake API uses quoted
+    # arguments. Reject ambiguous encodings instead of silently changing paths.
+    if any(any(character in str(path) for character in (os.pathsep, "\n", "\r", '"', "$", ";", "\\")) for path in paths):
+        raise ValueError("generated include root cannot be encoded unambiguously")
+    return paths
+
+
+def _run(argv: list[str], cwd: Path, *, include_roots: tuple[Path, ...] = ()) -> None:
     logger.info("Native build step: %s", argv[0])
+    environment = os.environ.copy()
+    inherited = tuple(path for path in environment.get("CPATH", "").split(os.pathsep) if path)
+    if include_roots:
+        # Preserve the activated profile's SDK/Python headers after job roots.
+        # Empty CPATH entries imply cwd; never add that implicit search root.
+        environment["CPATH"] = os.pathsep.join((*map(str, include_roots), *inherited))
+        environment.pop("ASCEND_CUSTOM_OPP_PATH", None)
     # Keep full diagnostics even if the outer deadline kills the compiler.
     with tempfile.NamedTemporaryFile(prefix=".kernelbridge-build-", suffix=".log", dir=cwd,
                                      delete=False) as output:
         log_path = Path(output.name)
-        output.write((json.dumps({"argv": argv}) + "\n").encode())
+        output.write((json.dumps({"argv": argv, "cwd": str(cwd),
+            "include_contract": "kernelbridge.generated-includes/v1" if include_roots else None,
+            "include_roots": list(map(str, include_roots)),
+            "inherited_include_count": len(inherited) if include_roots else None,
+            "inherited_include_sha256": hashlib.sha256(json.dumps(inherited,
+                ensure_ascii=False, separators=(",", ":")).encode()).hexdigest() if include_roots else None,
+            "include_transport": "child_env_CPATH" if include_roots else None}) + "\n").encode())
         output.flush()
-        result = subprocess.run(argv, cwd=cwd, check=False, stdout=output, stderr=subprocess.STDOUT)
+        result = subprocess.run(argv, cwd=cwd, env=environment, check=False, stdout=output, stderr=subprocess.STDOUT)
     if result.returncode:
         with log_path.open("rb") as stream:
             stream.seek(max(0, log_path.stat().st_size - 65536))
@@ -112,15 +138,17 @@ def compile_sources(sources: Mapping[str, str], settings: BuildSettings,
         path.write_text(text)
     if set(diagnostic_options) - {'-save-temps', '--save-temp-files'}:
         raise ValueError('Unsupported diagnostic compiler option')
-    _inject_kernel_include_paths(project, extra_kernel_include_paths, diagnostic_options)
+    include_roots = _project_include_roots(project)
+    # Device recipes additionally receive explicit -I options; host codegen
+    # helpers which bypass CMake targets inherit the same roots through CPATH.
+    _inject_kernel_include_paths(project, (*map(str, include_roots), *extra_kernel_include_paths), diagnostic_options)
     # Keep the established native build/deploy protocol; isolate it per job.
-    os.environ.pop("ASCEND_CUSTOM_OPP_PATH", None)
-    _run(["./build.sh"], project)
+    _run(["./build.sh"], project, include_roots=include_roots)
     installers = sorted((project / "build_out").glob("custom_opp_*.run"))
     if len(installers) != 1:
         raise ValueError("expected one unambiguous native installer")
-    _run([str(installers[0]), "--quiet", "--install-path=" + str(root / "opp")], installers[0].parent)
-    _run([sys.executable, "setup.py", "build_ext", "--inplace"], root / "CppExtension")
+    _run([str(installers[0]), "--quiet", "--install-path=" + str(root / "opp")], installers[0].parent, include_roots=include_roots)
+    _run([sys.executable, "setup.py", "build_ext", "--inplace"], root / "CppExtension", include_roots=include_roots)
     source_digest = hashlib.sha256(json.dumps(
         {field: sources[field] for field in _FIELDS}, sort_keys=True,
         separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()

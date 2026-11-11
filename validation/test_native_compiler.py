@@ -14,7 +14,7 @@ class CompilerContracts(unittest.TestCase):
             with self.subTest(directory=directory),tempfile.TemporaryDirectory() as tmp:
                 root=Path(tmp);(root/'CppExtension/csrc').mkdir(parents=True)
                 project=root/'AuditAddCustom';calls=[]
-                def run(argv,cwd):
+                def run(argv,cwd,**kwargs):
                     calls.append(argv)
                     if argv[0]=='msopgen':
                         for part in ('op_host','op_kernel','build_out'):(project/part).mkdir(parents=True,exist_ok=True)

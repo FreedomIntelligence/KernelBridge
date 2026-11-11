@@ -1,6 +1,6 @@
 # Native six-source interface
 
-Interface version: `kernelbridge.native-six-source-interface/v1`.
+Interface version: `kernelbridge.native-six-source-interface/v2`.
 This describes the installed KernelBridge compiler and the clean native trial
 admission contract. It supplies interfaces, not an operator implementation.
 The task ABI above and `workflow-inputs.json.candidate_abi` supply actual operator
@@ -99,13 +99,26 @@ sizes. The device side must interpret exactly the same tiling layout. These
 interfaces do not select an algorithm, block count, tile size or memory layout.
 
 `msopgen` versions place the generated tiling header in either `op_host` or
-`op_kernel`. The compiler finds the sole existing `<name>_tiling.h` and replaces
-it. Host and kernel includes must resolve that same file; do not assume a
-second header is generated or that the compiler synthesizes a missing header.
-A conditional include using `__has_include` can account for these two directory
-layouts without changing the data layout. Register-based tiling declarations use
-the SDK's `register/tilingdata_base.h`; raw layouts must be compatible on both
-sides. The compiler does not serialize or repair user tiling data.
+`op_kernel`. The compiler requires exactly one generated `<name>_tiling.h` and
+replaces only that file. The public include is `#include "<name>_tiling.h"` from
+both host and kernel source; no duplicate tiling definition is synthesized.
+
+The generated-include contract `kernelbridge.generated-includes/v1` prepends
+absolute project, `op_host`, and `op_kernel` roots to **each build subprocess's**
+`CPATH`. Activated-profile SDK/Python include paths remain after those roots;
+empty inherited entries are removed so they cannot implicitly include the
+working directory. The parent environment is unchanged. Device CMake recipes
+also receive explicit `-I` options for the same roots. This lets nested host
+code-generation commands inherit the roots even when they do not consume
+CMake target include options. Build logs record the added roots and a digest
+of inherited paths, not the full environment. An SDK wrapper which clears
+`CPATH` requires separate toolchain qualification; this contract does not
+silently rewrite candidate includes or modify the installed SDK.
+
+Register-based tiling declarations use `register/tilingdata_base.h`; raw layouts
+must remain compatible on both sides. The compiler does not serialize or repair
+user tiling data. Filename/layout ambiguity and actual compiler errors remain
+errors, rather than reasons to guess a different declaration.
 
 The kernel entry has C linkage and the Ascend C qualifiers. Its address argument
 order follows the generated tensor descriptors, followed by workspace and tiling
@@ -192,7 +205,7 @@ if one of these interfaces changes.
 | Source | SHA256 |
 | --- | --- |
 | `source/packages/executor/pyproject.toml` | `e170fa4cb2cac1e9f586d8e61cebf20c6b77cc7a23a62ced6891e4a7d53d5744` |
-| `source/packages/executor/src/kernelcat_executor/backends/ascend/compiler.py` | `f70ca80e1906f2251a06951d08fbd0899fba19ca20ecac664b41a05a6e50c734` |
+| `source/packages/executor/src/kernelcat_executor/backends/ascend/compiler.py` | `38780e1ce497cb1cc80012dc1695582451d3ab97c7b221a960f5138faf7f5e65` |
 | `source/packages/executor/src/kernelcat_executor/build/inputs.py` | `8900bae54a0cc4ec86930c05a2dec649771e8aced363ef932a106b42b2a16b8b` |
 | `source/packages/executor/src/kernelcat_executor/backends/ascend/runtime.py` | `1455242ec7d7dcb0d489dbbce292d5b0a1c7fbcb057b57754e9b77587982fbfb` |
 | `source/packages/executor/src/kernelcat_executor/evaluation/protocols/six_source/audit.py` | `15f1a1d79029a57ec577a5a605ceb230b254e7f9b3eafdceb78a41f34484babc` |

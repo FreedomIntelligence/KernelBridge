@@ -460,3 +460,48 @@ host code generation, host compilation and device compilation without changing
 candidate bytes, algorithms, oracle, baseline or measurement. Use a fresh remote
 deployment namespace so historical compiler sources remain intact. Remaining-
 call telemetry and automatic-diagnostic feedback remain separate unapplied drafts.
+
+### Shared include interface — implementation qualified locally
+
+The compiler now supplies canonical project, `op_host` and `op_kernel` include
+roots to every build subprocess, preserving activated SDK/Python paths after
+them and omitting empty inherited entries. Device CMake recipes also record
+explicit `-I` roots so later IR recipe replay retains them. It changes neither
+the six source strings nor the installed SDK. Missing/ambiguous header layouts
+and unrelated compiler errors still fail. The public interface is version 2;
+its compiler SHA and other provenance records are verified.
+
+Local tests execute actual C++ preprocessing/object/shared-library compilation
+through nested SDK-shaped subprocesses for both header layouts and both CMake
+interfaces, including relocated kernel sources, inherited Python/SDK headers,
+local-header precedence and unchanged parent environment. The old adapter fails
+the same missing-header fixtures. An initial portable test compared macOS
+`/var` with canonical `/private/var`; all actual compilations succeeded, but four
+path-hash assertions failed. Only expected-path canonicalization was corrected.
+The full discovery rerun passed 197 tests with one optional upstream dependency
+skip (198 total); earlier failure logs remain retained. Evidence:
+`.validation/include-roots-python.log`, `include-roots-python-r2.log`,
+`include-roots-standalone-after.log`, `include-roots-build.log`.
+
+The prior three remote jobs have been checked read-only: their original PIDs
+are gone, original source/result hashes agree, and the old deployment namespace
+lock has no holder. This is not a claim of hardware-wide exclusivity. The
+original Cube build entrypoint does not clear include variables; downstream
+CANN inheritance still requires real qualification.
+
+Fresh inputs `include-roots-{max,min,matmul}-01` preserve all evaluation and
+model settings. New remote namespace:
+`/home/naie/work/kernelbridge_harness_include_roots_20261111`. The frozen
+304-file deployment manifest is `cc39657de0d9bbcfd94e8589b69813ddd1f9c9167670c85719852422168244f2`.
+Compared with the original remote deployment, it also carries previously
+completed host state/schema and handle-projection repairs; static review of
+the 24-file remote benchmark import/template closure finds only the compiler
+changed on that entrypoint. Baseline, oracle, measurement and diagnostic code
+bytes are identical. Full differences are retained in
+`.validation/npu-deployment-include-roots/comparison.json`; this static review
+is not a device execution result.
+
+The first upload lost its connection; a subsequent read-only query failed at
+the SLAI handshake. No fresh model trial starts before recovering and verifying
+that exact deployment identity. No alternate namespace, candidate or device
+job has been substituted.
