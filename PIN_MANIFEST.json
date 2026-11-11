@@ -619,6 +619,10 @@
       "bytes": 29420,
       "sha256": "c314b863a062a459cd942467a6e8ee7b911afb0ced5ef1ade831cce0a609114f"
     },
+    "docs/architecture/harness-trial-results.md": {
+      "bytes": 2898,
+      "sha256": "9d39670dac44f9cbef460ff7829deea8b77c23f83b3e6f6f6d32a36358b214b5"
+    },
     "docs/architecture/tui-implementation-plan.md": {
       "bytes": 44715,
       "sha256": "d82cbfab532e22c760560d1d949630428b434f08b5338aed3241fe7a85390b36"
