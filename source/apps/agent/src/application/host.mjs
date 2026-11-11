@@ -26,7 +26,7 @@ export async function applicationDirectory(identity) {
   return join(registryRoot(), identity);
 }
 
-async function offlineTitle(path, identity, fallback) {
+async function offlineHistory(path, identity, fallback) {
   // Discovery is advisory. The host separately verifies the complete journal
   // before resuming execution; an incomplete last line is not a new title.
   const stream = createReadStream(path, { encoding: 'utf8' });
@@ -34,27 +34,30 @@ async function offlineTitle(path, identity, fallback) {
   let name, firstPrompt, goal;
   try {
     for await (const line of lines) {
-      if (!line.includes('"kind":"application/')) continue;
+      if (!line.includes('application/')) continue;
       let row;
       try { row = JSON.parse(line); } catch { continue; }
       if (row.application_session_id !== identity) continue;
-      if (row.kind === 'application/configuration' && row.data.operation === 'rename') name = row.data.name;
-      if (row.kind === 'application/goal') goal = row.data.objective;
-      if (row.kind === 'application/input_accepted' && row.data.kind === 'prompt') firstPrompt ??= row.data.text;
+      if (row.kind === 'application/configuration' && row.data?.operation === 'rename') name = row.data.name;
+      if (row.kind === 'application/goal') goal = row.data?.objective;
+      if (row.kind === 'application/input_accepted' && row.data?.kind === 'prompt') firstPrompt ??= row.data.text;
     }
   } catch { /* Missing/unreadable history remains discoverable by its ID. */ }
   finally { lines.close(); stream.destroy(); }
-  return (name ?? goal ?? firstPrompt ?? fallback).slice(0, 120);
+  return { title: (name ?? goal ?? firstPrompt ?? fallback).slice(0, 120), has_history: Boolean(name || goal || firstPrompt) };
 }
 
-export async function sessions() {
+export async function sessions({ registry = registryRoot() } = {}) {
   let names;
-  try { names = await readdir(registryRoot()); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+  // A running Pi worker has an isolated HOME. Callers in that scope must use
+  // the registry of their authenticated host, not infer it from process.env.
+  registry = resolve(registry);
+  try { names = await readdir(registry); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
   const result = [];
-  for (const name of names.sort()) {
+  for (const name of names.sort().filter(name => name.startsWith('application-'))) {
     let summary, journal;
     try {
-      const descriptor = JSON.parse(await readFile(join(await applicationDirectory(name), 'descriptor.json'), 'utf8'));
+      const descriptor = JSON.parse(await readFile(join(registry, name, 'descriptor.json'), 'utf8'));
       const config = JSON.parse(await readFile(descriptor.config, 'utf8'));
       const task = JSON.parse(await readFile(descriptor.task, 'utf8'));
       journal = join(config.state_dir, 'events.jsonl');
@@ -64,11 +67,13 @@ export async function sessions() {
       const client = await ApplicationClient.connect(descriptor.host_directory, { timeoutMs: 1000 });
       try {
         const state = await client.state();
-        result.push({ ...summary, title: state.name ?? state.goal?.objective ?? Object.values(state.inputs ?? {}).find(item => item.kind === 'prompt')?.text?.slice(0, 120) ?? summary.title,
+        const firstPrompt = Object.values(state.inputs ?? {}).find(item => item.kind === 'prompt')?.text;
+        result.push({ ...summary, title: (state.name ?? state.goal?.objective ?? firstPrompt ?? summary.title).slice(0, 120),
+          has_history: Boolean(state.name || state.goal || firstPrompt),
           goal: state.goal, lease: state.lease, connected: true });
       } finally { client.close(); }
     } catch (error) {
-      if (summary && journal) summary.title = await offlineTitle(journal, name, summary.title);
+      if (summary && journal) Object.assign(summary, await offlineHistory(journal, name, summary.title));
       result.push({ ...summary, application_session_id: name, connected: false, error: error.message });
     }
   }

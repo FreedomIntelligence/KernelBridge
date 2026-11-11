@@ -1,0 +1,38 @@
+{
+  "schema_version": "kernelbridge.local-acceptance/v1",
+  "status": "passed",
+  "scope": "local session history, not device qualification",
+  "implementation": {
+    "source/apps/agent/src/application/host.mjs": "d7917b2dde85cba11007cedbf4ffe1d68f27896e9193bb6d824456685e7c4161",
+    "source/apps/agent/src/application/cli.mjs": "ce80e1293a790f401a576b5c8bbc5fe7d81a0c6381124d20c4b5f0b6ec1fecb2",
+    "source/apps/agent/src/application/codegen.mjs": "ecc16fbf7c34bdf170fa73cf2f49ac1747a73044dc4aec0a3fcf8df8645dacfb",
+    "source/apps/agent/src/application/session-picker.mjs": "4e12d7f63e78b6fb06383ad2c44cd8ce2b11721ac5f0ce68a75a6e0f24829e00",
+    "source/apps/agent/src/harness/pi/host-actions.mjs": "77b56497f15e4778fe7546253c8fb9d5f73f2d1dff8fb93428723a638b82c457",
+    "validation/tui/session-discovery.mjs": "5c680bd2e9c9a7cc07c9416b38f801f983cb5df73a87acd54dfdbc0a2c6205c7",
+    "validation/tui/resume_default_home.py": "b42255733828b40daf71737df00223a8dc0f255035a34ffe050d1468fb157946"
+  },
+  "evidence": {
+    ".validation/resume-discovery-r2.log": "400bb00705625d9149151d7daab083f95a7c73a3f14890751c9593896861d498",
+    ".validation/resume-default-home-r4/scenario.json": "7b564c05f6ba74ad2205e73c95e1ea1f8713fb2570c15c3643a64ebcc4536259",
+    ".validation/resume-npm-r2.log": "988e3e1db103fe550b68a2e7ee87d8d859e7294282026c0d756d1c37c9c61a8e",
+    ".validation/resume-live-picker-screen.txt": "5f0fad864743c1c2406dae28b0a6d8c0b6276afe042d5e7b1cd033f3b460126d"
+  },
+  "pty": {
+    "status": "passed",
+    "checks": [
+      "named_histories_persist_after_hosts_exit",
+      "default_home_picker_offline_resume_original_history_no_replay",
+      "all_projects_picker_cancel_without_execution",
+      "resumed_model_receives_original_conversation_only",
+      "continue_skips_empty_startups",
+      "cli_search_selects_same_history_without_replay"
+    ],
+    "provider_requests": 3,
+    "registry_overrides": false
+  },
+  "failures_retained": {
+    "r1": "fixture HOME was not canonical",
+    "r2": "fixture Unix socket path exceeded host limit",
+    "r3": "real CLI title-search defect; fixed by shared title/path/ID filtering"
+  }
+}

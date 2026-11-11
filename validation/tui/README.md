@@ -82,6 +82,7 @@ PYTHONPATH="$PWD/.validation/ui-test-deps" /absolute/venv/bin/python -B validati
 PYTHONPATH="$PWD/.validation/ui-test-deps" /absolute/venv/bin/python -B validation/tui/subagent_cancel_scenario.py --output /absolute/new-child-cancel-run
 PYTHONPATH="$PWD/.validation/ui-test-deps" /absolute/venv/bin/python -B validation/tui/goal_review_scenario.py --output /absolute/new-goal-review-run
 node --test validation/tui/session-discovery.mjs
+PYTHONPATH=.validation/ui-test-deps python3 -B validation/tui/resume_default_home.py --output .validation/resume-default-home-new
 /absolute/venv/bin/python -B -m unittest discover -s validation -p test_subagents.py -v
 /absolute/venv/bin/python -B -m unittest discover -s validation -p test_operator_pipeline.py -v
 /absolute/venv/bin/python -B -m unittest discover -s validation -p test_operator_infra.py -v

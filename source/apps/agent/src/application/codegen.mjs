@@ -61,11 +61,11 @@ export async function resumeCodegen(options) {
   const cwd = await realpath(resolve(options.cwd ?? process.cwd()));
   let identity = options.resume;
   if ((!identity || identity === true) && !options.latest) {
-    identity = await pickSession((await sessions()).filter(item => item.workspace_mode === 'project' && (options.all || item.cwd === cwd)));
+    identity = await pickSession((await sessions()).filter(item => item.workspace_mode === 'project' && item.has_history && (options.all || item.cwd === cwd)));
     if (!identity) return null;
   } else if (!identity || identity === true) {
     // Recently resumed sessions must outrank the last-created session pointer.
-    identity = (await sessions()).find(item => item.workspace_mode === 'project' && item.cwd === cwd)?.application_session_id;
+    identity = (await sessions()).find(item => item.workspace_mode === 'project' && item.has_history && item.cwd === cwd)?.application_session_id;
     if (!identity) throw new Error('当前项目没有可恢复的会话。先输入任务创建会话。');
   }
   if (!identity.startsWith('application-')) {

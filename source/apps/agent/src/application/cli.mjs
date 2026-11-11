@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
 import { attachApplication, startApplication, prepareApplication, sessions } from './host.mjs';
 import { startCodegen, resumeCodegen } from './codegen.mjs';
 import { startScreen } from './start-screen.mjs';
@@ -111,7 +112,7 @@ export async function applicationMain(args) {
       '--host', client.directory, '--ticket', ticket], {
       stdio: ['inherit', 'inherit', 'inherit', 'ipc'], env: Object.fromEntries(Object.entries({
         PATH: process.env.PATH ?? '/usr/bin:/bin', LANG: process.env.LANG ?? 'en_US.UTF-8', TERM: process.env.TERM ?? 'xterm-256color',
-        KERNELBRIDGE_SESSIONS: process.env.KERNELBRIDGE_SESSIONS, KERNELBRIDGE_HOME: process.env.KERNELBRIDGE_HOME,
+        KERNELBRIDGE_SESSIONS: dirname(client.directory), KERNELBRIDGE_HOME: process.env.KERNELBRIDGE_HOME,
         COLORTERM: process.env.COLORTERM, TERM_PROGRAM: process.env.TERM_PROGRAM, PI_OFFLINE: '1',
         KERNELBRIDGE_DEMO: process.env.KERNELBRIDGE_DEMO === '1' ? '1' : undefined,
       }).filter(([, value]) => value !== undefined)),

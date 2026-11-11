@@ -258,7 +258,9 @@
       "validation/tui/results/local-20261110.json",
       "validation/tui/results/native-pi-deepseek-20261110.json",
       "validation/tui/results/operators-20261110.json",
+      "validation/tui/results/resume-20261110.json",
       "validation/tui/results/ui-20261110.json",
+      "validation/tui/resume_default_home.py",
       "validation/tui/run.py",
       "validation/tui/sdk-scenario.mjs",
       "validation/tui/session-discovery.mjs",
@@ -617,8 +619,8 @@
       "sha256": "f4b8ce5c553169e58efc4ac57724303e81a9d193b6ff4bf9fc1874aa9c013e91"
     },
     "docs/tui.md": {
-      "bytes": 17975,
-      "sha256": "e2ce01bde9c7e4ddc5505aa56085b60048a6896e289ef294d87e8de923004c7a"
+      "bytes": 18513,
+      "sha256": "43b296c8c4a8c304922a51d1b9a6808a73341b4760b6310b643392166689a8ec"
     },
     "examples/cann/README.md": {
       "bytes": 10939,
@@ -1233,24 +1235,24 @@
       "sha256": "ca01c721f4559885750bf1f1a93d81741b55f0af192603fcad247c0226de4380"
     },
     "source/apps/agent/src/application/cli.mjs": {
-      "bytes": 8327,
-      "sha256": "30aa9536a726294fd007ac493a61528df3d4186f4df2956f6fe044a71eab0262"
+      "bytes": 8356,
+      "sha256": "ce80e1293a790f401a576b5c8bbc5fe7d81a0c6381124d20c4b5f0b6ec1fecb2"
     },
     "source/apps/agent/src/application/client.mjs": {
       "bytes": 4050,
       "sha256": "279bfc2c226aad271af8072190ecfbc93f438e268c0edbebbb9517a2f1f9841f"
     },
     "source/apps/agent/src/application/codegen.mjs": {
-      "bytes": 8561,
-      "sha256": "ce3f72107e59fd535cd94d0c19a86577d2c6bac81a68286eadd446a7bf07199c"
+      "bytes": 8601,
+      "sha256": "ecc16fbf7c34bdf170fa73cf2f49ac1747a73044dc4aec0a3fcf8df8645dacfb"
     },
     "source/apps/agent/src/application/credentials.mjs": {
       "bytes": 1240,
       "sha256": "917f1be306dcdf0001f695e2b8e6f9a9942859c1a87649f0205f853e33d7f9c9"
     },
     "source/apps/agent/src/application/host.mjs": {
-      "bytes": 11153,
-      "sha256": "1b4a956846512ab619230d1ce8a48a78baa2d24543299ad37ec2e3cf49b9e97c"
+      "bytes": 11583,
+      "sha256": "d7917b2dde85cba11007cedbf4ffe1d68f27896e9193bb6d824456685e7c4161"
     },
     "source/apps/agent/src/application/input-queue.mjs": {
       "bytes": 1238,
@@ -1261,8 +1263,8 @@
       "sha256": "695850bc4e6ee59ba16091b6ba9ca83c1d5df51919d6c50a441b8a5a6a8ebbec"
     },
     "source/apps/agent/src/application/session-picker.mjs": {
-      "bytes": 1841,
-      "sha256": "9be6f063de495ecb596cc5726800448332cb912520196fcc29cd1c7b1f30f1a1"
+      "bytes": 2941,
+      "sha256": "4e12d7f63e78b6fb06383ad2c44cd8ce2b11721ac5f0ce68a75a6e0f24829e00"
     },
     "source/apps/agent/src/application/start-screen.mjs": {
       "bytes": 6258,
@@ -1457,8 +1459,8 @@
       "sha256": "2bc8835a12f5e1840be77fbdcb3cc2922af46257ba249d42a857487c55861abf"
     },
     "source/apps/agent/src/harness/pi/host-actions.mjs": {
-      "bytes": 35057,
-      "sha256": "1c79df9760669669dcf6c055fc0574ff8bb3bac91442274c4d1bcf78db0d2055"
+      "bytes": 35227,
+      "sha256": "77b56497f15e4778fe7546253c8fb9d5f73f2d1dff8fb93428723a638b82c457"
     },
     "source/apps/agent/src/harness/pi/input.ts": {
       "bytes": 2080,
@@ -4005,12 +4007,12 @@
       "sha256": "8f9e3a6b0849ab091d51dea1d29bea4188b18e4ca7f7c311fa8f99bf8dde3ef6"
     },
     "validation/tui/ACCEPTANCE.md": {
-      "bytes": 17766,
-      "sha256": "f3285c31c0e23f447b546f08dfe08f2ad9691141ffcf3ba0b70820ebcbad3ab4"
+      "bytes": 19124,
+      "sha256": "622ca983fb48290f0088392e9d7105fa9e1adcf2076879c461d8a2c29d4ca8a9"
     },
     "validation/tui/README.md": {
-      "bytes": 9380,
-      "sha256": "f59668a970b2af61a17933e8a25353cccf7e0d698e2d49de10766c0da926d8ae"
+      "bytes": 9510,
+      "sha256": "533c2fce57e862a8c0a2bba852b026c20b60e5c36a3d748a8d713ae81d9dd0e5"
     },
     "validation/tui/admission-scenario.mjs": {
       "bytes": 3510,
@@ -4120,9 +4122,17 @@
       "bytes": 16434,
       "sha256": "07d1b1f92f0e8cae1ca7120dbb2ae25d887a73aef9e61f872f969804f1bc1562"
     },
+    "validation/tui/results/resume-20261110.json": {
+      "bytes": 2145,
+      "sha256": "87dd8b5c8706b7f7c6887475dcec92c7db017b49c9d731a7d579047ffb13a4b5"
+    },
     "validation/tui/results/ui-20261110.json": {
       "bytes": 24593,
       "sha256": "f99adc54bc77e63b89c03055068101d7cbdbbb959f9fcbe7460a6f336755f099"
+    },
+    "validation/tui/resume_default_home.py": {
+      "bytes": 7859,
+      "sha256": "b42255733828b40daf71737df00223a8dc0f255035a34ffe050d1468fb157946"
     },
     "validation/tui/run.py": {
       "bytes": 4193,
@@ -4133,8 +4143,8 @@
       "sha256": "1de315561f87938223f33fe6305758899c71220479599d39fd3e6600ac3bea12"
     },
     "validation/tui/session-discovery.mjs": {
-      "bytes": 1916,
-      "sha256": "965ab65ffc4fd5bce4f610997ab2232a645ea3f0ef619fb34d3d4f260839e092"
+      "bytes": 4741,
+      "sha256": "5c680bd2e9c9a7cc07c9416b38f801f983cb5df73a87acd54dfdbc0a2c6205c7"
     },
     "validation/tui/steering-scenario.mjs": {
       "bytes": 2478,

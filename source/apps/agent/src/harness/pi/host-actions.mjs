@@ -6,6 +6,7 @@ import { workspaceTools } from './workspace-tools.mjs';
 import { goalSummary, statePresentation, installProductUI, showProductFeedback } from './product-ui.mjs';
 import { COMMAND_POLICY_VERSION, PRODUCT_COMMANDS, PRODUCT_COMMAND_NAMES, parseGoalCommand, COMMAND_HELP } from './command-policy.mjs';
 import { sessions } from '../../application/host.mjs';
+import { sessionPicker } from '../../application/session-picker.mjs';
 
 export { COMMAND_POLICY_VERSION } from './command-policy.mjs';
 const DISABLED = new Set(['/share', '/bug', '/debug']);
@@ -514,8 +515,8 @@ export function createHostActions(control, effects) {
       if (command === '/resume' && state.workspace_mode === 'project') {
         const all = arguments_.includes('--all');
         const query = arguments_.filter(value => value !== '--all').join(' ');
-        const available = (await sessions()).filter(item => item.workspace_mode === 'project'
-          && (all || item.cwd === state.cwd));
+        const available = (await sessions({ registry: dirname(control.directory) })).filter(item => item.workspace_mode === 'project'
+          && (all || item.cwd === state.cwd) && (query || (item.has_history && item.application_session_id !== control.applicationSessionId)));
         let selected;
         if (query) {
           const exact = available.filter(item => item.application_session_id === query || item.title === query);
@@ -523,11 +524,10 @@ export function createHostActions(control, effects) {
           if (matches.length !== 1) return { action: 'handled', message: matches.length ? '匹配到多个会话，请用完整 ID。' : '没有匹配的会话；用 /resume --all 查看其他项目。' };
           selected = matches[0];
         } else {
-          const labels = available.map(item => `${item.title || '空会话'} · ${item.cwd} · ${item.application_session_id}`);
-          if (!labels.length) return { action: 'handled', message: '当前项目没有历史会话。' };
-          const choice = await context.ui.select('恢复会话（保留原日志、预算与当前工作文件）', labels);
+          if (!available.length) return { action: 'handled', message: '当前项目没有历史会话；用 /resume --all 查看其他项目。' };
+          const choice = await context.ui.custom((tui, _theme, _keybindings, done) => sessionPicker(available, done, () => tui.requestRender()));
           if (!choice) return { action: 'handled' };
-          selected = available[labels.indexOf(choice)];
+          selected = available.find(item => item.application_session_id === choice);
         }
         if (selected.application_session_id === control.applicationSessionId) return { action: 'handled', message: '已经在这个会话中。' };
         if (!process.send) return { action: 'handled', message: `请运行 kernelagent resume ${selected.application_session_id}` };
