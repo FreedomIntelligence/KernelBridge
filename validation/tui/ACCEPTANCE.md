@@ -4,6 +4,30 @@ Status: local deterministic acceptance passed on macOS, Node 22.19.0 and Python 
 
 Original artifacts: `.validation/tui-20261110-final/` in the checkout. The portable [result index](results/local-20261110.json) records check exits, durations and original-artifact SHA256 values. Reproduce with the [self-contained runner](README.md).
 
+## Operator workflow and session follow-up
+
+The [operator/session result index](results/operators-20261110.json) records the final implementation hashes and original local evidence. Features were implemented before new tests; failures discovered during acceptance were repaired and the affected checks rerun. The full regression batch and subsequent targeted runs are combined evidence, not one simultaneous run of every historical test.
+
+| Check | Observed result |
+| --- | --- |
+| Full local regression runner | All 15 groups passed, including 35-turn ordinary codegen, 20-turn compact/fork, SDK, recovery, steering, lifecycle, transport, admission and PTY |
+| Extended native TUI | 11 flows passed: model-invoked pipeline checks/diagnostics, real community children, count rejection, failure recovery, manual fork suggestion, semantic compact, current fork, Goal idle/block/resume, original-host resume and session picker |
+| Isolated historical fork/resume | 6 assertions passed: matching source restore, original session identity, no replay or extra Trial, retained ledger, rejected unknown entry, immutable reference |
+| Subagents | 11 real-Pi tests passed: analysis/read-only, denied writes, per-turn/total/step/tool/budget limits, deadline, cancellation and unknown-receipt fencing; native Esc interruption followed by a new parent prompt also passed |
+| Goal and host authority | 24 tests passed, including unlimited defaults, per-Goal token/model accounting, stale completion rejection and project fork limits without implicit Trials |
+| Operator pipeline | 11 tests passed: 12 real CPU max/min cases, independent oracle, no-Torch bootstrap, incumbent/ABBA, complete/positive pair qualification, source/artifact binding, original-handle collection, uncertain-launch recovery and real IR/ISA/profiler |
+| Shared infra | 9 tests passed covering all 17 tools; shared knowledge/run records remained unchanged. CANNBench HTTP is mocked GET-only; DQ/Forge checks use their supported fixture formats |
+| Registered business tools | 4 tests passed through real Pi and the Journal; optional diagnostic/infra tools are callable, disabled delegation is absent and reserved names are rejected |
+| Torch compatibility | 4 tests passed against installed torch 2.15.0 / torch_scatter 2.1.2 on CPU, covering broadcast/dim, empty bins, out/noncontiguous inputs, extrema and invalid inputs |
+| JS and type regressions | 39 tests plus TypeScript and managed-continuation checks passed |
+| Session discovery and configured startup | Offline title/activity discovery passed. The opt-in user profile registered 27 tools and started idle with 0 model calls and 0 device calls |
+
+Newly exposed failures were corrected: stale Goal completion reason, Goal tools missing after awaiting-user, empty native fork, project fork limits accidentally depending on Trials, child tool-limit double enforcement, Esc leaving a delegation unsettled, and collection losing the original source after contract changes. Launch timeouts now retain an unresolved intent across new action IDs and contract changes; the recovery test dispatched once and recovered the original handle without another launch. Unknown child effects remain unknown and cannot be replayed or disguised as a known cancellation.
+
+The no-Torch path separates correctness oracle, optional performance baseline and accepted incumbent. First complete correctness establishes an incumbent with `speedup: null`; subsequent comparisons explicitly select it as baseline. The paired-promotion fixture's 100/99 ratio is a protocol check, not a measured optimization claim. CPU diagnostics and generic driver protocols are locally verified; AscendC source candidates are included, but NPU compilation/correctness/performance and official calibration remain pending by user choice.
+
+The subagent component is the community `pi-subagents@0.87.0`, not an official Pi built-in. Current child execution is sequential foreground analysis/read-only, with no child writes or device actions. Goal/session behavior is documented against Codex/Claude Code, but Claude Code's separate fresh-context completion evaluator is not implemented and exact feature parity is not claimed. See [workflow contracts](../../docs/operator-workflow.md), [TUI semantics](../../docs/tui.md) and [reproduction commands](README.md).
+
 ## Native Pi startup and official DeepSeek follow-up
 
 The default entry now starts Pi 1.5.0's actual `InteractiveMode`, including its native header, theme, editor, completion, scrolling and keyboard handling. The earlier custom startup screen has been removed. Missing-model setup also uses `InteractiveMode`. A configured session starts a passive host immediately, with zero model or tool execution until explicit input; no Goal, Trial, seed file or workspace-history initialization is created at startup. An omitted budget remains unlimited and absent from the footer.

@@ -28,7 +28,7 @@ def project(rows: list[dict], identity: str) -> dict:
     state: dict[str, Any] = {"application_session_id": identity, "inputs": {}, "lease_epoch": 0,
                              "lease": None, "goal": None, "trials": [], "calls": {},
                              "task_version": 1, "cursor": len(rows) - 1, "configurations": [],
-                             "checkpoints": {},
+                             "checkpoints": {}, "context_transitions": [],
                              "evidence": [], "best": None, "single_best": None, "platform": []}
     for row in Journal._events(rows):
         if row.get("application_session_id") != identity:
@@ -71,6 +71,8 @@ def project(rows: list[dict], identity: str) -> dict:
             elif data.get("operation") == "transition_aborted":
                 state["pending_transition"] = None
             elif data.get("operation") == "context_started":
+                if state.get("pending_transition"):
+                    state["context_transitions"].append({**state["pending_transition"], "pi_session_id": data["pi_session_id"]})
                 state["pending_transition"] = None
             elif data.get("operation") == "takeover":
                 state["takeover_requested"] = True
@@ -124,7 +126,10 @@ class ApplicationJournal:
                     if state["creation_digest"] != digest(data):
                         raise Conflict("application identity reused with different configuration")
                     return None, state
-                emit("created", {**data, "creation_digest": digest(data)})
+                created = {**data, "creation_digest": digest(data)}
+                if created.get("goal"):
+                    created["goal"] = {**created["goal"], "start_seq": len(rows), "started_at_ns": time.time_ns()}
+                emit("created", created)
             elif "task" not in state:
                 raise Conflict("application session has not been created")
             elif method == "accept":
@@ -162,7 +167,8 @@ class ApplicationJournal:
                     raise Conflict("applied input requires its persisted Pi entry")
                 emit("input_transition", {**data, "task_version": state["task_version"]})
                 if target == "applied" and state["goal"] and state["goal"]["status"] == "awaiting_user" and previous["initiator"] == "user":
-                    emit("goal", {**state["goal"], "status": "active"})
+                    goal = {key: value for key, value in state["goal"].items() if key not in {"reason", "summary"}}
+                    emit("goal", {**goal, "status": "active", "resume_seq": len(rows)})
             elif method == "acquire":
                 if not data.get("recovering"):
                     stable()
@@ -189,9 +195,17 @@ class ApplicationJournal:
                 if operation == "set":
                     if not isinstance(data.get("objective"), str) or not data["objective"].strip():
                         raise Conflict("goal objective required")
-                    goal = {**state.get("goal_defaults", {}), **(goal or {}), "objective": data["objective"], "status": "active",
-                            "goal_id": (goal or {}).get("goal_id", data["input_id"]),
-                            "on_detach": (goal or {}).get("on_detach", "pause"), "task_version": state["task_version"]}
+                    previous = goal or {}
+                    goal = {**state.get("goal_defaults", {}),
+                            **{key: previous[key] for key in ("on_detach", "max_trials", "max_model_turns", "max_forks", "fork_policy", "token_budget") if key in previous},
+                            "objective": data["objective"], "status": "active", "goal_id": data["input_id"],
+                            "start_seq": len(rows), "started_at_ns": time.time_ns(),
+                            "on_detach": previous.get("on_detach", "pause"), "task_version": state["task_version"]}
+                    if "token_budget" in data:
+                        value = data["token_budget"]
+                        if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
+                            raise Conflict("Goal token budget must be a positive integer or null")
+                        goal["token_budget"] = value
                     task = {**state["task"], "goal": data["objective"]}
                     if "acceptance" in data:
                         criteria = data["acceptance"]
@@ -207,7 +221,7 @@ class ApplicationJournal:
                         version = state["task_version"] + 1
                         emit("task_version", {"task_version": version, "task": task})
                         goal["task_version"] = version
-                elif not goal and operation in {"interrupt", "pause", "resume"}:
+                elif not goal and operation in {"interrupt", "pause", "resume", "clear"}:
                     emit("configuration", {"operation": "session_" + operation, "input_id": data["input_id"]})
                 elif not goal:
                     raise Conflict("session has no Goal")
@@ -216,6 +230,9 @@ class ApplicationJournal:
                     # Starting work again requires an explicit new Goal.
                     if goal["status"] not in {"completed", "cleared"}:
                         goal = {**goal, "status": {"pause": "paused", "resume": "active", "interrupt": "awaiting_user"}[operation]}
+                        if operation == "resume":
+                            goal = {key: value for key, value in goal.items() if key != "reason"}
+                            goal["resume_seq"] = len(rows)
                 elif operation == "on-detach" and data.get("value") in {"pause", "continue"}:
                     goal = {**goal, "on_detach": data["value"]}
                 elif operation == "clear":
@@ -224,6 +241,10 @@ class ApplicationJournal:
                     raise Conflict("unknown Goal control")
                 if goal:
                     emit("goal", goal)
+                if operation in {"set", "clear", "pause", "interrupt"}:
+                    for key, item in state["inputs"].items():
+                        if item["kind"] == "policy" and item["status"] == "queued":
+                            emit("input_transition", {"input_id": key, "status": "interrupted", "reason": "goal_" + operation})
                 emit("input_transition", {"input_id": data["input_id"], "status": "completed", "control_result": goal})
             elif method == "goal_outcome":
                 goal = state["goal"]
@@ -231,13 +252,15 @@ class ApplicationJournal:
                     raise Conflict("invalid Goal outcome")
                 if data["status"] == "completed":
                     evidence = next((item for item in state["evidence"] if item["evidence_ref"] == data.get("evidence_ref")), None)
-                    action = self.journal._state(rows)["actions"].get(data.get("action_id"), {}).get("action", {})
+                    entry = self.journal._state(rows)["actions"].get(data.get("action_id"), {})
+                    action = entry.get("action", {})
                     codegen = (state.get("workspace_mode") == "project" and goal["status"] == "active"
-                               and data.get("completion_kind") == "codegen" and action.get("tool") == "finish_goal"
+                               and entry.get("seq", -1) > goal.get("start_seq", -1)
+                               and data.get("completion_kind") == "codegen" and action.get("tool") in {"finish_goal", "update_goal"}
                                and isinstance(data.get("summary"), str) and bool(data["summary"].strip()))
                     if not codegen and (not evidence or evidence["task_version"] != state["task_version"]):
                         raise Conflict("Goal completion requires current original acceptance evidence")
-                emit("goal", {**goal, **data})
+                emit("goal", {**goal, **data, **({"ended_at_ns": time.time_ns()} if data["status"] in {"completed", "failed"} else {})})
             elif method == "call_intent":
                 lease()
                 key = data["call_id"]

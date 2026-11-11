@@ -130,8 +130,16 @@ class ApplicationHost:
                 description="For an explicitly active codegen Goal only: report completion after doing and checking the requested work. Include the checks and any limits. This does not certify device acceptance.",
                 parameters={"type": "object", "properties": {"summary": {"type": "string", "minLength": 1, "maxLength": 4096}},
                             "required": ["summary"], "additionalProperties": False}), self.finish_codegen_goal)
+            get_goal = FunctionTool(ToolSpec(name="get_goal", credits=0,
+                description="Read the current explicit Goal and its receipt-derived progress and optional budget.",
+                parameters={"type": "object", "properties": {}, "additionalProperties": False}), self.get_codegen_goal)
+            update_goal = FunctionTool(ToolSpec(name="update_goal", credits=0,
+                description="Complete an active Goal only after verifying its objective, or report a concrete blocker needing user input. Pause/resume/clear remain user controls. Include evidence or the missing input in summary.",
+                parameters={"type": "object", "properties": {"status": {"enum": ["complete", "blocked"]},
+                    "summary": {"type": "string", "minLength": 1, "maxLength": 4096}},
+                    "required": ["status", "summary"], "additionalProperties": False}), self.update_codegen_goal)
             owner = build(config, config_path.parent, task, probe_versions=False, external_context=True, startup=startup,
-                          extra_tools=(finish_goal,) if config.workspace_mode == "project" else (transition,))
+                          extra_tools=(finish_goal, get_goal, update_goal) if config.workspace_mode == "project" else (transition,))
             self.owner, self.task, self.config = owner, task, config
             self.evaluator = evaluator_identity(config, Path(self.descriptor["task"]))
             self.journal = ApplicationJournal(owner.gateway.store, self.identity)
@@ -266,6 +274,7 @@ class ApplicationHost:
                                             raise Conflict("admission stop unexpectedly has active effects") from stopped
                                         result = {"stop": True, "result": {"status": stopped.status}}
                                     if method == "hello":
+                                        result["project_tools"] = [tool.name for tool in config.business_tools]
                                         provider = config.providers[owner.gateway.store.policy().routes[0]]
                                         if config.workspace_mode == "project":
                                             result["model_info"] = {"name": provider.model, "max_tokens": provider.max_tokens,
@@ -393,6 +402,8 @@ class ApplicationHost:
         state = self.journal.state()
         state["host_pid"] = os.getpid()
         state["workspace_mode"] = self.config.workspace_mode
+        state["subagent_config"] = self.config.subagents.model_dump()
+        state["fork_policy"] = (state.get("goal") or self.descriptor["goal_defaults"]).get("fork_policy", {})
         state["cwd"] = self.owner.workspace_policy["root"]
         route = self.owner.gateway.store.policy().routes[0]
         state["model"] = self.config.providers[route].model
@@ -401,10 +412,23 @@ class ApplicationHost:
         state["pending_effect_ids"] = [key for key, item in execution["actions"].items() if not item.get("terminal")]
         state["model_turns"] = sum(1 for item in execution["actions"].values() if item["action"]["tool"] == "__propose__")
         state["max_trial_turns"] = self.config.policy.max_steps
+        state["subagents"] = [{"id": key, "agent": item["action"]["arguments"]["agent"],
+            "task": item["action"]["arguments"]["task"],
+            "status": item.get("outcome", {}).get("status", "running"),
+            "summary": item.get("outcome", {}).get("data", {}).get("summary", "")}
+            for key, item in execution["actions"].items() if item["action"]["tool"] == "delegate"]
+        if state["goal"]:
+            from kernelcat_executor.state.goal_progress import goal_usage
+            state["goal_usage"] = goal_usage(list(self.owner.gateway.store._events(self.owner.gateway.store.events())), state["goal"])
+            goal = state["goal"]
+            state["goal_usage"]["elapsed_seconds"] = max(0, (goal.get("ended_at_ns", time.time_ns()) - goal.get("started_at_ns", time.time_ns())) // 1_000_000_000)
         state["calls"] = {key: {field: item[field] for field in ("method", "status", "intent_seq") if field in item}
                           for key, item in state["calls"].items() if item["status"] == "pending"}
         state["checkpoints"] = {key: {field: item[field] for field in ("source_sha256", "entry_id", "pi_session_id") if field in item}
                                 for key, item in state["checkpoints"].items()}
+        from kernelcat_worker.loopx_application import recommend
+        state["fork_suggestion"] = recommend(state).get("fork_hint")
+        state["name"] = next((item["name"] for item in reversed(state["configurations"]) if item.get("operation") == "rename"), None)
         return state
 
     def trial_exhausted(self):
@@ -427,6 +451,23 @@ class ApplicationHost:
             "action_id": action.id, "summary": action.arguments["summary"]})
         return Outcome(data={"completed": True, "summary": action.arguments["summary"], "device_acceptance": False})
 
+    def get_codegen_goal(self, action):
+        from kernelcat_executor.contracts.models import Outcome
+        state = self.status()
+        goal = {key: str(value) if key.endswith("_ns") else value for key, value in state["goal"].items()} if state["goal"] else None
+        return Outcome(data={"goal": goal, "usage": state.get("goal_usage"), "budget": state["budget"]})
+
+    def update_codegen_goal(self, action):
+        from kernelcat_executor.contracts.models import Outcome
+        if action.arguments["status"] == "complete":
+            return self.finish_codegen_goal(action)
+        goal = self.journal.state()["goal"]
+        if not goal or goal["status"] != "active":
+            raise Conflict("Only an active Goal can report a blocker")
+        self.journal.command("goal_outcome", {"status": "awaiting_user", "reason": "blocked",
+            "summary": action.arguments["summary"], "action_id": action.id})
+        return Outcome(data={"status": "awaiting_user", "reason": "blocked", "summary": action.arguments["summary"]})
+
     def next_input(self, connection):
         from kernelcat_worker.loopx_application import recommend
         state = self.status()
@@ -438,6 +479,21 @@ class ApplicationHost:
         decision = recommend(state)
         if decision["action"] == "stop":
             self.journal.command("goal_outcome", {"status": "budget_limit", "reason": decision["reason"]})
+            return decision
+        # A tool-free automatic continuation must not spin forever. A new user
+        # request or explicit resume establishes a new continuation boundary.
+        goal = state["goal"]
+        settled = [item for item in state["inputs"].values() if item["kind"] != "control" and item["status"] == "completed"]
+        latest = max(settled, key=lambda item: item["completed_seq"], default=None)
+        if (self.config.workspace_mode == "project" and goal and goal["status"] == "active"
+                and latest and latest["kind"] == "policy"
+                and latest["completed_seq"] > max(goal.get("start_seq", -1), goal.get("resume_seq", -1))
+                and not state["pending_effect_ids"] and not state["calls"]):
+            from kernelcat_executor.state.goal_progress import continuation_has_progress
+            if not continuation_has_progress(list(self.owner.gateway.store._events(self.owner.gateway.store.events())), latest):
+                self.journal.command("goal_outcome", {"status": "awaiting_user", "reason": "no_tool_progress",
+                    "summary": "Automatic continuation made no tool progress. Send new input or use /goal resume."})
+                return {"action": "wait", "reason": "no_tool_progress"}
         if decision["action"] not in {"continue", "reset"}:
             return decision
         input_id = "loopx-" + decision["decision_id"]
@@ -445,7 +501,10 @@ class ApplicationHost:
             return {"action": "wait", "reason": "decision_already_consumed"}
         self.journal.command("configuration", {**connection.worker, "operation": "loopx_decision", **decision})
         text = (("Continue the explicitly requested coding Goal. Implement and verify the remaining work. "
-                "When all requested work is done, call finish_goal with a summary of the changes and actual checks.\n"
+                "Use get_goal to inspect progress when needed. When all requested work is verified, call update_goal "
+                "with status complete and a summary of actual checks (finish_goal is also supported). "
+                "If progress requires missing user input, call update_goal with status blocked and explain what is needed. "
+                "Do not call a missing device result verified. A tool-free automatic turn returns control to the user.\n"
                 if self.config.workspace_mode == "project" else "Continue the current task from original receipts. "
                 "Complete the declared correctness/performance acceptance; do not treat a single timing as a paired gain. "
                 "Inspect missing or failed measurements before diagnosing stagnation.\n")
@@ -487,12 +546,17 @@ class ApplicationHost:
             self.owner.replay.checkpoint(checkpoint["native_checkpoint"])
         if operation in {"fork", "reset", "clone"}:
             goal = state["goal"]
+            if self.config.workspace_mode == "project" and goal and goal["status"] == "active" and operation in {"fork", "clone"}:
+                forks = sum(item.get("goal_id") == goal.get("goal_id") and item["parent"]["operation"] in {"fork", "clone"}
+                            for item in state["context_transitions"])
+                if goal.get("max_forks") is not None and forks >= goal["max_forks"]:
+                    raise Conflict("Goal fork ceiling reached")
             limits = [value for value in ((goal or {}).get("max_trials"),
                 goal["max_forks"] + 1 if goal and goal.get("max_forks") is not None else None) if value is not None]
-            if limits and len(state["trials"]) >= min(limits):
+            if self.config.workspace_mode != "project" and limits and len(state["trials"]) >= min(limits):
                 raise Conflict("Goal Trial/fork ceiling reached")
             self.journal.command("configuration", {**connection.worker, "operation": "transition_prepared",
-                "transition_id": str(uuid.uuid4()), "parent": checkpoint})
+                "transition_id": str(uuid.uuid4()), "goal_id": (goal or {}).get("goal_id"), "parent": checkpoint})
             if operation == "fork" and self.config.workspace_mode != "project":
                 restore_source(workspace, snapshot, policy["writable_paths"], policy["readonly_paths"])
         else:
@@ -518,11 +582,17 @@ class ApplicationHost:
         selected = next((item for item in known if item["pi_session_id"] == header.get("id") and item["entry_id"] == rows[-1].get("id")), None)
         if selected is None:
             raise Conflict("imported context has no matching source checkpoint")
-        checkpoint = self.snapshot(connection, {**selected, "operation": "fork"})
-        staged = root / "imports" / (str(uuid.uuid4()) + ".jsonl")
-        staged.parent.mkdir(mode=0o700, exist_ok=True)
-        private_file(staged, read_regular(path, 32 * 1024 * 1024))
-        return {"path": str(staged), "checkpoint": checkpoint}
+        state = self.status()
+        if state["pending_effect_ids"] or state["calls"]:
+            raise Conflict("Resume requires a settled execution boundary")
+        if self.config.workspace_mode != "project":
+            snapshot = json.loads(read_regular(self.owner.gateway.store.path.parent / "checkpoints" / (selected["source_sha256"] + ".json")))
+            policy = self.owner.workspace_policy
+            restore_source(Path(policy["root"]), snapshot, policy["writable_paths"], policy["readonly_paths"])
+        self.journal.command("checkpoint", {**selected, **connection.worker, "operation": "checkpoint"})
+        if selected.get("native_checkpoint"):
+            self.owner.replay.checkpoint(selected["native_checkpoint"])
+        return {"path": str(path), "checkpoint": selected}
 
     def configure(self, connection, params):
         state = self.status()

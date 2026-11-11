@@ -35,7 +35,9 @@ class DelegatedEffects:
     def __init__(self, owner: Any, action: Action, proposal_id: str) -> None:
         self.owner, self.action = owner, action
         self.mode = action.arguments.get("mode", "analysis")
-        self.max_steps = 1 if self.mode == "analysis" else action.arguments.get("max_steps", 6)
+        settings = owner.gateway.tools["delegate"].settings
+        self.max_steps = 1 if self.mode == "analysis" else min(action.arguments.get("max_steps", settings["max_steps"]), settings["max_steps"])
+        self.tool_limit = settings["tool_limit"]
         self.gateway = owner.gateway.restrict(READ_TOOLS)
         self.store = self.gateway.store
         self.task = Task(id=action.id + "/leaf", goal=action.arguments["task"],
@@ -50,7 +52,7 @@ class DelegatedEffects:
         self.receipt: str | None = None
         self.summary: str | None = None
         self.failure: str | None = None
-        self.deadline = time.monotonic() + 60
+        self.deadline = time.monotonic() + settings["timeout"]
 
     def _stop(self, reason: str) -> Json:
         self.failure = reason
@@ -107,6 +109,11 @@ class DelegatedEffects:
         self.receipt = identity
         if outcome.status == "unknown":
             raise InDoubt(identity)
+        # A synchronous provider can return after its deadline or interruption.
+        # Retain its real receipt, but do not turn that late reply into success.
+        stopped = self._check()
+        if stopped:
+            return stopped
         if outcome.status != "completed":
             if self.route_index == len(policy.routes):
                 return self._stop("providers_failed")
@@ -135,7 +142,7 @@ class DelegatedEffects:
         index = len(self.outcomes)
         if index >= len(self.calls) or not same_json_value(call, self.wire(self.calls[index])):
             raise Conflict("child tool differs from its recorded model reply")
-        if self.tool_count >= 16:
+        if self.tool_count >= self.tool_limit:
             return self._stop("tool_limit")
         action = self.calls[index]
         result = self.gateway.execute(action)

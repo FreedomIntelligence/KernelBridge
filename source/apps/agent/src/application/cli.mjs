@@ -8,9 +8,11 @@ export const HELP = `KernelBridge
   kernelagent                              Open codegen in the current project; wait for input
   kernelagent "TASK"                        Execute an initial prompt, then stay interactive
   kernelagent [-C DIR] [--config PATH] [--model MODEL] [--budget CREDITS]
-  kernelagent resume [APPLICATION_ID]       Resume a session (default: current project's latest)
+  kernelagent resume [ID_OR_TITLE]          Pick a saved session in this project; --all searches all projects
+  kernelagent resume --last                Resume this project's latest session
   kernelagent --continue                   Resume current project's latest session
   kernelagent --goal "OBJECTIVE"            Explicitly enable a persistent Goal
+  kernelagent --goal "OBJECTIVE" --goal-token-budget TOKENS
 
 No budget or step limit is imposed unless configured. Settings: ~/.kernelbridge/config.json.
 Ordinary codegen edits the selected project directly. Goal, Trial and device acceptance are opt-in.
@@ -45,11 +47,13 @@ export async function applicationMain(args) {
   const options = {};
   const flags = { '--task': 'task', '--config': 'config', '--profile': 'profile', '--output': 'output',
     '--python': 'python', '--expected-python-modules': 'expectedPythonModules', '--attach': 'attach', '--on-detach': 'onDetach',
-    '--cwd': 'cwd', '-C': 'cwd', '--model': 'model', '--provider': 'provider', '--budget': 'budget', '--prompt': 'prompt', '--goal': 'goal' };
+    '--cwd': 'cwd', '-C': 'cwd', '--model': 'model', '--provider': 'provider', '--budget': 'budget', '--prompt': 'prompt', '--goal': 'goal',
+    '--goal-token-budget': 'goalTokenBudget' };
   for (let i = ['tui', 'resume'].includes(args[0]) ? 1 : 0; i < args.length; i++) {
     if (args[i] === '--session-only') options.sessionOnly = true;
     else if (args[i] === '--goal-from-task') options.sessionOnly = false;
-    else if (args[i] === '--continue' || args[i] === '-c') options.resume = true;
+    else if (args[i] === '--continue' || args[i] === '-c' || args[i] === '--last') { options.resume = true; options.latest = true; }
+    else if (args[i] === '--all') options.all = true;
     else if (args[i] === '--restart') options.restart = true;
     else if (!args[i].startsWith('-')) {
       const key = args[0] === 'resume' ? 'resume' : 'prompt';
@@ -63,6 +67,11 @@ export async function applicationMain(args) {
     }
   }
   if (args[0] === 'resume') options.resume ??= true;
+  if (options.goalTokenBudget !== undefined) {
+    options.goalTokenBudget = Number(options.goalTokenBudget);
+    if (!Number.isSafeInteger(options.goalTokenBudget) || options.goalTokenBudget < 1) throw new Error('--goal-token-budget must be a positive integer');
+    if (!options.goal) throw new Error('--goal-token-budget requires an explicit --goal');
+  }
   if ([options.attach, options.resume, options.task].filter(Boolean).length > 1) throw new Error('Choose one of --attach, resume/--continue, or --task');
   if ((options.attach || options.resume || options.task) && (options.prompt || options.goal || options.budget || options.model)) {
     throw new Error('恢复和显式 task 使用原配置；请进入会话后输入任务或 /goal，task 预算与模型请在其配置中设置。');
@@ -85,7 +94,9 @@ export async function applicationMain(args) {
     client = start.resume ? await resumeCodegen({ ...options, resume: start.resume })
       : await startCodegen(options, start.settings, start.submission);
   }
+  if (!client) return 0;
   try {
+    while (true) {
     if (options.onDetach) await client.control('on-detach', { value: options.onDetach, channel: 'cli' });
     await client.call('takeover');
     const deadline = Date.now() + 30000;
@@ -95,17 +106,25 @@ export async function applicationMain(args) {
     }
     const { ticket } = await client.call('ticket', { mode: 'interactive' });
     // The front-end inherits the TTY directly and receives no model/device secrets.
+    let resumeIdentity;
     const child = spawn(process.execPath, [fileURLToPath(new URL('./worker.mjs', import.meta.url)),
       '--host', client.directory, '--ticket', ticket], {
-      stdio: 'inherit', env: Object.fromEntries(Object.entries({
+      stdio: ['inherit', 'inherit', 'inherit', 'ipc'], env: Object.fromEntries(Object.entries({
         PATH: process.env.PATH ?? '/usr/bin:/bin', LANG: process.env.LANG ?? 'en_US.UTF-8', TERM: process.env.TERM ?? 'xterm-256color',
+        KERNELBRIDGE_SESSIONS: process.env.KERNELBRIDGE_SESSIONS, KERNELBRIDGE_HOME: process.env.KERNELBRIDGE_HOME,
         COLORTERM: process.env.COLORTERM, TERM_PROGRAM: process.env.TERM_PROGRAM, PI_OFFLINE: '1',
         KERNELBRIDGE_DEMO: process.env.KERNELBRIDGE_DEMO === '1' ? '1' : undefined,
       }).filter(([, value]) => value !== undefined)),
     });
-    return await new Promise((accept, reject) => {
+    child.on('message', message => { if (message?.type === 'resume_application' && typeof message.identity === 'string') resumeIdentity = message.identity; });
+    const code = await new Promise((accept, reject) => {
       child.once('error', reject);
       child.once('exit', code => accept(code ?? 1));
     });
+    if (!resumeIdentity || code !== 0) return code;
+    client.close();
+    process.stdout.write('\n正在恢复会话…\n');
+    client = await attachApplication(resumeIdentity, { restart: true });
+    }
   } finally { client.close(); }
 }

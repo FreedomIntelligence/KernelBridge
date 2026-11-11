@@ -125,7 +125,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--deployment', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--scenario', choices=['sdk', 'long', 'recovery', 'lifecycle', 'steering', 'transport', 'admission'], default='sdk')
+    parser.add_argument('--scenario', choices=['sdk', 'long', 'recovery', 'lifecycle', 'steering', 'transport', 'admission', 'fork'], default='sdk')
     args = parser.parse_args()
     output = args.output.resolve()
     if output.exists(): raise ValueError('preserve the original validation output; choose a new directory')

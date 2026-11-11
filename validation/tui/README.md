@@ -61,7 +61,7 @@ PYTHONPATH="$PWD/.validation/ui-test-deps" /absolute/venv/bin/python -B validati
   --launcher "$PWD/kernelagent" --output /absolute/new-deepseek-validation
 ```
 
-Individual scenarios can be rerun against a frozen deployment using `product_scenario.py --deployment DIR --output NEW_DIR --scenario sdk|long|recovery|steering|lifecycle|transport|admission`, or `pty_scenario.py` with the same deployment/output options. The admission case pauses between `prepare_turn` and the model call, verifies zero model spending and no unresolved call, then resumes the same worker to full fixture acceptance. Add `--launcher /absolute/installed/kernelagent` to exercise the installed wrapper, and use its `runtime/venv/bin/python` and `--deployment /absolute/installed/runtime`. Choose a new output directory for each run so failed attempts and original receipts are preserved.
+Individual scenarios can be rerun against a frozen deployment using `product_scenario.py --deployment DIR --output NEW_DIR --scenario sdk|long|recovery|steering|lifecycle|transport|admission|fork`, or `pty_scenario.py` with the same deployment/output options. The admission case pauses between `prepare_turn` and the model call, verifies zero model spending and no unresolved call, then resumes the same worker to full fixture acceptance. Add `--launcher /absolute/installed/kernelagent` to exercise the installed wrapper, and use its `runtime/venv/bin/python` and `--deployment /absolute/installed/runtime`. Choose a new output directory for each run so failed attempts and original receipts are preserved.
 
 For rendered-screen checks, install `requirements-ui.txt` into a separate local dependency directory and run:
 
@@ -72,3 +72,21 @@ PYTHONPATH="$PWD/.validation/ui-test-deps" "$BUNDLE/runtime/venv/bin/python" -B 
 ```
 
 This uses a terminal emulator to check the actual screen after Tab completion, Goal lifecycle commands, history scrolling, rejected commands, and a resize to 48 columns. It preserves the raw PTY stream and six readable screen captures. The Goal policy retains its full original input in the Journal; the TUI displays a short continuation label.
+
+## Operator, subagent and session checks
+
+Complete feature implementation precedes these tests. The dedicated native PTY suite uses the actual Pi and community subagent plugin with a local SSE fixture, real CPU compilation and registered pipeline tools:
+
+```sh
+PYTHONPATH="$PWD/.validation/ui-test-deps" /absolute/venv/bin/python -B validation/tui/advanced_scenario.py --output /absolute/new-advanced-run
+PYTHONPATH="$PWD/.validation/ui-test-deps" /absolute/venv/bin/python -B validation/tui/subagent_cancel_scenario.py --output /absolute/new-child-cancel-run
+node --test validation/tui/session-discovery.mjs
+/absolute/venv/bin/python -B -m unittest discover -s validation -p test_subagents.py -v
+/absolute/venv/bin/python -B -m unittest discover -s validation -p test_operator_pipeline.py -v
+/absolute/venv/bin/python -B -m unittest discover -s validation -p test_operator_infra.py -v
+/absolute/venv/bin/python -B -m unittest discover -s validation -p test_business_diagnostics.py -v
+```
+
+The infra tests use `KERNELBRIDGE_INFRA_SOURCE` or the existing local ops checkout and otherwise skip. The DQ formula replay additionally requires the retained framework and its optional Python dependencies; synthetic timing inputs do not establish a score. `test_scatter_torch.py` separately requires real CPU `torch` and `torch_scatter`; no-Torch pipeline tests use only a C++ compiler and the Python standard library. Keep optional Torch dependencies separate from the locked host environment.
+
+`operator_profile_smoke.py --config PATH --output NEW_DIR` verifies native idle startup with the explicitly combined 27-tool configuration and local model credentials, without calling the provider or a device. Its output records zero execution. Full device profiling, Ascend compilation and platform scores remain outside local acceptance.

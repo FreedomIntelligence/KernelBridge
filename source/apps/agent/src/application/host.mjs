@@ -1,9 +1,11 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile, open, readdir } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, open, readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createReadStream } from 'node:fs';
+import { createInterface } from 'node:readline';
 import { ApplicationClient } from './client.mjs';
 import { loadCodegenCredentials } from './credentials.mjs';
 
@@ -24,21 +26,53 @@ export async function applicationDirectory(identity) {
   return join(registryRoot(), identity);
 }
 
+async function offlineTitle(path, identity, fallback) {
+  // Discovery is advisory. The host separately verifies the complete journal
+  // before resuming execution; an incomplete last line is not a new title.
+  const stream = createReadStream(path, { encoding: 'utf8' });
+  const lines = createInterface({ input: stream, crlfDelay: Infinity });
+  let name, firstPrompt, goal;
+  try {
+    for await (const line of lines) {
+      if (!line.includes('"kind":"application/')) continue;
+      let row;
+      try { row = JSON.parse(line); } catch { continue; }
+      if (row.application_session_id !== identity) continue;
+      if (row.kind === 'application/configuration' && row.data.operation === 'rename') name = row.data.name;
+      if (row.kind === 'application/goal') goal = row.data.objective;
+      if (row.kind === 'application/input_accepted' && row.data.kind === 'prompt') firstPrompt ??= row.data.text;
+    }
+  } catch { /* Missing/unreadable history remains discoverable by its ID. */ }
+  finally { lines.close(); stream.destroy(); }
+  return (name ?? goal ?? firstPrompt ?? fallback).slice(0, 120);
+}
+
 export async function sessions() {
   let names;
   try { names = await readdir(registryRoot()); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
   const result = [];
   for (const name of names.sort()) {
+    let summary, journal;
     try {
       const descriptor = JSON.parse(await readFile(join(await applicationDirectory(name), 'descriptor.json'), 'utf8'));
+      const config = JSON.parse(await readFile(descriptor.config, 'utf8'));
+      const task = JSON.parse(await readFile(descriptor.task, 'utf8'));
+      journal = join(config.state_dir, 'events.jsonl');
+      summary = { application_session_id: name, output: descriptor.output, cwd: config.workspace,
+        workspace_mode: config.workspace_mode ?? 'isolated', title: task.goal.slice(0, 120),
+        updated: (await stat(join(config.state_dir, 'events.jsonl')).catch(() => ({ mtimeMs: 0 }))).mtimeMs };
       const client = await ApplicationClient.connect(descriptor.host_directory, { timeoutMs: 1000 });
       try {
         const state = await client.state();
-        result.push({ application_session_id: name, output: descriptor.output, goal: state.goal, lease: state.lease, connected: true });
+        result.push({ ...summary, title: state.name ?? state.goal?.objective ?? Object.values(state.inputs ?? {}).find(item => item.kind === 'prompt')?.text?.slice(0, 120) ?? summary.title,
+          goal: state.goal, lease: state.lease, connected: true });
       } finally { client.close(); }
-    } catch (error) { result.push({ application_session_id: name, connected: false, error: error.message }); }
+    } catch (error) {
+      if (summary && journal) summary.title = await offlineTitle(journal, name, summary.title);
+      result.push({ ...summary, application_session_id: name, connected: false, error: error.message });
+    }
   }
-  return result;
+  return result.sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0));
 }
 
 /** Starts the detached trusted executor, then returns only a credential-free socket client. */
@@ -53,9 +87,10 @@ export async function startApplication(options) {
   const config = JSON.parse(await readFile(configPath, 'utf8'));
   const defaults = { max_trials: options.maxTrials ?? null,
     max_model_turns: options.maxModelTurns ?? null,
+    token_budget: options.goalTokenBudget ?? null,
     max_forks: options.maxForks ?? null,
     fork_policy: options.forkPolicy ?? { enabled: true, minimum_observations: 3, cooldown_turns: 3 } };
-  for (const key of ['max_trials', 'max_model_turns', 'max_forks']) {
+  for (const key of ['max_trials', 'max_model_turns', 'max_forks', 'token_budget']) {
     if (defaults[key] !== null && (!Number.isSafeInteger(defaults[key]) || defaults[key] < (key === 'max_forks' ? 0 : 1))) throw new Error(`Invalid Goal ${key}`);
   }
   const forkPolicy = defaults.fork_policy;
@@ -142,6 +177,7 @@ export async function prepareApplication({ task, profile, output, sessionOnly = 
     python: selected.python, node: selected.node, expectedPythonModules: selected.expected_python_modules,
     environment: { PYTHONPATH: result.pythonPath }, sessionOnly,
     maxTrials: selected.goal?.max_trials, maxModelTurns: selected.application?.max_model_turns,
+    goalTokenBudget: selected.application?.token_budget,
     maxForks: selected.application?.max_forks, forkPolicy: selected.application?.fork_policy,
     onDetach: onDetach ?? selected.application?.on_detach });
 }

@@ -77,7 +77,7 @@ def prepare(task_path, profile_path, output, mode=None, session_seed=None, sessi
                    'Use evaluate(candidate="solution.py") for native compilation, correctness and timing. Finish after a passing receipt for the final candidate.\n'))
     compiled['seed_files'].update({'AGENTS.md': instruction, 'AGENTS.task.md': appendix})
     profile = json.loads(Path(profile_path).read_text())
-    allowed = {'schema_version', 'python', 'node', 'expected_python_modules', 'config', 'loopx', 'task_contract_file', 'npu_environment', 'npu_python', 'diagnostics', 'goal', 'checks', 'application'}
+    allowed = {'schema_version', 'python', 'node', 'expected_python_modules', 'config', 'loopx', 'task_contract_file', 'npu_environment', 'npu_python', 'diagnostics', 'goal', 'checks', 'application', 'operator_infra', 'operator_pipeline'}
     if set(profile) - allowed or profile.get('schema_version') != 'kernelbridge.cann-profile/v1':
         raise ValueError('unsupported or unknown CANN profile field')
     profile = expand(profile, {'bundle': str(BUNDLE), 'run': str(output)})
@@ -177,6 +177,11 @@ def prepare(task_path, profile_path, output, mode=None, session_seed=None, sessi
     output.mkdir(mode=0o700)
     (output / 'inputs').mkdir()
     (output / 'inputs/source').mkdir()
+    if profile.get('operator_infra') or profile.get('operator_pipeline'):
+        import sys
+        sys.path.insert(0, str(BUNDLE / 'examples'))
+        from operator_tools import prepare as prepare_operator_tools
+        config['business_tools'] = prepare_operator_tools({**profile, 'business_tools': config.get('business_tools', [])}, output / 'inputs', profile['python'])
     def save(name, value):
         with (output / name).open('x') as stream:
             json.dump(value, stream, ensure_ascii=False, indent=2); stream.write('\n')

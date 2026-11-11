@@ -11,6 +11,7 @@ KernelBridge 默认提供当前项目中的交互式 codegen。Pi SDK 执行模�
 ./kernelagent -C /absolute/project --config /absolute/model-config.json
 ./kernelagent --model YOUR_MODEL "检查并修复这个项目的构建错误"
 ./kernelagent --continue
+./kernelagent resume
 ./kernelagent resume APPLICATION_ID
 ```
 
@@ -24,10 +25,22 @@ DeepSeek 官方配置见 [DeepSeek 示例](examples/codegen/deepseek.example.jso
 
 `/new` 或 `/clear` 开始新对话并保留工作文件；`/model` 查看/切换配置中的模型路由；`/compact` 压缩上下文；Esc 中断；`/quit` 退出。`/goal 目标内容` 显式开启持续执行，`/goal pause|resume|clear` 管理该目标。
 
+`/resume` 可选择原会话，`/name 名称` 便于检索；`/fork` 分支对话，保留工作文件与原账本。
+`/subagents` 显示子代理配置和结果。只有明确请求委派时才应调用 `delegate`；接入的是社区
+`pi-subagents`，当前为前台只读子任务，数量、步数、工具次数和超时可配置，见 [TUI 文档](docs/tui.md)。
+
+算子开发可显式开启 [A–J pipeline 与共享 infra](docs/operator-workflow.md)。
+提供 scatter max/min、独立无 Torch oracle、可编译 CPU 实现与 AscendC 候选。
+无性能 baseline 时先验收正确性并建立 incumbent，再做自我迭代的 ABBA 比较；
+首版不生成加速比，设备验收仍需单独运行。
+
 ## 目录
 
 ```text
-examples/cann/       Vector、Cube、Sigmoid 任务与 Ascend C 源码
+examples/cann/       Vector、Cube、Sigmoid、Scatter Max/Min 任务与 Ascend C 源码
+examples/scatter/    无 Torch 本地实现、oracle、IR 与 profiler 驱动
+examples/operator_pipeline/  显式开启的 A–J 工具与回执投影
+examples/operator_infra/     既有 ops infra 适配，不接入网关
 kernelcat/          SDK、会话与 Goal 接口说明
 kernelbridge/       上下文、知识库与业务工具说明
 source/             Agent、Worker、Executor、Knowledge、Ingestion

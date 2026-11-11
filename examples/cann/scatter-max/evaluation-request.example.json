@@ -1,0 +1,12 @@
+{
+  "candidate": "./workspace/solution.py",
+  "reference": "./reference.py",
+  "workspace": "./new-evaluation-job",
+  "operator": "scatter_max",
+  "soc": "ai_core-Ascend910_9382",
+  "device": 0,
+  "fast": false,
+  "timeout": 600,
+  "atol": 0,
+  "rtol": 0
+}

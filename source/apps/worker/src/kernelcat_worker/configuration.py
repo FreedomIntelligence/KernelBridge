@@ -93,10 +93,20 @@ class RequiredCheck(Contract):
     outcome_schema: Json
 
 
+class SubagentConfig(Contract):
+    enabled: bool = True
+    max_per_turn: int = Field(ge=1, le=32, default=4)
+    max_total: int | None = Field(ge=1, default=None)
+    max_steps: int = Field(ge=1, le=32, default=6)
+    tool_limit: int = Field(ge=0, le=128, default=16)
+    timeout: int = Field(ge=1, le=1800, default=120)
+
+
 class Config(Contract):
     python_modules: Json
     native_session_seed: NativeSessionSeed | None = None
     business_tools: tuple[BusinessToolConfig, ...] = Field(default=(), max_length=32)
+    subagents: SubagentConfig = Field(default_factory=SubagentConfig)
     candidate_retention: CandidateRetention | None = None
     required_checks: tuple[RequiredCheck, ...] = ()
     state_dir: str = ".state"

@@ -529,6 +529,11 @@ class ExecutionRPC:
         if remote is None or not all(hasattr(remote, n) for n in ("arm", "resolve", "clear", "started")):
             raise Conflict("delegation effect not installed")
         self.remote = remote
+        settings = remote.settings
+        prior_children = sum(a.tool == "delegate" for a in self.calls[:len(self.outcomes)])
+        total = sum(item["action"]["tool"] == "delegate" for item in self.store.snapshot()["actions"].values())
+        remote.denial = ("Configured subagent count reached" if prior_children >= settings["max_per_turn"]
+            or settings["max_total"] is not None and total >= settings["max_total"] else None)
         self.remote.arm(action.id)
         self.remote_action, self.remote_result = action, Future()
         def dispatch() -> None:
@@ -548,7 +553,8 @@ class ExecutionRPC:
                 raise CallCancelled()
         self.child = DelegatedEffects(self.owner, action, self.proposal_id)
         return {"permit": action.id, "agent": action.arguments["agent"],
-                "task": action.arguments["task"], "timeout_ms": 60000,
+                "task": action.arguments["task"], "timeout_ms": settings["timeout"] * 1000,
+                "tool_limit": settings["tool_limit"],
                 "routes": list(self.store.policy().routes),
                 "mode": self.child.mode, "max_steps": self.child.max_steps}
 
@@ -575,10 +581,19 @@ class ExecutionRPC:
     def plugin_settle(self, params: Json) -> Json:
         if (self.remote_thread is None or self.remote_action is None
                 or set(params) != {"permit", "status", "text"}
-                or params["permit"] != self.remote_action.id or params["status"] not in {"completed", "failed"}
+                or params["permit"] != self.remote_action.id or params["status"] not in {"completed", "failed", "cancelled"}
                 or not isinstance(params["text"], str) or len(params["text"].encode()) > 65536):
             raise Conflict("invalid child settlement")
         child = self._child(params)
+        # Child model/read RPCs and settlement share the host's serial effect
+        # queue. A cancellation may discard a reply in Pi, but cannot discard
+        # its original receipt or turn an unknown effect into a known failure.
+        for item in self.store.snapshot()["actions"].values():
+            if item["action"]["task"] == child.task.id and (
+                    not item.get("terminal") or item.get("outcome", {}).get("status") == "unknown"):
+                raise InDoubt(f"unresolved child action {item['action']['id']}")
+        if params["status"] == "cancelled":
+            child.failure = "cancelled"
         if params["status"] == "completed":
             if child.summary is None or params["text"] != child.summary or child.failure is not None:
                 raise Conflict("child output differs from its authoritative model receipt")

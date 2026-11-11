@@ -1,5 +1,6 @@
 """Configured tools run through Pi and Gateway; diagnostic reads bind retained artifacts."""
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import sys
@@ -9,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import test_runtime as support
 sys.path.insert(0, str(support.ROOT / 'examples/cann'))
 from diagnostic_tools import tools
-from kernelcat_worker.configuration import BusinessToolConfig
+from kernelcat_worker.configuration import BusinessToolConfig, SubagentConfig
 from kernelcat_worker.business_tools import configured_tools
 
 
@@ -17,6 +18,22 @@ class BusinessDiagnosticsTests(unittest.TestCase):
     setUp = support.RuntimeTests.setUp
     tearDown = support.RuntimeTests.tearDown
     session = support.RuntimeTests.session
+
+    @unittest.skipUnless(Path('/Users/jerry/ops/infra').is_dir(), 'local infra unavailable')
+    def test_pi_calls_registered_original_infra(self):
+        spec = importlib.util.spec_from_file_location('operator_infra_prepare', support.ROOT / 'examples/operator_infra/prepare.py')
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        specs = module.prepare({'source_root': '/Users/jerry/ops/infra'}, self.base / 'infra', sys.executable)
+        registered = configured_tools([BusinessToolConfig.model_validate_json(json.dumps(row)) for row in specs], self.workspace, self.base / 'state')
+        session, provider, replay = self.session([('infra_context', {'operator': 'Unique'}),
+            ('infra_design', {'operator': 'Unique'})], extra_tools=registered)
+        self.assertEqual(session.run(self.task)['status'], 'finished')
+        names = {row['name'] for row in specs}
+        self.assertTrue(all(names <= actual for actual in provider.declarations))
+        results = [row['outcome'] for row in self.store.snapshot()['actions'].values() if row['action']['tool'] in names]
+        self.assertEqual(len(results), 2)
+        self.assertTrue(all(row['status'] == 'completed' and row['data']['files'] for row in results), results)
+        replay._boundary()
 
     def test_pi_can_parse_read_and_render_registered_llvm_evidence(self):
         evidence = self.base / 'evidence'; identity = 'b' * 64
@@ -71,9 +88,12 @@ class BusinessDiagnosticsTests(unittest.TestCase):
             files=({'path': str(command), 'sha256': hashlib.sha256(command.read_bytes()).hexdigest()},))
         service = object.__new__(RuntimeService)
         service.base = self.base
-        service.config = SimpleNamespace(business_tools=(specification,), state_dir='state', rsi=None, self_evolution=None)
+        service.config = SimpleNamespace(business_tools=(specification,), state_dir='state', rsi=None, self_evolution=None, subagents=SubagentConfig())
         tools = service._tools(self.store, self.workspace, Skills(()), None)
         probe = next(tool for tool in tools if tool.spec.name == 'operator_probe')
         outcome = probe.execute(Action(id='managed/probe', task='test', tool='operator_probe', arguments={'value': 17}))
         self.assertEqual(outcome.status, 'completed')
         self.assertEqual(outcome.data['value'], 17)
+        service.config.subagents = SubagentConfig(enabled=False)
+        disabled = service._tools(self.store, self.workspace, Skills(()), None)
+        self.assertNotIn('delegate', {tool.spec.name for tool in disabled})

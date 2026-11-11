@@ -8,7 +8,7 @@ export function goalSummary(state) {
   const goal = currentGoal(state);
   const budget = state.budget ?? {};
   return [goal ? `Goal ${STATUSES[goal.status] ?? goal.status}` : '普通会话',
-    ...(goal || state.workspace_mode !== 'project' ? [`task v${state.task_version}`, `Trial ${state.trials?.length || 0}`] : []),
+    ...(state.workspace_mode !== 'project' ? [`task v${state.task_version}`, `Trial ${state.trials?.length || 0}`] : []),
     ...(budget.limit == null ? [] : [`credits ${budget.spent ?? 0} + ${budget.reserved ?? 0} / ${budget.limit}`]),
     ...(goal ? [`detach=${goal.on_detach ?? 'pause'}`] : []),
     ...(state.pending_effect_ids?.length ? [`pending=${state.pending_effect_ids.length}`] : [])].join(' · ');
@@ -21,7 +21,11 @@ export function statePresentation(state) {
   return [goal ? `目标：${goal.objective}` : '尚未设置 Goal。输入 /goal 目标内容 开始持续执行。',
     `状态：${goal ? STATUSES[goal.status] ?? goal.status : '普通会话'}`,
     ...(state.cwd ? [`目录：${state.cwd}`, `模型：${state.model}`] : []),
-    ...(goal || state.workspace_mode !== 'project' ? [`任务版本 ${state.task_version} · Trial ${state.trials?.length || 0}`] : []),
+    ...(state.workspace_mode !== 'project' ? [`任务版本 ${state.task_version} · Trial ${state.trials?.length || 0}`] : []),
+    ...(goal && state.goal_usage ? [`已用时 ${state.goal_usage.elapsed_seconds}s · 模型调用 ${state.goal_usage.model_turns} · tokens ${state.goal_usage.tokens}${goal.token_budget == null ? '' : '/' + goal.token_budget}`,
+      ...(state.goal_usage.usage_unknown_calls ? [`${state.goal_usage.usage_unknown_calls} 次调用未报告 token 用量`] : [])] : []),
+    ...(goal?.reason ? [`原因：${goal.reason}`] : []),
+    ...(goal?.summary ? [`说明：${goal.summary}`] : []),
     ...(budget.limit == null ? [] : [`预算：${budget.spent ?? 0}/${budget.limit} · 预留 ${budget.reserved ?? 0}`]),
     ...(criteria ? [`验收：${criteria.evidence_tier}${criteria.target == null ? '' : ` · 目标 ${criteria.target}`}`] : []),
     ...(state.best ? [`最佳已验收候选：${state.best.evidence_tier} · ${state.best.source_sha256?.slice(0, 12) ?? ''}`] : []),
@@ -47,8 +51,8 @@ export function installProductUI(context, getState, { demo = false } = {}) {
       const branch = footerData?.getGitBranch();
       return new Text([
         ...(state.cwd ? [color('dim', state.cwd + (branch ? ` (${branch})` : ''))] : []),
-        state.workspace_mode === 'project' && !goal
-          ? `${color('accent', state.model ?? '未配置模型')} · ${color('dim', Object.values(state.inputs ?? {}).some(item => item.status === 'applied') ? '执行中' : '等待输入')}`
+        state.workspace_mode === 'project'
+          ? `${color('accent', state.model ?? '未配置模型')} · ${goal ? 'Goal ' + (STATUSES[goal.status] ?? goal.status) : color('dim', Object.values(state.inputs ?? {}).some(item => item.status === 'applied') ? '执行中' : '等待输入')}`
           : `${goal ? `Goal ${STATUSES[goal.status] ?? goal.status}` : 'Session'} · task v${state.task_version} · Trial ${state.trials?.length || 0}`,
         ...(budget.limit == null ? [] : [`预算 ${budget.spent ?? 0}/${budget.limit} · 预留 ${budget.reserved ?? 0}`
           + (state.workspace_mode !== 'project' ? ` · 待处理 ${state.pending_effect_ids?.length ?? 0}` : '')]),

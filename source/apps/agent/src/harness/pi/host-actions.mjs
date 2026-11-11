@@ -5,6 +5,7 @@ import { InputQueue } from '../../application/input-queue.mjs';
 import { workspaceTools } from './workspace-tools.mjs';
 import { goalSummary, statePresentation, installProductUI, showProductFeedback } from './product-ui.mjs';
 import { COMMAND_POLICY_VERSION, PRODUCT_COMMANDS, PRODUCT_COMMAND_NAMES, parseGoalCommand, COMMAND_HELP } from './command-policy.mjs';
+import { sessions } from '../../application/host.mjs';
 
 export { COMMAND_POLICY_VERSION } from './command-policy.mjs';
 const DISABLED = new Set(['/share', '/bug', '/debug']);
@@ -26,10 +27,22 @@ export function createHostActions(control, effects) {
   let delivered = new Set();
   let treeFork = false;
   const policyInputs = new Set();
+  let consecutiveErrors = 0;
+  let compactions = 0;
+  const forkHints = new Set();
+  const suggestFork = async (reason, key) => {
+    if (!state || state.fork_policy?.enabled || state.fork_policy?.suggest === false || forkHints.has(key)) return;
+    forkHints.add(key);
+    const text = `${reason} 可用 /fork 保留当前对话并另开思路，或用 /compact 保留摘要继续。分支前保留假设、已验收源码、失败条件和原任务 handle。`;
+    await control.call('configuration', { operation: 'fork_suggestion', reason, key });
+    showProductFeedback(context, text);
+  };
   const syncTools = () => {
     if (governed && state.workspace_mode === 'project') {
-      const tools = governed.session.getActiveToolNames().filter(name => name !== 'finish_goal');
-      if (state.goal?.status === 'active') tools.push('finish_goal');
+      const tools = governed.session.getActiveToolNames().filter(name => !['finish_goal', 'update_goal'].includes(name));
+      // Pi captures its tool schema before beforeModel persists the new user
+      // entry. That entry reactivates an awaiting Goal in the host journal.
+      if (['active', 'awaiting_user'].includes(state.goal?.status)) tools.push('finish_goal', 'update_goal');
       governed.session.setActiveToolsByName(tools);
     }
   };
@@ -61,7 +74,7 @@ export function createHostActions(control, effects) {
           user_constraints: Object.values(state.inputs).filter(item => item.initiator === 'user' && item.kind !== 'control').map(item => item.text),
         }), false);
         governed.session.refreshContext();
-        if (ordinary) {
+        if (state.workspace_mode === 'project') {
           await control.call('configuration', { operation: 'context_started', pi_session_id: ctx.sessionManager.getSessionId() });
         } else await control.call('trial', { trial_id: randomUUID(), source_sha256: parent.source_sha256,
           parent_entry_id: parent.entry_id, parent_pi_session_id: parent.pi_session_id,
@@ -101,6 +114,12 @@ export function createHostActions(control, effects) {
       effects.bind({ tool_call_id: event.toolCallId, tool_name: event.toolName,
         tool_arguments: event.input, pi_session_id: context.sessionManager.getSessionId(),
         entry_id: context.sessionManager.getLeafId() });
+    });
+    pi.on('tool_result', async event => {
+      consecutiveErrors = event.isError ? consecutiveErrors + 1 : 0;
+      if (consecutiveErrors >= (state?.fork_policy?.minimum_observations ?? 3)) {
+        await suggestFork('连续工具失败，建议重新检查假设。', 'errors-' + Math.floor(consecutiveErrors / 3));
+      }
     });
     pi.on('agent_settled', async event => {
       const providerFailed = governed?.controller.stopResult?.status === 'providers_failed';
@@ -145,6 +164,8 @@ export function createHostActions(control, effects) {
       activeInput = undefined;
       if (governed) await snapshot('checkpoint');
       await refresh();
+      const plateau = state.fork_suggestion;
+      if (plateau) await suggestFork(plateau, 'plateau-' + state.model_turns);
       if (interactive && !event.aborted && !exiting) setImmediate(() => { void advance().catch(report); });
     });
     pi.on('user_bash', async event => {
@@ -196,7 +217,11 @@ export function createHostActions(control, effects) {
       const current = await refresh();
       if (current.pending_effect_ids.length) return { cancel: true };
     });
-    pi.on('session_compact', async () => { if (governed) await snapshot('checkpoint'); });
+    pi.on('session_compact', async () => {
+      if (governed) await snapshot('checkpoint');
+      compactions++;
+      if (compactions >= 2) await suggestFork('这个上下文已多次压缩。', 'compactions-' + compactions);
+    });
     pi.on('session_info_changed', async () => { if (governed && !governed.session.isStreaming) await snapshot('checkpoint'); });
   };
 
@@ -317,7 +342,7 @@ export function createHostActions(control, effects) {
         await snapshot('checkpoint', entry.id);
       }
       const checkpoint = await snapshot('checkpoint');
-      if (!state.trials.length && (state.workspace_mode !== 'project' || state.goal?.status === 'active')) {
+      if (!state.trials.length && state.workspace_mode !== 'project') {
         await control.call('trial', { trial_id: randomUUID(), pi_session_id: manager.getSessionId(),
           source_sha256: checkpoint.source_sha256 });
         await refresh();
@@ -374,8 +399,20 @@ export function createHostActions(control, effects) {
       if (DISABLED.has(command)) return { action: 'reject', message: `${command} is disabled by the host profile` };
       if (!actions.commands().some(item => '/' + item.name === command)) return { action: 'reject', message: `不可用的命令：${command}。输入 /help 查看支持的命令。` };
       if (command === '/help' || command === '/hotkeys') return { action: 'handled', message: state.workspace_mode === 'project'
-        ? '输入任务后执行，完成后等待下一条输入。\n/new 或 /clear：新对话（保留文件）· /model：模型 · /compact：压缩上下文\n/resume：历史会话 · /goal 目标内容：持续执行\nEsc：中断 · Ctrl+O：工具详情 · /quit 或 /exit：退出' : COMMAND_HELP };
+        ? '输入任务后执行，完成后等待下一条输入。\n/new 或 /clear：新对话（保留文件）· /model：模型 · /compact：压缩上下文\n/resume：历史会话 · /goal 目标内容：持续执行\n/subagents 或 /agents：子代理与触发方式\nEsc：中断 · Ctrl+O：工具详情 · /quit 或 /exit：退出' : COMMAND_HELP };
       if (command === '/latest') return { action: 'handled' };
+      if (command === '/subagents' || command === '/agents') {
+        const current = await refresh();
+        return { action: 'handled', message: [
+          'pi-subagents 0.87.0 · 上游社区组件',
+          'kernel-scout：只读探索 · kernel-reviewer：只读审查',
+          '自然语言触发：请用 kernel-scout 子代理读取 solution.py 并总结。',
+          '父模型调用 delegate；子会话经原有 Journal 记账，结果返回当前对话。',
+          `已启用：${current.subagent_config?.enabled !== false} · 每个模型回复最多 ${current.subagent_config?.max_per_turn ?? 4} 个 · 会话总数 ${current.subagent_config?.max_total ?? '不限'}`,
+          '多个子代理依次执行，每个都有独立上下文；只读、前台、不嵌套。配置入口：subagents。',
+          ...(current.subagents ?? []).map(child => `${child.agent} · ${child.status} · ${child.summary || child.task}`),
+        ].join('\n') };
+      }
       if (command === '/goal') {
         const { operation, ...values } = parseGoalCommand(text);
         if (operation === 'status') return { action: 'handled', message: statePresentation(await refresh()) };
@@ -394,6 +431,10 @@ export function createHostActions(control, effects) {
       if (command === '/quit') return { action: 'continue', text: '/quit' };
       if (command === '/settings') {
         return { action: 'handled', message: statePresentation(await refresh()) };
+      }
+      if (command === '/name' && arguments_.length) {
+        await control.call('configuration', { operation: 'rename', name: arguments_.join(' ').slice(0, 120) });
+        return { action: 'continue' };
       }
       if (command === '/trust') {
         return { action: 'handled', message: `已冻结 ${governed.manifest.resources.length} 份任务指令。/reload 只重新加载这组资源。` };
@@ -433,8 +474,14 @@ export function createHostActions(control, effects) {
           ? '已开始新对话，工作文件保留。' : 'Created a new context with the retained source and receipt handoff' };
       }
       if (command === '/clone') {
+        if (!governed.session.sessionManager.getBranch().some(item => item.type === 'message' && ['user', 'assistant'].includes(item.message.role))) {
+          return { action: 'handled', message: '当前对话还没有消息可分支。' };
+        }
         await snapshot('checkpoint');
-        await governed.runtime.fork(governed.session.sessionManager.getLeafId(), { position: 'at' });
+        const entry = governed.session.sessionManager.getLeafId();
+        if (!entry) return { action: 'handled', message: '当前对话还没有消息可分支。' };
+        const result = await governed.runtime.fork(entry, { position: 'at' });
+        if (result.cancelled) throw new Error('Fork was refused; the original session is retained.');
         return { action: 'handled' };
       }
       if (command === '/compact') {
@@ -447,13 +494,49 @@ export function createHostActions(control, effects) {
         }
         return { action: 'handled' };
       }
-      if (command === '/fork' && arguments_[0]) {
-        await governed.runtime.fork(arguments_[0], { position: 'at' });
+      if (command === '/fork') {
+        if (!arguments_[0] && !governed.session.sessionManager.getBranch().some(item => item.type === 'message' && ['user', 'assistant'].includes(item.message.role))) {
+          return { action: 'handled', message: '当前对话还没有消息可分支。' };
+        }
+        await snapshot('checkpoint');
+        const entry = arguments_[0] ?? governed.session.sessionManager.getLeafId();
+        if (!entry) return { action: 'handled', message: '当前对话还没有消息可分支。' };
+        if (!governed.session.sessionManager.getEntry(entry)) throw new Error('Unknown fork entry; choose a retained entry ID.');
+        const result = await governed.runtime.fork(entry, { position: 'at' });
+        if (result.cancelled) throw new Error('Fork was refused; the original session is retained.');
         return { action: 'handled' };
+      }
+      if (command === '/resume' && state.workspace_mode === 'project') {
+        const all = arguments_.includes('--all');
+        const query = arguments_.filter(value => value !== '--all').join(' ');
+        const available = (await sessions()).filter(item => item.workspace_mode === 'project'
+          && (all || item.cwd === state.cwd));
+        let selected;
+        if (query) {
+          const exact = available.filter(item => item.application_session_id === query || item.title === query);
+          const matches = exact.length ? exact : available.filter(item => item.application_session_id.startsWith(query) || item.title?.includes(query));
+          if (matches.length !== 1) return { action: 'handled', message: matches.length ? '匹配到多个会话，请用完整 ID。' : '没有匹配的会话；用 /resume --all 查看其他项目。' };
+          selected = matches[0];
+        } else {
+          const labels = available.map(item => `${item.title || '空会话'} · ${item.cwd} · ${item.application_session_id}`);
+          if (!labels.length) return { action: 'handled', message: '当前项目没有历史会话。' };
+          const choice = await context.ui.select('恢复会话（保留原日志、预算与当前工作文件）', labels);
+          if (!choice) return { action: 'handled' };
+          selected = available[labels.indexOf(choice)];
+        }
+        if (selected.application_session_id === control.applicationSessionId) return { action: 'handled', message: '已经在这个会话中。' };
+        if (!process.send) return { action: 'handled', message: `请运行 kernelagent resume ${selected.application_session_id}` };
+        await snapshot('checkpoint');
+        await new Promise((resolve, reject) => process.send({ type: 'resume_application', identity: selected.application_session_id }, error => error ? reject(error) : resolve()));
+        return { action: 'continue', text: '/quit' };
       }
       if (command === '/resume' || command === '/import') {
         const selected = await control.call('select_session', { path: arguments_[0] });
-        if (selected.sessions) return { action: 'handled', message: JSON.stringify(selected) };
+        if (selected.sessions) {
+          const path = await context.ui.select('恢复原会话', selected.sessions);
+          if (!path) return { action: 'handled' };
+          Object.assign(selected, await control.call('select_session', { path }));
+        }
         approvedSwitch = true;
         try { await governed.runtime.switchSession(selected.path); }
         finally { approvedSwitch = false; }

@@ -89,7 +89,9 @@ class RuntimeService:
 
     def _tools(self, store: Store, workspace: Workspace, skills: Skills,
                knowledge: KnowledgeReadSurface | None) -> list[Tool]:
-        tools: list[Tool] = [*builtin_tools(workspace, skills), SubagentEffect(), ReadLearnedSkill(store)]
+        tools: list[Tool] = [*builtin_tools(workspace, skills), ReadLearnedSkill(store)]
+        if self.config.subagents.enabled:
+            tools.append(SubagentEffect(self.config.subagents.model_dump()))
         tools.extend(configured_tools(self.config.business_tools, workspace,
             (self.base / self.config.state_dir).resolve()))
         if knowledge is not None:

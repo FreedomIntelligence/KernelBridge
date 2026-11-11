@@ -10,7 +10,9 @@
 
 实现更新（2026-11-10）：已实现常驻宿主、共享 Pi runtime、持久输入/租约/Goal、真实流、上下文切换和证据投影。功能代码完成后开始编写测试。本地验收入口为 `validation/tui/run.py`，结果与覆盖边界见 [本地验收记录](../../validation/tui/ACCEPTANCE.md)。用户选择先完成本地实现与验收，真实 NPU 验收保留待运行；本次不执行设备提交、GitHub 发布或 ZIP 发布。
 
-实现中的接口约定：新增任务式 SDK 使用常驻宿主，旧 manifest 式 SDK 保留有限调用兼容层；普通 codegen 的 `/new` 创建新对话，活跃 Goal/试验中创建新 Trial；已完成 Goal 后清空对话不新增 Trial，历史账本仍保留；试验 `/import` 只导入当前产品档案中有源码检查点的原生会话。Python 宿主持有原 Executor scope，Node 端负责启动、客户端与 Pi worker。新增 Node 模块采用现有 `.mjs` 风格。
+实现中的接口约定：新增任务式 SDK 使用常驻宿主，旧 manifest 式 SDK 保留有限调用兼容层；普通 codegen 的 `/new` 创建新对话，显式 Goal 也不隐式创建 Trial；只有隔离试验模式的上下文切换创建 Trial。历史账本始终保留；试验 `/import` 只导入当前产品档案中有源码检查点的原生会话。Python 宿主持有原 Executor scope，Node 端负责启动、客户端与 Pi worker。新增 Node 模块采用现有 `.mjs` 风格。
+
+后续实现与本地验收：已补齐会话选择器与原宿主恢复、当前/历史 fork、语义压缩、Goal 上限与阻塞恢复、可配置社区子代理，以及显式 A–J 算子工具。无 Torch 的正确性 oracle、可空性能 baseline、incumbent 自我迭代、scatter max/min 和 IR/profiler 接口见 [算子工作流](../operator-workflow.md)。覆盖及限制见 [最新验收记录](../../validation/tui/ACCEPTANCE.md#operator-workflow-and-session-follow-up)。本地验收与设备验收分别记录，不宣称与其他 CLI 所有实现细节完全相同。
 
 ## 1. 交付目标
 
@@ -192,11 +194,11 @@ evaluator_sha256, evidence_tier
 | `/goal on-detach pause\|continue` | 修改关闭界面后的去向，记录控制事件 | P2 |
 | `/compact` | 当前 Trial 内压缩，模型调用经受控 provider 计入预算；不更换源码，不清零预算 | P1 |
 | `/context clean` | 清理可证明冗余的工具输出投影；原始 JSONL 和完整证据保留 | P3 |
-| `/context reset` | 冻结当前源码，创建新 Trial 和新上下文，注入账本生成的交接材料 | P3 |
-| `/fork` | 复用 Pi 选择界面，由宿主创建源码快照、父 entry 关联和新 Trial | P3 |
-| `/clone` | 与 `/fork` 相同，由宿主创建新 Trial 与源码快照 | P3 |
+| `/context reset` | 新建上下文；普通项目保留文件，隔离试验才冻结源码并创建 Trial | P3 |
+| `/fork` | 默认从当前 entry 分支，可指定历史 entry；保留父关联和账本，只有隔离试验恢复匹配源码并创建 Trial | P3 |
+| `/clone` | 当前上下文分支，与 `/fork` 使用相同的宿主与源码约束 | P3 |
 | `/tree` | P1 只读浏览原对话树；P3 起，选择历史位置继续执行时转为受控 fork，不让旧上下文配上当前可变源码 | P1 / P3 |
-| `/resume` / `/new` / `/import` | 选择产品会话、创建任务或导入会话档案；经宿主重新绑定工作区、任务与执行身份 | P2 |
+| `/resume` / `/new` / `/import` | 恢复原宿主/原会话、新建对话或导入档案；普通项目不隐式创建 Trial，恢复不重放已完成请求 | P2 |
 | `/model` / `/thinking` / `/scoped-models` | 只能选择宿主 profile 允许的配置，`/scoped-models` 不能把 profile 之外的模型加入轮换；记录配置版本，仍使用受控 provider | P1 |
 | `/settings` / `/reload` / `/trust` | 显示及重载准入配置；`/reload` 重新应用 runtime 工厂的冻结资源集；不能通过界面增加未声明的插件或放开工具执行权限 | P1 |
 | `/export` / `/copy` / `/name` / `/session` | 复用展示操作；文件导出进入明确的输出目录，敏感配置脱敏 | P1 |

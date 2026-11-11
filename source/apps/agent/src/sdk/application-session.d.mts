@@ -11,6 +11,7 @@ export interface ApplicationOptions {
   readonly onDetach?: 'pause' | 'continue';
   readonly maxTrials?: number;
   readonly maxModelTurns?: number;
+  readonly goalTokenBudget?: number;
   readonly maxForks?: number;
   readonly forkPolicy?: { enabled: boolean; minimum_observations: number; cooldown_turns: number };
 }
@@ -30,7 +31,7 @@ export class ApplicationSession {
   resume(): Promise<Record<string, any>>;
   interrupt(): Promise<Record<string, any>>;
   clearGoal(): Promise<Record<string, any>>;
-  setGoal(objective: string, options?: { acceptance?: { evidence_tier: 'E0' | 'E1' | 'E2' | 'E3' | 'E4'; target?: number | null } }): Promise<Record<string, any>>;
+  setGoal(objective: string, options?: { token_budget?: number | null; acceptance?: { evidence_tier: 'E0' | 'E1' | 'E2' | 'E3' | 'E4'; target?: number | null } }): Promise<Record<string, any>>;
   onDetach(value: 'pause' | 'continue'): Promise<Record<string, any>>;
   command(text: string, options?: ApplicationInputOptions): Promise<Record<string, any>>;
   fork(entryId?: string): Promise<Record<string, any>>;

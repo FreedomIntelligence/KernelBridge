@@ -2,13 +2,13 @@
 
 The TUI and task-based SDK sessions use one local ApplicationHost, the pinned Pi 1.5.0 runtime, and the existing Executor Journal. A worker can exit while the product session and its accepted inputs remain durable. The implementation targets Linux and macOS; local acceptance was run on macOS. Linux and device qualification are pending; Windows requires WSL2.
 
-The default entry is ordinary codegen: `kernelagent` opens the full native Pi `InteractiveMode` in the current project. A passive host and local session start with it; no model request, seed file, Goal, Trial, workspace-history initialization or evaluation starts before explicit input. An explicit initial prompt (`kernelagent "TASK"`) starts immediately. Missing model configuration leaves a usable setup/help screen. `--config`, `KERNELBRIDGE_CONFIG`, or `~/.kernelbridge/config.json` selects providers; credentials are read from the host environment or the current user's mode-0600 `~/.kernelbridge/credentials.json`; environment values take precedence. Only referenced variable names enter frozen configurations, and host restart reloads local credentials. `-C` selects the project. `resume [APPLICATION_ID]` and `--continue` restore persisted sessions without resubmitting their last prompt.
+The default entry is ordinary codegen: `kernelagent` opens the full native Pi `InteractiveMode` in the current project. A passive host and local session start with it; no model request, seed file, Goal, Trial, workspace-history initialization or evaluation starts before explicit input. An explicit initial prompt (`kernelagent "TASK"`) starts immediately. Missing model configuration leaves a usable setup/help screen. `--config`, `KERNELBRIDGE_CONFIG`, or `~/.kernelbridge/config.json` selects providers; credentials are read from the host environment or the current user's mode-0600 `~/.kernelbridge/credentials.json`; environment values take precedence. Only referenced variable names enter frozen configurations, and host restart reloads local credentials. `-C` selects the project. `resume` opens a searchable project-scoped picker; `resume --all` includes other projects. `resume ID_OR_TITLE`, `resume --last`, and `--continue` restore saved sessions without resubmitting their last prompt. `/name TITLE` supplies a persistent searchable title, including after the host exits.
 
 Ordinary codegen tools act directly in the project. Conversation checkpoints do not snapshot or restore project files: `/new`, `/clear`, `/fork` and resume preserve the current working files, including untracked files, binary assets and installed dependencies. No whole-project size limit is imposed by the experiment snapshotter. The runtime is shared with the task mode below; execution admission, input queue, lease and receipts still use the same Journal.
 
 Budget omission means no limit: `credits`, `policy.max_steps`, `max_model_turns`, `max_trials` and `max_forks` default to null. Only explicitly configured positive limits are enforced (`max_forks` may be zero). `--budget` sets a codegen credit limit. Usage remains accounted, but an unset limit is absent from the status bar. Context capacity, per-response output size and transport safety bounds are separate from execution budgets.
 
-Goal scheduling is opt-in through `/goal OBJECTIVE`, `--goal OBJECTIVE`, explicit task `--goal-from-task`, or SDK `sessionOnly: false`. A codegen Goal can report completion with its admitted `finish_goal` tool; that report is not NPU acceptance evidence. A later user prompt returns to ordinary codegen. Completed or cleared Goals stay ended after pause, resume or interrupt; use `/goal OBJECTIVE` to start new work. `/clear` starts a fresh conversation and preserves the historical ledger, without creating another Trial after Goal completion. Device acceptance still requires an explicit isolated task and evaluator/profile.
+Goal scheduling is opt-in through `/goal OBJECTIVE`, `--goal OBJECTIVE`, explicit task `--goal-from-task`, or SDK `sessionOnly: false`. A codegen Goal can inspect progress with `get_goal` and report completion with `update_goal({status:"complete",summary:"actual checks"})` (`finish_goal` remains available); that report is not NPU acceptance evidence. A later user prompt returns to ordinary codegen. Completed or cleared Goals stay ended after pause, resume or interrupt; use `/goal OBJECTIVE` to start new work. `/clear` starts a fresh conversation and preserves the historical ledger, without creating another Trial after Goal completion. Device acceptance still requires an explicit isolated task and evaluator/profile.
 
 Install using the root README. Select a task/profile only when running an experiment:
 
@@ -60,9 +60,11 @@ The original `createSession({manifest})`, `runTask`, and external LoopX APIs rem
 | `/goal on-detach pause\|continue`, `/detach`, `/quit` | Set or apply detach behavior |
 | `/compact` | Metered semantic compaction; preserve original JSONL and authoritative facts |
 | `/context clean` | Receipt-aware projection; preserve original results and failures |
-| `/context reset`, `/new` | New conversation in codegen; new Trial in an explicit Goal/task, with Journal handoff |
-| `/fork`, `/fork ENTRY`, `/clone`, `/tree` | Source-bound fork; tree selection creates a fork |
-| `/resume PATH`, `/import PATH` | Import a retained session in this application's archive with a known source checkpoint |
+| `/context reset`, `/new` | New conversation in project codegen, including Goals; new Trial only in isolated task mode |
+| `/fork`, `/fork ENTRY`, `/clone`, `/tree` | Fork current/historical conversation; isolated tasks also restore the recorded source; tree selection creates a fork |
+| `/resume [ID_OR_TITLE]`, `/resume --all` | Project session picker or direct resume of the original host/history; no tool replay |
+| `/resume PATH`, `/import PATH` in isolated task mode | Resume a retained original native session with its matching source checkpoint; no new Trial |
+| `/subagents`, `/agents` | Show configured limits, child results and explicit trigger guidance |
 | `/model ROUTE`, `/thinking LEVEL`, `/scoped-models` | Select only frozen profile routes; thinking requires a matching route |
 | `/settings`, `/trust`, `/reload` | Inspect or reload the frozen resource set |
 | `/export`, `/copy`, `/name`, `/session`, `/changelog`, `/hotkeys` | Native presentation; exports go under the run's `exports/` |
@@ -71,11 +73,39 @@ The original `createSession({manifest})`, `runTask`, and external LoopX APIs rem
 
 Sharing, bug upload, debug export, hidden and unknown commands are disabled. The source-verified Pi patch gates submission before ordinary, streaming and compaction branches. Patch or dependency mismatch refuses startup.
 
-Goal command syntax follows [Codex's documented Goal interface](https://developers.openai.com/cookbook/examples/codex/using_goals_in_codex): `/goal` alone reads state; the text after `/goal` is the objective unless it is exactly `pause`, `resume`, or `clear`. For example, `/goal 1` sets the objective to `1`; `/goal pause the benchmark after collecting evidence` is an objective, not a pause command. KernelBridge additionally retains `/goal on-detach pause|continue`. Objectives and acceptance evidence still use the original Journal and budget.
+Goal command syntax follows [Codex's documented Goal interface](https://developers.openai.com/cookbook/examples/codex/using_goals_in_codex): `/goal` alone reads state; the text after `/goal` is the objective unless it is exactly `pause`, `resume`, or `clear`. For example, `/goal 1` sets the objective to `1`; `/goal pause the benchmark after collecting evidence` is an objective, not a pause command. KernelBridge additionally retains `/goal on-detach pause|continue`. Objectives and acceptance evidence still use the original Journal and budget. New objectives get separate Goal identities and usage counters. A blocked Goal enters `awaiting_user`; a new user message or `/goal resume` reactivates it. Paused Goals require explicit resume. A tool-free automatic continuation yields to the user, and queued user input has priority. Read-only `get_goal` calls alone do not count as progress. `--goal-token-budget N` requires `--goal`; the next call is denied when recorded usage reaches the limit, so the final in-flight call can exceed it. Parent, child and compaction model usage count together. Missing provider usage is shown as unknown, not zero-cost proof. Token/credit limits never imply completion.
+
+This aligns the main Goal/session behaviors with Codex and Claude Code; it is not a claim of identical implementation. KernelBridge retains completed Goal evidence and does not run Claude Code's separate fresh completion evaluator. Explicit device acceptance continues to require source-bound evaluator receipts.
 
 The native editor completes only commands the host supports. Subagent plugin commands and other disabled entries do not appear in completion. Sending a prompt or command returns the viewport to the latest message; scrolling back while reading remains supported. `/latest` provides the same action without a terminal-specific shortcut. Command feedback appears above the editor. The compact footer shows the current model and directory in codegen, and explicit Goal/Trial details in experiment mode. Budget is shown only when set; full protocol receipts remain available through exports and SDK state. Automatic Goal prompts display a short continuation label while their complete original text stays in the Journal. A pause between model preparation and admission settles without calling the provider, and the same worker can resume.
 
-Quit and detach wait for a settled operation; interrupt first if needed. Native display commands record their dispatch boundary; host commands such as compaction record success or failure after completion. `/new` starts a new conversation in ordinary codegen; in an explicit Goal/task it starts a fresh Trial. Working files remain in place. Import accepts source-bound sessions from this application's retained archive.
+Quit and detach wait for a settled operation; interrupt first if needed. Native display commands record their dispatch boundary; host commands such as compaction record success or failure after completion. `/new` starts a new conversation in ordinary codegen; in an isolated task it starts a fresh Trial. A project Goal does not implicitly create a Trial. Working files remain in place. Import accepts source-bound sessions from this application's retained archive.
+
+## Subagents and fork suggestions
+
+The implementation uses the **community `pi-subagents@0.87.0` plugin**, through its public delegation events, required-child extension and capability ceiling. It is not an official built-in Pi subagent component. Pi supplies child session orchestration; the host admits each child model/tool call and checks its original receipts.
+
+Ask explicitly, for example: `Use two subagents: kernel-scout to inspect the indexing contract, and kernel-reviewer to review the candidate against the retained checks.` The parent can call `delegate` with `agent`, `task`, `mode: "analysis" | "read_only"`, and optional `max_steps`. A normal prompt does not itself request delegation. Descriptions and project instructions govern when the model chooses delegation; they are not a natural-language authorization classifier.
+
+```json
+{
+  "subagents": {
+    "enabled": true,
+    "max_per_turn": 4,
+    "max_total": null,
+    "max_steps": 6,
+    "tool_limit": 16,
+    "timeout": 120
+  },
+  "fork_policy": { "enabled": false, "minimum_observations": 3, "cooldown_turns": 3 }
+}
+```
+
+`max_per_turn` counts delegate calls in one model reply; `max_total` counts attempted delegations across the session, including rejected attempts. `null` leaves that total unlimited. Children currently run sequentially in the foreground. Analysis mode has one model step and no tools; read-only mode can inspect permitted files, skills and receipts. Neither mode can write, invoke shell/device tools or spawn nested children. Counts, steps, tools and timeout are validated on the host; the shared credit/Goal token limits also apply. Child advice is not independent correctness or device evidence. A failed child can settle without losing the parent. Esc stops the child, preserves its in-flight receipts, and permits another parent prompt after known cancellation settles. An unknown child effect remains fenced and must be reconciled; cancellation cannot disguise it as a known failure.
+
+When automatic forks are disabled, repeated tool failures or multiple compactions show a suggestion without changing the branch. Explicit task measurements can also produce a plateau suggestion. Project forks preserve files and spent usage; task forks require an exact retained source checkpoint. Resume preserves session identity; recovery may use a writable copy of the immutable native checkpoint, without changing the branch identity or replaying tools.
+
+Operator tools and no-Torch self iteration are documented in [operator-workflow.md](operator-workflow.md).
 
 ## Goal policy and evidence
 

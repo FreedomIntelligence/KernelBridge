@@ -1,0 +1,23 @@
+{
+  "kind": "scatter_max",
+  "native_operator": "scatter_max",
+  "task_id": "scatter-max-fp32",
+  "soc": "ai_core-Ascend910_9382",
+  "device": 0,
+  "dtype": "float32",
+  "seeds": [
+    11,
+    23,
+    47,
+    89,
+    131
+  ],
+  "distribution": "standard_normal",
+  "atol": 0,
+  "rtol": 0,
+  "shape": [
+    129,
+    65
+  ],
+  "dim_size": 33
+}

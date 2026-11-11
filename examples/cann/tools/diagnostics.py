@@ -188,11 +188,13 @@ def main(config):
             path = artifact(root, args['collection'], args['path'])
             if path.suffix == '.ll':
                 from ir_bridge import llvm_stats
-                report = {'kind': 'llvm', **llvm_stats(path.read_text()), 'source_sha256': sha(path.read_bytes())}
+                report = {'kind': 'llvm', **llvm_stats(path.read_text()), 'artifact_sha256': sha(path.read_bytes()),
+                          'collection': args['collection'], 'source_identity': artifact(root, args['collection']).get('report', {'binding': 'unavailable'})}
             elif path.suffix == '.csv':
                 with path.open(newline='') as stream: rows = list(csv.DictReader(stream))
                 report = {'kind': 'profiler_csv', 'row_count': len(rows), 'columns': list(rows[0]) if rows else [],
-                          'rows': rows[:32], 'source_sha256': sha(path.read_bytes()), 'measurement_kind': 'profiled_diagnostic'}
+                          'rows': rows[:32], 'artifact_sha256': sha(path.read_bytes()), 'measurement_kind': 'profiled_diagnostic',
+                          'collection': args['collection'], 'source_identity': artifact(root, args['collection']).get('report', {'binding': 'unavailable'})}
             else:
                 raise ValueError('Select a .ll or profiler .csv artifact')
         elif name == 'diagnostics_render':

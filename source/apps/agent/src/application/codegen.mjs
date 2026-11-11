@@ -3,7 +3,10 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { startApplication, attachApplication } from './host.mjs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { startApplication, attachApplication, sessions } from './host.mjs';
+import { pickSession } from './session-picker.mjs';
 import { loadCodegenCredentials } from './credentials.mjs';
 
 const agentRoot = fileURLToPath(new URL('../../', import.meta.url));
@@ -18,7 +21,7 @@ export async function codegenSettings(options) {
   try { config = JSON.parse(await readFile(path, 'utf8')); }
   catch (error) { if (error.code !== 'ENOENT' || options.config || process.env.KERNELBRIDGE_CONFIG) throw error; }
   if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('模型配置必须是 JSON 对象。');
-  if (config.rsi || config.evaluator || config.business_tools?.length) {
+  if (config.rsi || config.evaluator) {
     throw new Error('验收配置需要显式的 --task 和 --profile（或 --config）；普通 codegen 请使用仅包含模型设置的配置。');
   }
   const providers = structuredClone(config.providers ?? {});
@@ -57,9 +60,18 @@ export async function codegenSettings(options) {
 export async function resumeCodegen(options) {
   const cwd = await realpath(resolve(options.cwd ?? process.cwd()));
   let identity = options.resume;
-  if (!identity || identity === true) {
-    try { identity = JSON.parse(await readFile(join(home(), 'projects', projectKey(cwd) + '.json'), 'utf8')).application_session_id; }
-    catch (error) { if (error.code === 'ENOENT') throw new Error('当前项目没有可恢复的会话。先输入任务创建会话。'); throw error; }
+  if ((!identity || identity === true) && !options.latest) {
+    identity = await pickSession((await sessions()).filter(item => item.workspace_mode === 'project' && (options.all || item.cwd === cwd)));
+    if (!identity) return null;
+  } else if (!identity || identity === true) {
+    // Recently resumed sessions must outrank the last-created session pointer.
+    identity = (await sessions()).find(item => item.workspace_mode === 'project' && item.cwd === cwd)?.application_session_id;
+    if (!identity) throw new Error('当前项目没有可恢复的会话。先输入任务创建会话。');
+  }
+  if (!identity.startsWith('application-')) {
+    const found = (await sessions()).filter(item => (options.all || item.cwd === cwd) && (item.title === identity || item.application_session_id.startsWith(identity)));
+    if (found.length !== 1) throw new Error('会话名称不唯一或未找到，请使用完整 ID。');
+    identity = found[0].application_session_id;
   }
   return attachApplication(identity, { restart: true });
 }
@@ -77,10 +89,20 @@ export async function startCodegen(options, settings, submission) {
     state_dir: join(output, 'state'), credits: settings.credits,
     policy: { context_bytes: 2097152, ...settings.config.policy, routes: settings.routes }, providers: settings.providers,
     readonly_paths: [], pi_worker: { node: process.execPath, root: agentRoot, timeout: 86400 } };
+  config.subagents = settings.config.subagents ?? {};
+  if (settings.config.business_tools?.length || settings.config.operator_infra || settings.config.operator_pipeline) {
+    const frozen = join(output, 'operator-tools-input.json');
+    await save(frozen, { business_tools: settings.config.business_tools, operator_infra: settings.config.operator_infra,
+      operator_pipeline: settings.config.operator_pipeline });
+    const { stdout } = await promisify(execFile)(options.python, ['-B',
+      resolve(agentRoot, '../../../examples/operator_tools.py'), '--config', frozen, '--output', join(output, 'inputs'), '--python', options.python],
+      { timeout: 30000, maxBuffer: 4 * 1024 * 1024 });
+    config.business_tools = JSON.parse(stdout);
+  }
   await save(join(output, 'task.json'), task);
   await save(join(output, 'config.json'), config);
   const client = await startApplication({ ...options, config: join(output, 'config.json'), task: join(output, 'task.json'),
-    output, sessionOnly: true, forkPolicy: { enabled: false, minimum_observations: 3, cooldown_turns: 3 } });
+    output, sessionOnly: true, forkPolicy: { enabled: false, minimum_observations: 3, cooldown_turns: 3, ...settings.config.fork_policy } });
   try {
     if (submission.goal) await client.control('set', { objective: submission.goal, channel: 'cli' });
     if (submission.prompt || submission.goal) await client.input(submission.prompt || submission.goal, { channel: 'cli' });

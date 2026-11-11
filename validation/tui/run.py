@@ -45,7 +45,7 @@ def main():
         'runtime': [sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'validation', '-p', 'test_runtime.py', '-v'],
         'types': [node, 'source/apps/agent/node_modules/typescript/bin/tsc', '--noEmit', '-p', 'source/apps/agent/tsconfig.json'],
     }
-    for name in ['sdk', 'long', 'recovery', 'steering', 'lifecycle', 'transport', 'admission']:
+    for name in ['sdk', 'long', 'recovery', 'steering', 'lifecycle', 'transport', 'admission', 'fork']:
         commands[name] = [sys.executable, '-B', 'validation/tui/product_scenario.py', '--deployment', str(deployment),
                           '--output', str(output / name), '--scenario', name]
     commands['pty'] = [sys.executable, '-B', 'validation/tui/pty_scenario.py', '--deployment', str(deployment), '--output', str(output / 'pty')]

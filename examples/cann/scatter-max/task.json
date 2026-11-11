@@ -1,0 +1,6 @@
+{
+  "schema_version": "kernelbridge.cann-task/v1",
+  "goal": "实现并验证特征索引最大值算子",
+  "case_file": "case.json",
+  "baseline_file": "baseline.py"
+}

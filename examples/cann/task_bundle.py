@@ -21,12 +21,13 @@ def read_local(root, name):
 def validate_case(case):
     common = {'kind', 'task_id', 'native_operator', 'soc', 'device', 'dtype', 'seeds',
               'distribution', 'atol', 'rtol'}
-    extra = {'shape'} if case.get('kind') == 'vector_add' else {'m', 'n', 'k', 'accumulator_dtype'}
+    extra = {'shape', 'dim_size'} if case.get('kind') in ('scatter_max', 'scatter_min') else {'shape'} if case.get('kind') == 'vector_add' else {'m', 'n', 'k', 'accumulator_dtype'}
     if set(case) != common | extra:
         raise ValueError('case contains missing or unsupported fields')
-    expected = {'vector_add': ('vector_add', 'float32'), 'matmul': ('matmul', 'float16')}
+    expected = {'vector_add': ('vector_add', 'float32'), 'matmul': ('matmul', 'float16'),
+                'scatter_max': ('scatter_max', 'float32'), 'scatter_min': ('scatter_min', 'float32')}
     if case['kind'] not in expected or (case['native_operator'], case['dtype']) != expected[case['kind']]:
-        raise ValueError('these baselines support FP32 vector_add and FP16 matmul only')
+        raise ValueError('unsupported native operator/dtype')
     if case['kind'] == 'matmul' and case['accumulator_dtype'] != 'float32':
         raise ValueError('Cube baseline requires FP32 accumulation')
     if type(case['device']) is not int or case['device'] < 0:

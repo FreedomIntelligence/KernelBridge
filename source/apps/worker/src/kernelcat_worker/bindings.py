@@ -257,7 +257,7 @@ def build(config: Config, base: Path, task: Task, *,
     initial_workspace = (base / config.workspace).resolve()
     if config.workspace_mode != "project":
         initial_workspace /= digest_task(task)
-    elif task.seed_files or config.rsi or config.evaluator or config.business_tools:
+    elif task.seed_files or config.rsi or config.evaluator:
         raise ValueError("project codegen cannot seed files or implicitly enable experiment tools; use an isolated task/profile")
     check_workspace_paths(config, base, initial_workspace)
     state_dir = (base / config.state_dir).resolve()
@@ -286,7 +286,9 @@ def build(config: Config, base: Path, task: Task, *,
     validator_config = config.self_evolution.validator if config.self_evolution else None
     inputs = _version_inputs(config, base, skills)
     validator_hashes = inputs["validator_files"]
-    tools.extend([*builtin_tools(workspace, skills), SubagentEffect()])
+    tools.extend(builtin_tools(workspace, skills))
+    if config.subagents.enabled:
+        tools.append(SubagentEffect(config.subagents.model_dump()))
     from kernelcat_worker.business_tools import configured_tools
     tools.extend(configured_tools(config.business_tools, workspace, state_dir))
     if config.rsi is not None:

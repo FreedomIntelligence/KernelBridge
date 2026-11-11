@@ -94,10 +94,13 @@ class Journal:
         if goal and goal["status"] != "cleared" and any(item["kind"] == "admitted" and item["action"]["tool"] == "__propose__" for item in effects):
             if goal["status"] not in {"active", "cleared"} or state.get("takeover_requested") or state.get("pending_transition"):
                 raise ModelAdmissionStopped(goal["status"])
-            consumed = sum(1 for item in self._events(rows) if item["kind"] == "admitted"
-                           and item["action"]["tool"] == "__propose__")
+            from kernelcat_executor.state.goal_progress import goal_usage
+            usage = goal_usage(list(self._events(rows)), goal)
+            consumed = usage["model_turns"]
             if goal.get("max_model_turns") is not None and consumed >= goal["max_model_turns"]:
                 raise BudgetExceeded("Goal model-turn ceiling reached, including compaction")
+            if goal.get("token_budget") is not None and usage["tokens"] >= goal["token_budget"]:
+                raise BudgetExceeded("Goal token budget reached, including children and compaction")
         for item in effects:
             item.setdefault("application_session_id", identity)
             item.setdefault("lease_epoch", epoch)

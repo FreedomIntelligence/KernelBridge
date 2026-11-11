@@ -16,7 +16,9 @@ def recommend(state: dict) -> dict:
     if any(item["status"] in {"queued", "applied"} and item["kind"] != "control" for item in state["inputs"].values()):
         return {**base, "action": "wait", "reason": "accepted_input"}
     budget = state["budget"]
-    if (goal.get("max_model_turns") is not None and state["model_turns"] >= goal["max_model_turns"]
+    usage = state.get("goal_usage", {"model_turns": state["model_turns"], "tokens": 0})
+    if (goal.get("max_model_turns") is not None and usage["model_turns"] >= goal["max_model_turns"]
+            or goal.get("token_budget") is not None and usage["tokens"] >= goal["token_budget"]
             or budget["limit"] is not None and budget["spent"] + budget["reserved"] >= budget["limit"]):
         return {**base, "action": "stop", "reason": "budget_limit"}
     trials = state["trials"]
@@ -37,8 +39,11 @@ def recommend(state: dict) -> dict:
     if reset and ((goal.get("max_trials") is not None and len(trials) >= goal["max_trials"])
                   or (goal.get("max_forks") is not None and max(0, len(trials) - 1) >= goal["max_forks"])):
         return {**base, "action": "stop", "reason": "budget_limit"}
-    result = {**base, "action": "reset" if reset else "continue",
+    result = {**base, "goal_id": goal.get("goal_id"), "resume_seq": goal.get("resume_seq"),
+              "action": "reset" if reset else "continue",
               "reason": "trial_limit" if trial_limit else "measured_plateau" if reset else "continue_task",
               "evidence_refs": [item["evidence_ref"] for item in window]}
+    if plateau and cooldown and not policy.get("enabled", True):
+        result["fork_hint"] = "Paired results have plateaued. Consider /fork for a new hypothesis, retaining the accepted source and original receipts."
     result["decision_id"] = digest(result)
     return result

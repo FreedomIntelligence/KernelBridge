@@ -7,6 +7,9 @@ FIELDS = ['project_json_src', 'host_tiling_src', 'host_operator_src', 'kernel_sr
 
 
 def build_task(case, baseline, objective, mode="generate"):
+    if case['kind'] in ('scatter_max', 'scatter_min'):
+        from scatter_task import build
+        return build(case, baseline, objective, mode)
     if mode not in ("generate", "optimize"):
         raise ValueError("mode must be generate or optimize")
     vector = case['kind'] == 'vector_add'

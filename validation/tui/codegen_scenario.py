@@ -124,7 +124,9 @@ def main():
         assert current['budget']['limit'] is None and current['max_trial_turns'] is None
         assert not (project / '.git').exists()
         assert 'CODEGEN_PROJECT_INSTRUCTION' in json.dumps(CodegenProvider.requests[0])
-        assert not {'finish_goal', 'evaluate_candidate', 'context_transition', 'delegate'} & {t['function']['name'] for t in CodegenProvider.requests[0]['tools']}
+        active_tools = {t['function']['name'] for t in CodegenProvider.requests[0]['tools']}
+        assert not {'finish_goal', 'update_goal', 'evaluate_candidate', 'context_transition'} & active_tools
+        assert 'delegate' in active_tools and not state()['subagents']
         count = len(CodegenProvider.requests); idle(); assert count == len(CodegenProvider.requests)
         capture('completed'); checks.append('read_edit_bash_project_and_return_idle')
         for turn in range(args.turns): send(f'普通回合 {turn}，只回复完成。')

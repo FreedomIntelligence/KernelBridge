@@ -15,6 +15,7 @@ export const childContext=globalThis[childKey]??=new AsyncLocalStorage();
 const childExtension=fileURLToPath(new URL('./child-tools.mjs',import.meta.url));
 export function createPluginBridge(rpc,provider,cwd) {
   let api;
+  const model = 'kernelcat/' + provider.models[0].id;
   const registrations=[];
   const extension=(pi)=>{
     api=pi;
@@ -23,7 +24,7 @@ export function createPluginBridge(rpc,provider,cwd) {
       registrations.push(registerAgentViaEvents({pi,name,definition:{
         description:'Analyze kernel evidence with a host-restricted read capability',
         systemPrompt:'Use supplied material and host-permitted reads. Never invent measurements. Return an advisory answer, not independent validation.',
-        tools:['kernelcat_child_effect'],excludeTools:[],allowNestedSubagents:false,model:'kernelcat/controlled',thinking:'off',
+        tools:['kernelcat_child_effect'],excludeTools:[],allowNestedSubagents:false,model,thinking:'off',
         systemPromptMode:'replace',inheritProjectContext:false,inheritGlobalContext:false,inheritSkills:false,
         defaultContext:'fresh',defaultAsync:false,defaultTimeoutMs:60000,
         skills:[],extensions:[childExtension],defaultReads:[],maxSubagentDepth:1,
@@ -50,7 +51,12 @@ export function createPluginBridge(rpc,provider,cwd) {
         if(settled)return;settled=true;off();clearTimeout(timer);signal?.removeEventListener('abort',abort);
         error?reject(error):resolve(value);
       };
-      const abort=()=>{api.events.emit(CANCEL,identity);finish(undefined,new Error('Delegation cancelled; receipt reconciliation required'));};
+      const abort=()=>{
+        // Stop the plugin, then reconcile through the same serialized host RPC
+        // queue as its in-flight effects before allowing the parent to settle.
+        finish({status:'cancelled'});
+        api.events.emit(CANCEL,identity);
+      };
       const off=api.events.on(RESPONSE,(value)=>{
         if(value?.requestId===identity.requestId&&value?.ownerRunId===identity.ownerRunId&&value?.nodeId===identity.nodeId) finish(value);
       });
@@ -58,11 +64,13 @@ export function createPluginBridge(rpc,provider,cwd) {
       signal?.addEventListener('abort',abort,{once:true});
       if(signal?.aborted){abort();return;}
       api.events.emit(REQUEST,{...identity,agent:permission.agent,task:permission.task,context:'fresh',cwd,
-        model:'kernelcat/controlled',thinking:'off',timeoutMs:permission.timeout_ms,
-        toolBudget:{hard:permission.mode==='read_only'?16:0,block:'*'},skill:false,artifacts:false,intercomBridge:{mode:'off'},result:{kind:'text'}});
+        model,thinking:'off',timeoutMs:permission.timeout_ms,
+        // The host seals and counts every tool call. A second plugin budget can
+        // suppress the RPC and leave an admitted host call without a receipt.
+        skill:false,artifacts:false,intercomBridge:{mode:'off'},result:{kind:'text'}});
     }));
     const completed=response.status==='completed'&&response.result?.kind==='text';
-    return rpc.call('plugin_settle',{permit:permission.permit,status:completed?'completed':'failed',
+    return rpc.call('plugin_settle',{permit:permission.permit,status:completed?'completed':response.status==='cancelled'?'cancelled':'failed',
       text:completed?response.result.text:''});
   }
   return {factories:[subagents,extension],execute};
