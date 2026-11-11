@@ -8,6 +8,7 @@ import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { ApplicationClient } from './client.mjs';
 import { loadCodegenCredentials } from './credentials.mjs';
+import { projectInfo } from './project-info.mjs';
 
 const agentRoot = fileURLToPath(new URL('../../', import.meta.url));
 const bundleRoot = resolve(agentRoot, '../../..');
@@ -54,6 +55,7 @@ export async function sessions({ registry = registryRoot() } = {}) {
   registry = resolve(registry);
   try { names = await readdir(registry); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
   const result = [];
+  const projects = new Map();
   for (const name of names.sort().filter(name => name.startsWith('application-'))) {
     let summary, journal;
     try {
@@ -61,9 +63,14 @@ export async function sessions({ registry = registryRoot() } = {}) {
       const config = JSON.parse(await readFile(descriptor.config, 'utf8'));
       const task = JSON.parse(await readFile(descriptor.task, 'utf8'));
       journal = join(config.state_dir, 'events.jsonl');
+      const info = await stat(journal).catch(() => null);
+      // Older sessions did not record their branch. Resolve repository grouping
+      // from the current checkout without inventing a historical branch.
+      if (!projects.has(config.workspace)) projects.set(config.workspace, await projectInfo(config.workspace));
+      const project = descriptor.project ?? (projects.get(config.workspace) && { ...projects.get(config.workspace), branch: null });
       summary = { application_session_id: name, output: descriptor.output, cwd: config.workspace,
         workspace_mode: config.workspace_mode ?? 'isolated', title: task.goal.slice(0, 120),
-        updated: (await stat(join(config.state_dir, 'events.jsonl')).catch(() => ({ mtimeMs: 0 }))).mtimeMs };
+        project, bytes: info?.size ?? null, updated: info?.mtimeMs ?? 0 };
       const client = await ApplicationClient.connect(descriptor.host_directory, { timeoutMs: 1000 });
       try {
         const state = await client.state();
@@ -108,6 +115,7 @@ export async function startApplication(options) {
   };
   const descriptor = { schema_version: 'kernelbridge.application-host/v1', application_session_id: identity,
     host_directory: directory, output, task: taskPath, config: configPath, goal, goal_defaults: defaults,
+    project: config.workspace_mode === 'project' ? await projectInfo(config.workspace) : null,
     python: options.python, expected_python_modules: options.expectedPythonModules,
     node: options.node ?? process.execPath, worker_entry: join(agentRoot, 'src/application/worker.mjs'),
     task_sha256: createHash('sha256').update(await readFile(taskPath)).digest('hex'),

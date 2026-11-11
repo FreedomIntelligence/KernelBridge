@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sessions } from '../../source/apps/agent/src/application/host.mjs';
 import { filterSessions, sessionPicker } from '../../source/apps/agent/src/application/session-picker.mjs';
+import { projectInfo } from '../../source/apps/agent/src/application/project-info.mjs';
 
 test('picker searches Chinese title, project and partial ID without changing the selected identity', () => {
   const rows = [
@@ -18,6 +19,32 @@ test('picker searches Chinese title, project and partial ID without changing the
   const picker = sessionPicker(rows, id => { selected = id; }, () => {});
   picker.handleInput('算子'); picker.handleInput('\r');
   assert.equal(selected, 'application-alpha');
+});
+
+test('picker includes current session and switches project, branch and worktree scopes', () => {
+  const metadata = (branch, common_directory = '/repo/.git') => ({ branch, common_directory });
+  const row = (id, cwd, project) => ({ application_session_id: id, title: id, cwd, project, bytes: 10240, updated: Date.now() });
+  const rows = [row('current', '/repo', metadata('main')), row('past-feature', '/repo', metadata('feature')),
+    row('related-worktree', '/other-worktree', metadata('main')), row('unrelated', '/other-project', metadata('main', '/else/.git'))];
+  let selected;
+  const picker = sessionPicker(rows, id => { selected = id; }, () => {},
+    { cwd: '/repo', project: metadata('main'), currentId: 'current' });
+  const screen = () => picker.render(100).join('\n');
+  assert.match(screen(), /current  \[当前\]/); assert.match(screen(), /1\/2/);
+  assert.match(screen(), /日志 10.0 KB/); assert.doesNotMatch(screen(), /related-worktree|unrelated/);
+  picker.handleInput('\x02'); assert.match(screen(), /1\/1/); assert.doesNotMatch(screen(), /past-feature/);
+  picker.handleInput('\x17'); assert.match(screen(), /related-worktree/); assert.doesNotMatch(screen(), /unrelated/);
+  picker.handleInput('\x01'); assert.match(screen(), /unrelated/);
+  picker.handleInput('\x02'); assert.match(screen(), /1\/4/);
+  picker.handleInput('\r'); assert.equal(selected, 'current');
+  assert.ok(picker.render(48).every(line => !line.includes('undefined')));
+});
+
+test('project identity records the actual repository and branch without requiring a model', async () => {
+  const value = await projectInfo(new URL('../..', import.meta.url).pathname);
+  assert.ok(value?.common_directory.endsWith('/.git'));
+  assert.ok(value.branch);
+  assert.equal(await projectInfo('/nonexistent-kernelbridge-fixture'), null);
 });
 
 test('offline named sessions remain discoverable and sort by activity', async () => {

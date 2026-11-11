@@ -22,8 +22,8 @@ export function createPluginBridge(rpc,provider,cwd) {
     pi.registerProvider('kernelcat',provider);
     for(const name of ['kernel-scout','kernel-reviewer']) {
       registrations.push(registerAgentViaEvents({pi,name,definition:{
-        description:'Analyze kernel evidence with a host-restricted read capability',
-        systemPrompt:'Use supplied material and host-permitted reads. Never invent measurements. Return an advisory answer, not independent validation.',
+        description:name === 'kernel-scout' ? 'Discover project files, search code and trace a focused implementation question.' : 'Review a focused change or claim against original source and receipt evidence.',
+        systemPrompt:'Use supplied material and host-permitted discovery/read tools. Follow the host remaining-call instructions and return findings with paths, evidence and unresolved questions before the limit. Never invent measurements. Return an advisory answer, not independent validation.',
         tools:['kernelcat_child_effect'],excludeTools:[],allowNestedSubagents:false,model,thinking:'off',
         systemPromptMode:'replace',inheritProjectContext:false,inheritGlobalContext:false,inheritSkills:false,
         defaultContext:'fresh',defaultAsync:false,defaultTimeoutMs:60000,

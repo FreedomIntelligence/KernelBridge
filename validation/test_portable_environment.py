@@ -1,5 +1,6 @@
 """Exercise the actual evaluator environment boundary and portable input preparation."""
 import json
+import importlib.util
 import os
 from pathlib import Path
 import shutil
@@ -13,7 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 for source in [*ROOT.glob('source/packages/*/src'), ROOT / 'source/apps/worker/src', ROOT / 'examples/cann']:
     sys.path.insert(0, str(source))
 from goal_inputs import local_rsi
-from prepare import prepare
+# Load by explicit path: several examples ship a module named `prepare`, so a bare
+# `from prepare import ...` resolves to whichever one discovery imported first.
+_spec = importlib.util.spec_from_file_location('cann_prepare', ROOT / 'examples/cann/prepare.py')
+prepare_module = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(prepare_module)
+prepare = prepare_module.prepare
 from kernelcat_executor.capabilities.process import CommandEvaluator
 from kernelcat_executor.capabilities.filesystem import Workspace
 from kernelcat_executor.contracts.models import Action
@@ -48,8 +53,8 @@ class PortableEnvironmentTests(unittest.TestCase):
                 'npu_python': str(python), 'npu_environment': {'ASCEND_HOME_PATH': '/configured/cann'},
                 'config': {'providers': {'primary': {'api_key_env': 'TEST_KEY'}}}}))
             output = root / 'run'
-            with patch.dict(os.environ, {'DEEPSEEK_API_KEY': 'not-forwarded'}), patch(
-                    'prepare.subprocess.run', return_value=subprocess.CompletedProcess([], 0, '', '')):
+            with patch.dict(os.environ, {'DEEPSEEK_API_KEY': 'not-forwarded'}), patch.object(
+                    prepare_module.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '', '')):
                 prepare(ROOT / 'examples/cann/vector-add/task.json', profile, output, 'generate', session_only=True)
             cfg = json.loads((output / 'config.json').read_text())['evaluator']
             workspace = Workspace(root / 'workspace')
@@ -122,7 +127,7 @@ class PortableEnvironmentTests(unittest.TestCase):
             profile = root / 'profile.json'; profile.write_text(json.dumps({'schema_version': 'kernelbridge.cann-profile/v1',
                 'python': sys.executable, 'node': shutil.which('node'), 'expected_python_modules': str(expected),
                 'config': {'providers': {'primary': {'api_key_env': 'TEST_KEY'}}}}))
-            with patch('prepare.subprocess.run', return_value=subprocess.CompletedProcess([], 0, '', '')):
+            with patch.object(prepare_module.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '', '')):
                 prepared = prepare(task / 'task.json', profile, root / 'run', 'generate', session_only=True)
             output = Path(prepared['output'])
             self.assertNotEqual((output / 'inputs/reference.py').read_bytes(), (task / 'baseline.py').read_bytes())

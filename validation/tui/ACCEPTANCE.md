@@ -1,6 +1,6 @@
 # Local TUI acceptance — 2026-11-10
 
-Status: local deterministic acceptance passed on macOS, Node 22.19.0 and Python 3.12. The implementation was completed before test authoring. Device qualification was initially deferred; the later requested eager-NPU scatter campaigns remain pending because the confirmed SSH jump endpoint is refusing connections.
+Status: local deterministic acceptance passed on macOS, Node 22.19.0 and Python 3.12. The implementation was completed before test authoring. Device qualification was initially deferred. The later supplied SLAI transport now reaches the authorized NPU target, and device discovery completed. Scatter optimization rounds and eager-NPU qualification are still pending; the discovered torch scatter_reduce fallback to CPU is not an NPU baseline.
 
 Original artifacts: `.validation/tui-20261110-final/` in the checkout. The portable [result index](results/local-20261110.json) records check exits, durations and original-artifact SHA256 values. Reproduce with the [self-contained runner](README.md).
 
@@ -8,7 +8,7 @@ Original artifacts: `.validation/tui-20261110-final/` in the checkout. The porta
 
 The default `/resume` path incorrectly derived its registry from Pi's temporary `HOME`. Earlier PTY tests always set `KERNELBRIDGE_SESSIONS` and missed this failure. Discovery now uses the authenticated host's registry; the CLI also passes that resolved registry to its worker. Empty startups no longer outrank meaningful sessions in `--continue`. A second regression exposed that Pi's generic `SelectList.setFilter` matches IDs only: the CLI and in-TUI pickers now share explicit title/path/ID search and activity labels.
 
-The [resume result index](results/resume-20261110.json) binds the implementation and original evidence: three discovery/search tests, six real-Pi PTY flows with neither registry nor application-home overrides, and all 39 JavaScript tests plus TypeScript/managed-continuation checks. The PTY covers offline original-host recovery, Chinese search in both entry points, project/all-project selection, cancellation, retained files, no replay and continuing past an empty startup. The user's existing operator conversation was independently found in the real CLI picker; that check cancelled without attaching or executing. Local fixture replies are not live model or device acceptance.
+The [resume result index](results/resume-20261110.json) binds the implementation and original evidence: five discovery/search tests, seven real-Pi PTY flows with neither registry nor application-home overrides, and all 39 JavaScript tests plus TypeScript/managed-continuation checks. The PTY covers offline original-host recovery, Chinese search in both entry points, current-session visibility, saved branch and journal size, project/branch keyboard filters, project/all-project selection, cancellation, retained files, no replay and continuing past an empty startup. Worktree filtering is covered by the picker test with common-directory identities; the PTY does not create a linked Git worktree. The user's existing operator conversation was independently found in the real CLI picker; that check cancelled without attaching or executing. Local fixture replies are not live model or device acceptance.
 
 ## Fresh Goal review follow-up
 

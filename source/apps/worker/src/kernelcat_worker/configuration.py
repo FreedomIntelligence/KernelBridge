@@ -95,6 +95,7 @@ class RequiredCheck(Contract):
 
 class SubagentConfig(Contract):
     enabled: bool = True
+    policy: Literal["auto", "explicit"] = "auto"
     max_per_turn: int = Field(ge=1, le=32, default=4)
     max_total: int | None = Field(ge=1, default=None)
     max_steps: int = Field(ge=1, le=32, default=6)

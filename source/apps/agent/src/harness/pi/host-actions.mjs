@@ -3,10 +3,11 @@ import { open, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { InputQueue } from '../../application/input-queue.mjs';
 import { workspaceTools } from './workspace-tools.mjs';
-import { goalSummary, statePresentation, installProductUI, showProductFeedback } from './product-ui.mjs';
+import { goalSummary, statePresentation, installProductUI, showProductFeedback, subagentStatus } from './product-ui.mjs';
 import { COMMAND_POLICY_VERSION, PRODUCT_COMMANDS, PRODUCT_COMMAND_NAMES, parseGoalCommand, COMMAND_HELP } from './command-policy.mjs';
 import { sessions } from '../../application/host.mjs';
 import { sessionPicker } from '../../application/session-picker.mjs';
+import { projectInfo } from '../../application/project-info.mjs';
 
 export { COMMAND_POLICY_VERSION } from './command-policy.mjs';
 const DISABLED = new Set(['/share', '/bug', '/debug']);
@@ -412,11 +413,12 @@ export function createHostActions(control, effects) {
         return { action: 'handled', message: [
           'pi-subagents 0.87.0 · 上游社区组件',
           'kernel-scout：只读探索 · kernel-reviewer：只读审查',
-          '自然语言触发：请用 kernel-scout 子代理读取 solution.py 并总结。',
+          `分工策略：${current.subagent_config?.policy === 'explicit' ? '仅明确请求时启动' : '自动判断独立探索和审查任务；简单问题直接处理'}`,
+          '可直接说：启动两个子代理，分别梳理开发流程和验证流程，再汇总。无需指定 agent 名称。',
           '父模型调用 delegate；子会话经原有 Journal 记账，结果返回当前对话。',
           `已启用：${current.subagent_config?.enabled !== false} · 每个模型回复最多 ${current.subagent_config?.max_per_turn ?? 4} 个 · 会话总数 ${current.subagent_config?.max_total ?? '不限'}`,
           '多个子代理依次执行，每个都有独立上下文；只读、前台、不嵌套。配置入口：subagents。',
-          ...(current.subagents ?? []).map(child => `${child.agent} · ${child.status} · ${child.summary || child.task}`),
+          ...(current.subagents ?? []).map(child => `${subagentStatus(child)}\n${child.task}\n${child.summary || ''}`),
         ].join('\n') };
       }
       if (command === '/goal') {
@@ -516,16 +518,19 @@ export function createHostActions(control, effects) {
         const all = arguments_.includes('--all');
         const query = arguments_.filter(value => value !== '--all').join(' ');
         const available = (await sessions({ registry: dirname(control.directory) })).filter(item => item.workspace_mode === 'project'
-          && (all || item.cwd === state.cwd) && (query || (item.has_history && item.application_session_id !== control.applicationSessionId)));
+          && (item.has_history || item.application_session_id === control.applicationSessionId || query));
         let selected;
         if (query) {
-          const exact = available.filter(item => item.application_session_id === query || item.title === query);
-          const matches = exact.length ? exact : available.filter(item => item.application_session_id.startsWith(query) || item.title?.includes(query));
+          const scoped = available.filter(item => all || item.cwd === state.cwd);
+          const exact = scoped.filter(item => item.application_session_id === query || item.title === query);
+          const matches = exact.length ? exact : scoped.filter(item => item.application_session_id.startsWith(query) || item.title?.includes(query));
           if (matches.length !== 1) return { action: 'handled', message: matches.length ? '匹配到多个会话，请用完整 ID。' : '没有匹配的会话；用 /resume --all 查看其他项目。' };
           selected = matches[0];
         } else {
           if (!available.length) return { action: 'handled', message: '当前项目没有历史会话；用 /resume --all 查看其他项目。' };
-          const choice = await context.ui.custom((tui, _theme, _keybindings, done) => sessionPicker(available, done, () => tui.requestRender()));
+          const project = await projectInfo(state.cwd);
+          const choice = await context.ui.custom((tui, _theme, _keybindings, done) => sessionPicker(available, done, () => tui.requestRender(),
+            { cwd: state.cwd, all, project, currentId: control.applicationSessionId, rows: () => tui.terminal.rows }));
           if (!choice) return { action: 'handled' };
           selected = available.find(item => item.application_session_id === choice);
         }

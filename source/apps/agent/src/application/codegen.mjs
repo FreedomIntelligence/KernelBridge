@@ -7,6 +7,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { startApplication, attachApplication, sessions } from './host.mjs';
 import { pickSession } from './session-picker.mjs';
+import { projectInfo } from './project-info.mjs';
 import { loadCodegenCredentials } from './credentials.mjs';
 
 const agentRoot = fileURLToPath(new URL('../../', import.meta.url));
@@ -61,7 +62,8 @@ export async function resumeCodegen(options) {
   const cwd = await realpath(resolve(options.cwd ?? process.cwd()));
   let identity = options.resume;
   if ((!identity || identity === true) && !options.latest) {
-    identity = await pickSession((await sessions()).filter(item => item.workspace_mode === 'project' && item.has_history && (options.all || item.cwd === cwd)));
+    identity = await pickSession((await sessions()).filter(item => item.workspace_mode === 'project' && item.has_history),
+      { cwd, all: options.all, project: await projectInfo(cwd) });
     if (!identity) return null;
   } else if (!identity || identity === true) {
     // Recently resumed sessions must outrank the last-created session pointer.

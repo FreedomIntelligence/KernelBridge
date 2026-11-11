@@ -599,10 +599,13 @@ class ExecutionRPC:
                 raise Conflict("child output differs from its authoritative model receipt")
             outcome = Outcome(data={"summary": child.summary, "model_receipt": child.receipt,
                 "plugin": "pi-subagents@0.87.0", "advisory": True, "promoted": False,
+                "agent": child.action.arguments["agent"], "completion_reason": child.completion_reason,
+                "partial": child.completion_reason != "answer",
                 "mode": child.mode, "steps": child.step + 1, "tool_calls": child.tool_count})
         else:
             outcome = Outcome(status="failed", data={"error": "foreground subagent failed",
                 "reason": child.failure or "plugin_failed", "model_receipt": child.receipt,
+                "agent": child.action.arguments["agent"], "steps": child.step + 1, "tool_calls": child.tool_count,
                 "advisory": True})
         self.remote.resolve(outcome)
         settled = self._collect_plugin()

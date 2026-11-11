@@ -12,10 +12,11 @@ from kernelcat_worker.configuration import SubagentConfig
 
 class Child:
     def __init__(self, calls=()):
-        self.calls = iter(calls); self.count = 0; self.tools = []
+        self.calls = iter(calls); self.count = 0; self.tools = []; self.contexts = []
 
     def propose(self, context, tools):
         self.count += 1; self.tools.append({t.name for t in tools})
+        self.contexts.append(context)
         call = next(self.calls, None)
         return AssistantTurn(content=(ToolCall(id='child-call', name=call[0], arguments=call[1]),)
             if call else (TextContent(text='Original read receipts inspected.'),), stop_reason='tool_calls' if call else 'stop')
@@ -55,6 +56,48 @@ class SubagentTests(unittest.TestCase):
         self.assertEqual(result['status'], 'finished')
         self.assertEqual(rows[0]['outcome']['data']['reason'], 'unexpected_tool')
 
+    def test_discovery_tools_work_in_real_pi_child(self):
+        _, rows, child, _ = self.run_child([
+            ('list_files', {'path': 'reference', 'pattern': '*.txt'}),
+            ('search_text', {'path': 'reference', 'query': 'immutable'}),
+            ('read_file', {'path': 'reference/spec.txt'}),
+        ])
+        self.assertEqual(rows[0]['outcome']['status'], 'completed')
+        actions = self.store.snapshot()['actions'].values()
+        search = next(row for row in actions if row['action']['tool'] == 'search_text')
+        self.assertEqual(search['outcome']['data']['matches'][0]['path'], 'reference/spec.txt')
+        self.assertTrue(all({'list_files', 'search_text'} <= names for names in child.tools))
+
+    def test_step_limit_reserves_summary_with_original_evidence(self):
+        _, rows, child, _ = self.run_child([('read_file', {'path': 'reference/spec.txt'})], settings={'max_steps': 2})
+        data = rows[0]['outcome']['data']
+        self.assertEqual(rows[0]['outcome']['status'], 'completed')
+        self.assertTrue(data['partial'])
+        self.assertEqual(data['completion_reason'], 'step_limit')
+        self.assertEqual((data['steps'], data['tool_calls']), (2, 1))
+        self.assertEqual(child.tools[-1], set())
+        self.assertIn('final summary call', child.contexts[-1]['instruction'])
+        self.assertIn('immutable', str(child.contexts[-1]))
+
+    def test_read_limit_reserves_tool_free_summary(self):
+        _, rows, child, _ = self.run_child([('read_file', {'path': 'reference/spec.txt'})], settings={'tool_limit': 1})
+        self.assertEqual(rows[0]['outcome']['status'], 'completed')
+        self.assertEqual(rows[0]['outcome']['data']['completion_reason'], 'tool_limit')
+        self.assertEqual(child.tools[-1], set())
+
+    def test_default_readonly_and_delegation_policy(self):
+        config = SubagentConfig()
+        self.assertEqual(config.policy, 'auto')
+        effect = SubagentEffect(config.model_dump())
+        self.assertIn('Use proactively', effect.spec.description)
+        self.assertEqual(effect.spec.parameters['properties']['mode']['default'], 'read_only')
+        explicit = SubagentEffect(SubagentConfig(policy='explicit').model_dump())
+        self.assertIn('explicitly request', explicit.spec.description)
+        _, rows, child, _ = self.run_child([('read_file', {'path': 'reference/spec.txt'})],
+            parent_calls=[('delegate', {'agent': 'kernel-scout', 'task': 'Inspect the reference'})])
+        self.assertEqual(rows[0]['outcome']['data']['mode'], 'read_only')
+        self.assertEqual(child.count, 2)
+
     def test_forged_write_never_changes_workspace(self):
         result, rows, _, _ = self.run_child([('write_file', {'path': 'solution.py', 'text': 'bad'})])
         self.assertFalse((self.workspace.root / 'solution.py').exists())
@@ -80,7 +123,7 @@ class SubagentTests(unittest.TestCase):
 
     def test_configuration_limits_and_disabled_binding(self):
         from pydantic import ValidationError
-        for values in ({'max_per_turn': 0}, {'max_total': 0}, {'max_steps': 33}, {'tool_limit': -1}, {'timeout': 0}):
+        for values in ({'policy': 'always'}, {'max_per_turn': 0}, {'max_total': 0}, {'max_steps': 33}, {'tool_limit': -1}, {'timeout': 0}):
             with self.assertRaises(ValidationError): SubagentConfig(**values)
         # Disabled configuration is also exercised at the runtime tool registry
         # boundary by the binding test; a missing delegate cannot launch a child.

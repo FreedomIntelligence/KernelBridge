@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import fnmatch
 import os
 import tempfile
 from pathlib import Path
@@ -46,6 +47,76 @@ class Workspace:
         except ValueError as error:
             raise ToolFailure(str(error)) from None
         return Outcome(data={"path": action.arguments["path"], **page})
+
+    def _discover(self, relative: str):
+        """Bound traversal and never follow links or descend into runtime caches."""
+        start = self.root if relative == "." else self.path(relative)
+        if start.is_file():
+            yield start
+            return
+        if not start.is_dir():
+            raise ToolFailure("directory missing")
+        skipped = self.RESERVED | {"node_modules", "__pycache__", ".venv", ".validation", ".development"}
+        visited = 0
+        for directory, dirs, files in os.walk(start, followlinks=False):
+            visited += len(dirs) + len(files)
+            if visited > 10000:
+                yield None
+                return
+            dirs[:] = sorted(name for name in dirs if name not in skipped and not (Path(directory) / name).is_symlink())
+            for name in sorted(files):
+                path = Path(directory) / name
+                if name not in skipped and not path.is_symlink():
+                    yield path
+
+    def list_files(self, action: Action) -> Outcome:
+        args = action.arguments
+        paths, truncated = [], False
+        for path in self._discover(args.get("path", ".")):
+            if path is None:
+                truncated = True
+                break
+            name = path.relative_to(self.root).as_posix()
+            if not fnmatch.fnmatchcase(name, args.get("pattern", "*")):
+                continue
+            if len(paths) >= args.get("limit", 200):
+                truncated = True
+                break
+            paths.append(name)
+        return Outcome(data={"paths": paths, "truncated": truncated,
+                             "hint": "Narrow path or pattern if truncated; caches and symlinks are omitted."})
+
+    def search_text(self, action: Action) -> Outcome:
+        args = action.arguments
+        query = args["query"]
+        insensitive = args.get("ignore_case", True)
+        needle = query.casefold() if insensitive else query
+        matches, scanned, size, skipped, truncated = [], 0, 0, 0, False
+        for path in self._discover(args.get("path", ".")):
+            if path is None or scanned >= 1000 or size >= 16 * 1024 * 1024:
+                truncated = True
+                break
+            name = path.relative_to(self.root).as_posix()
+            if not fnmatch.fnmatchcase(name, args.get("pattern", "*")):
+                continue
+            try:
+                text = self._read(path)
+            except (OSError, UnicodeError, ToolFailure):
+                skipped += 1
+                continue
+            scanned += 1
+            size += len(text.encode())
+            for number, line in enumerate(text.splitlines(), 1):
+                if needle not in (line.casefold() if insensitive else line):
+                    continue
+                if len(matches) >= args.get("limit", 100):
+                    truncated = True
+                    break
+                matches.append({"path": name, "line": number, "text": line[:320]})
+            if truncated:
+                break
+        return Outcome(data={"matches": matches, "scanned_files": scanned, "skipped_files": skipped,
+                             "truncated": truncated, "hint": "Literal search; narrow path/pattern when truncated. Binary/large files, caches and symlinks are omitted."})
 
     def write(self, action: Action) -> Outcome:
         path = self.path(action.arguments["path"])

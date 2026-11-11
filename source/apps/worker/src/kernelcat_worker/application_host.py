@@ -414,10 +414,23 @@ class ApplicationHost:
         state["pending_effect_ids"] = [key for key, item in execution["actions"].items() if not item.get("terminal")]
         state["model_turns"] = sum(1 for item in execution["actions"].values() if item["action"]["tool"] == "__propose__")
         state["max_trial_turns"] = self.config.policy.max_steps
+        child_activity = {}
+        for item in execution["actions"].values():
+            task_id = item["action"]["task"]
+            if task_id.endswith("/leaf"):
+                progress = child_activity.setdefault(task_id, {"steps": 0, "tool_calls": 0, "latest_tool": None})
+                if item["action"]["tool"] == "__propose__":
+                    progress["steps"] += 1
+                elif not item["action"]["tool"].startswith("__"):
+                    progress["tool_calls"] += 1
+                    progress["latest_tool"] = item["action"]["tool"]
         state["subagents"] = [{"id": key, "agent": item["action"]["arguments"]["agent"],
             "task": item["action"]["arguments"]["task"],
             "status": item.get("outcome", {}).get("status", "running"),
-            "summary": item.get("outcome", {}).get("data", {}).get("summary", "")}
+            "summary": item.get("outcome", {}).get("data", {}).get("summary", ""),
+            "partial": item.get("outcome", {}).get("data", {}).get("partial", False),
+            "reason": item.get("outcome", {}).get("data", {}).get("reason") or item.get("outcome", {}).get("data", {}).get("completion_reason"),
+            **child_activity.get(key + "/leaf", {"steps": 0, "tool_calls": 0, "latest_tool": None})}
             for key, item in execution["actions"].items() if item["action"]["tool"] == "delegate"]
         if state["goal"]:
             from kernelcat_executor.state.goal_progress import goal_usage

@@ -4,6 +4,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import subprocess
 import threading
 import time
 import uuid
@@ -42,7 +43,9 @@ def main():
     args = parser.parse_args()
     output = args.output.resolve(); output.mkdir(parents=True, exist_ok=False)
     project = output / 'project'; project.mkdir()
+    subprocess.run(['git', 'init', '-q', '-b', 'main', str(project)], check=True)
     other = output / 'other-project'; other.mkdir()
+    subprocess.run(['git', 'init', '-q', '-b', 'other-branch', str(other)], check=True)
     # A short test-owned HOME keeps Darwin's Unix socket below its path limit.
     while True:
         home = Path('/tmp').resolve() / uuid.uuid4().hex[:4]
@@ -103,9 +106,14 @@ def main():
         empty_run = output / 'run-empty'
         launch(project, ['--output', str(empty_run)]); empty = connect(empty_run)
         assert len(Provider.requests) == 2
-        ui.send('/resume'); ui.until(lambda: '保存的算子会话' in ui.text())
+        ui.send('/resume'); ui.until(lambda: '保存的算子会话' in ui.text() and '[当前]' in ui.text())
         assert 'OTHER_PROJECT_TITLE' not in ui.text() and '当前项目没有历史会话' not in ui.text()
+        assert '日志' in ui.text() and 'main' in ui.text()
         (output / 'project-picker.txt').write_text(ui.text())
+        os.write(ui.master, b'\x01'); ui.until(lambda: 'OTHER_PROJECT_TITLE' in ui.text())
+        os.write(ui.master, b'\x02'); ui.until(lambda: 'OTHER_PROJECT_TITLE' not in ui.text())
+        os.write(ui.master, b'\x02'); ui.until(lambda: 'OTHER_PROJECT_TITLE' in ui.text())
+        os.write(ui.master, b'\x01'); ui.until(lambda: '全部项目' not in ui.text())
         count = len(Provider.requests); ui.send('算子')
         ui.until(lambda: 'FIRST_PROJECT_CONSTRAINT' in ui.text() and 'HISTORY_REPLY_1' in ui.text())
         first = connect(first_run)
@@ -114,6 +122,7 @@ def main():
         assert len(Provider.requests) == count
         assert (project / 'keep.txt').read_text() == 'retained'
         checks.append('default_home_picker_offline_resume_original_history_no_replay')
+        checks.append('current_session_metadata_and_project_branch_keyboard_filters')
         ui.send('/resume --all'); ui.until(lambda: 'OTHER_PROJECT_TITLE' in ui.text())
         (output / 'all-projects-picker.txt').write_text(ui.text())
         os.write(ui.master, b'\x1b')

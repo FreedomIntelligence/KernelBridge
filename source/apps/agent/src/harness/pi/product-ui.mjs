@@ -1,8 +1,13 @@
-import { Text } from '@earendil-works/pi-tui';
+import { Text, truncateToWidth } from '@earendil-works/pi-tui';
 
 const STATUSES = { active: '进行中', paused: '已暂停', awaiting_user: '等待输入', completed: '已完成',
   budget_limit: '预算耗尽', failed: '失败', cleared: '已清除' };
 const currentGoal = state => state.goal?.status === 'cleared' ? null : state.goal;
+const plain = value => String(value ?? '').replace(/[\x00-\x1f\x7f-\x9f]/g, ' ');
+
+export function subagentStatus(child) {
+  return `${child.agent} · ${child.partial ? '部分结果' : ({ running: '执行中', completed: '已完成', failed: '失败', unknown: '待恢复' }[child.status] ?? child.status)} · ${child.steps ?? 0} 次模型 / ${child.tool_calls ?? 0} 次读取${child.reason && child.reason !== 'answer' ? ' · ' + child.reason : ''}`;
+}
 
 export function goalSummary(state) {
   const goal = currentGoal(state);
@@ -36,7 +41,7 @@ export function statePresentation(state) {
 export function installProductUI(context, getState, { demo = false } = {}) {
   const project = getState()?.workspace_mode === 'project';
   context.ui.setHeader(project ? undefined : () => new Text([
-    'KernelBridge · Pi 1.5.0',
+    'KernelBridge',
     ...(demo ? ['本地演示：固定脚本回复，无真实模型或 NPU。'] : []),
     '输入任务，或 /goal 目标内容 · /help 命令 · /latest 最新消息',
   ].join('\n'), 0, 1));
@@ -56,10 +61,16 @@ export function installProductUI(context, getState, { demo = false } = {}) {
           : `${goal ? `Goal ${STATUSES[goal.status] ?? goal.status}` : 'Session'} · task v${state.task_version} · Trial ${state.trials?.length || 0}`,
         ...(budget.limit == null ? [] : [`预算 ${budget.spent ?? 0}/${budget.limit} · 预留 ${budget.reserved ?? 0}`
           + (state.workspace_mode !== 'project' ? ` · 待处理 ${state.pending_effect_ids?.length ?? 0}` : '')]),
+        ...(state.subagents ?? []).slice(-2).map(child => color(child.status === 'failed' ? 'error' : 'dim',
+          truncateToWidth(plain(`子代理 ${subagentStatus(child)} · ${child.task}`), width))),
         `${goal || state.workspace_mode !== 'project' ? `退出${goal?.on_detach === 'continue' ? '继续' : '暂停'} · ` : ''}/help · /latest`,
       ].join('\n'), 0, 0).render(width);
     },
   }));
+}
+
+export function renderDelegateCall(args, theme) {
+  return new Text(theme.fg('accent', plain(`子代理 ${args.agent} · ${args.mode ?? 'read_only'}`)) + '\n' + plain(args.task), 0, 0);
 }
 
 export function showProductFeedback(context, message, error = false) {
@@ -78,6 +89,11 @@ export function renderReceiptResult(result, { expanded }, theme) {
   if (expanded) return new Text((result.content ?? []).filter(item => item.type === 'text').map(item => item.text).join('\n'), 0, 0);
   const outcome = result.details?.outcome;
   const data = outcome?.data ?? {};
+  if (data.agent) {
+    const label = subagentStatus({ ...data, reason: data.reason ?? data.completion_reason, status: outcome?.status ?? 'running' });
+    return new Text(theme.fg(result.isError ? 'error' : 'dim', plain(label)) +
+      (data.summary ? '\n' + plain(data.summary).slice(0, 240) : '') + '\n（Ctrl+O 展开详情）', 0, 0);
+  }
   const status = result.isError ? '失败' : outcome?.status === 'completed' ? '已完成' : '处理中';
   const summary = [status, data.correct === true ? '正确性通过' : null, data.fixture_only ? '本地测试' : null,
     data.reason ? String(data.reason).slice(0, 160) : null].filter(Boolean).join(' · ');

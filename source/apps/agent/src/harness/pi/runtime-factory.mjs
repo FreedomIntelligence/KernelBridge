@@ -14,7 +14,8 @@ import { projectInstructions } from './context-files.mjs';
 import { workspaceTools } from './workspace-tools.mjs';
 import { projectHarness } from './input.ts';
 import { randomUUID, createHash } from 'node:crypto';
-import { renderReceiptResult } from './product-ui.mjs';
+import { renderReceiptResult, renderDelegateCall } from './product-ui.mjs';
+import { DELEGATION_PROMPT } from './delegation-prompt.mjs';
 
 const SYSTEM = 'You are a kernel engineering agent. Use Pi file tools to inspect and implement the candidate. Use the configured evaluation, knowledge, and receipt tools for domain work. Treat task references as read-only. Only original evaluation receipts establish correctness or performance. After an error, inspect the returned evidence and revise the candidate.';
 
@@ -33,6 +34,7 @@ function directTools(hello, controller) {
     name: tool.name, label: tool.name, description: tool.description, parameters: tool.parameters,
     exposure: 'model-only',
     promptSnippet: tool.description,
+    ...(tool.name === 'delegate' ? { renderCall: renderDelegateCall } : {}),
     renderResult: renderReceiptResult,
     execute: (id, arguments_, signal) => controller.tool(id, tool.name, arguments_, signal),
   }));
@@ -67,7 +69,8 @@ async function runtimeServices(options, dependencies, provider, factories, repla
     ...(replay?.history ? workspaceHistoryResources(replay.history, settingsManager) : {}),
     agentsFilesOverride: () => structuredClone(frozenInstructions),
     extensionFactories: factories, appendSystemPrompt: [options.project
-      ? 'You are a coding assistant working in the user project. Read the project instructions, inspect relevant files, implement the requested changes, and verify them. Tools operate directly in the current project. Finish with a concise account of changes and checks. Do not start autonomous goals, trials, or device evaluations unless the user explicitly requests them.' : SYSTEM] });
+      ? 'You are a coding assistant working in the user project. Read the project instructions, inspect relevant files, implement the requested changes, and verify them. Tools operate directly in the current project. Finish with a concise account of changes and checks. Do not start autonomous goals, trials, or device evaluations unless the user explicitly requests them.' : SYSTEM,
+      ...(options.delegation ? [DELEGATION_PROMPT] : [])] });
   await resourceLoader.reload();
   if (resourceLoader.getExtensions().errors.length) throw new Error('Required Pi extension failed to load');
   return { cwd: options.cwd, agentDir: options.agentDir, modelRuntime,
@@ -196,7 +199,7 @@ export async function createGovernedRuntime(client, home, dependencies, options 
         ...(replayPlugin ? [replayPlugin.factory] : []),
         createReplayContextExtension({ rpc, fail: error => controller.fail(error), receipts,
           replayOnCompaction, semanticCompaction: options.semanticCompaction, isStopped: () => controller.stopped })];
-      const services = await runtimeServices({ ...runtimeOptions, project }, dependencies, provider, factories, replay, replayOnCompaction, frozenInstructions, options.semanticCompaction === true);
+      const services = await runtimeServices({ ...runtimeOptions, project, delegation: hello.tools.some(tool => tool.name === 'delegate') }, dependencies, provider, factories, replay, replayOnCompaction, frozenInstructions, options.semanticCompaction === true);
       const created = await sdk.createAgentSession({ ...runtimeOptions, ...services,
         model: services.modelRuntime.getModel('kernelcat', provider.models[0].id), noTools: 'builtin',
         // Delegation uses the admitted event bridge. Exclude the plugin's model

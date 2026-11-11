@@ -19,15 +19,23 @@ class SubagentEffect:
         self.settings = settings or {"max_per_turn": 4, "max_total": None, "max_steps": 6,
                                      "tool_limit": 16, "timeout": 120}
         self.denial = None
-        self.spec = ToolSpec(name="delegate", description=(
+        guidance = (
+            "Use proactively for independent codebase exploration or a focused second review when delegation saves main-context work. "
+            "Respect user/project instructions that disable delegation; handle trivial lookups directly. "
+            if self.settings.get("policy", "auto") == "auto" else
             "Use only when the user or applicable project instructions explicitly request delegation. "
-            "Ask an upstream pi-subagents foreground child (kernel-scout or kernel-reviewer) to analyze supplied evidence. "
-            "Mode analysis is text-only; read_only can inspect candidate files, skills and receipts. "
+        )
+        self.spec = ToolSpec(name="delegate", description=(
+            guidance + "Launch a child agent with an independent context and return its findings. "
+            "kernel-scout discovers files, searches code and traces implementations; kernel-reviewer checks a focused change or claim against evidence. "
+            "Supply a self-contained task, relevant paths/constraints and expected output; children do not inherit the conversation. "
+            "Default mode read_only can list/search/read project files, skills and receipts; analysis uses supplied text only. "
+            "Split independent questions into separate calls, then synthesize their results. Children run sequentially in the foreground. "
             "No child may write, run shell/devices or delegate. Answers are advisory, not validation."), credits=1,
             parameters={"type": "object", "additionalProperties": False,
                 "properties": {"agent": {"type": "string", "enum": ["kernel-scout", "kernel-reviewer"]},
                     "task": {"type": "string", "minLength": 1, "maxLength": 32768},
-                    "mode": {"type": "string", "enum": ["analysis", "read_only"], "default": "analysis"},
+                    "mode": {"type": "string", "enum": ["analysis", "read_only"], "default": "read_only"},
                     "max_steps": {"type": "integer", "minimum": 1, "maximum": self.settings["max_steps"]}},
                 "required": ["agent", "task"]})
         self.lock = Lock()
