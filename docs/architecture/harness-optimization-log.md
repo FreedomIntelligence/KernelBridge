@@ -363,3 +363,50 @@ ratio**. The original stream bodies were not saved. Profile diff and checks are
 under `.validation/stream-response-limit-audit/`; fresh input equivalence is
 `harness-trials/stream16m-input-equivalence.json`. Provider-error observability,
 Goal remainder telemetry and automatic-J defaults remain unapplied drafts.
+
+### Stream-cap variant 4 — max interrupted by a harness protocol defect
+
+`stream16m-max-01/run` admitted 16 parent calls and reported 327,873 tokens
+with no missing usage or response-limit error. The model wrote a candidate at
+call 12, revised it at 13, checked it locally at 14, froze it at 15 and launched
+the original remote build at 16. The build failed because
+`scatter_max_custom_tiling.h` was missing. No kernel executed and no timing,
+E1, E3 or H evidence exists. Automatic diagnostics attempted collection, but
+IR had no compiler recipe and profiling had no runnable kernel; the model did
+not invoke J or read diagnostic artifacts.
+
+The remaining four calls were lost to a shared transport defect, not exhausted
+by the model. The original handle's exact `started_ns=1794401504504640402`
+was rounded by JavaScript to `1794401504504640500`; ReplayContextBoundary
+rejected the unsafe number in the tool result. The resulting internal abort
+was also incorrectly recorded as a user interrupt. Original receipts confirm
+that PID 528130 completed, its result/source hashes agree, the process is gone
+and the device lease has no holder. No replacement job was dispatched.
+The prepared stream16m min/Cube inputs were left unstarted. This is an
+interrupted comparison, not a three-task result.
+
+Functional repair, separate from the optimization hypothesis: project only
+job-handle timestamps beyond the JavaScript safe-integer range to canonical
+decimal strings before crossing the model/UI boundary. Compare against exact
+original receipts through this canonical projection; reject rounded values.
+Do not rewrite persisted launches, observations, device reports or result
+hashes. Thirty-eight focused tests passed, and read-only recovery of the
+original max attempt preserved all 34 artifact hashes and made zero transport
+calls. The same helper is used by generic operator pipelines and Cube.
+
+Separately, an internal runtime failure now records `harness_failure` under
+the owner lease before effect settlement. Unknown effects remain fenced;
+actual Esc/pause, newer Goals and terminal budget state remain authoritative.
+The failure cannot masquerade as a user request or auto-resume a poisoned
+worker. Ten host-hook tests and nineteen Journal tests passed. Reconnection
+alone cannot repair the old rounded native history, so follow-up measurements
+use new sessions and candidates with the unchanged 16 MiB profile.
+
+The repaired build passed full npm/type/managed checks (93 passed, two optional
+replay skips) and the real Pi parallel/background PTY's eight checks, including
+concurrent children, parent input while a background child runs, one completion
+notification, and Esc followed by a new working prompt. Evidence is retained in
+`.validation/handle-wire-npm.log`, `handle-wire-build.log`, and
+`handle-wire-parallel/scenario.json`. Original retention replay checks remain
+recorded above. Fresh input equivalence is
+`harness-trials/handle-wire-input-equivalence.json`.

@@ -15,6 +15,16 @@ import sys
 import time
 
 from npu_benchmark import sources
+try:
+    from job_identity import same_handle, wire_handle
+except ModuleNotFoundError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'operator_pipeline'))
+    from job_identity import same_handle, wire_handle
+
+
+def wire_summary(summary):
+    """Keep durable and measurement bytes intact; project only the job handle."""
+    return {**summary, 'original_handle': wire_handle(summary['original_handle'])} if 'original_handle' in summary else dict(summary)
 
 
 def implementation_digest(parsed):
@@ -117,7 +127,7 @@ def collect(config, folder, run):
                        'promotion': 'none; compare rounds as best-observed only'}
             save(folder / 'result.json', summary)
             save(Path(config['candidate']).parent / 'feedback.json', summary)
-            return {'status': 'completed', 'data': summary}
+            return {'status': 'completed', 'data': wire_summary(summary)}
         if not observation['alive']:
             return {'status': 'unknown', 'data': {'attempt': intent.get('attempt', intent.get('round')), 'error': 'Original remote process lacks a final result; inspect its handle and log, never redispatch', 'record': str(folder / 'observation.json')}}
         if time.monotonic() >= deadline:
@@ -149,7 +159,7 @@ def trial(config, action=None, recover=None):
         if len(matches) > 1: raise ValueError('Ambiguous original action identity')
         if matches:
             folder = matches[0]
-            if (folder / 'result.json').exists(): return {'status': 'completed', 'data': json.loads((folder / 'result.json').read_text())}
+            if (folder / 'result.json').exists(): return {'status': 'completed', 'data': wire_summary(json.loads((folder / 'result.json').read_text()))}
             return collect(config, folder, run)
         for path, _ in prior_records:
             if not (path.parent / 'result.json').is_file():

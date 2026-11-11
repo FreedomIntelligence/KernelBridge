@@ -122,6 +122,65 @@ class AuthorityTests(unittest.TestCase):
         with self.assertRaises(BudgetExceeded): self.store.admit(Action(id="compact", task="task", tool="__propose__", arguments={}), 1, self.store.policy())
         self.assertEqual(self.store.snapshot()["spent"], 4)
 
+    def report_harness_failure(self, **values):
+        return self.app.command("configuration", {**self.lease, "operation": "harness_failure",
+            "reason": "harness_failure", "summary": "Invalid ReplayContextBoundary: unsafe integer",
+            "goal_id": "goal", "input_ids": ["input"], **values})
+
+    def test_harness_failure_has_original_cause_and_requires_explicit_resume(self):
+        self.accept()
+        self.app.command("transition", {**self.lease, "input_id": "input", "status": "applied",
+            "pi_session_id": "pi", "entry_id": "entry"})
+        before_inputs = self.app.state()["inputs"]
+        state = self.report_harness_failure()
+        self.assertEqual(state["inputs"], before_inputs)  # No fabricated user control/settlement.
+        self.assertEqual(state["goal"]["status"], "failed")
+        self.assertEqual(state["goal"]["reason"], "harness_failure")
+        self.assertIn("ReplayContextBoundary", state["goal"]["summary"])
+        row = self.store.events()[-1]
+        self.assertEqual([item["kind"] for item in row["events"]], ["application/configuration", "application/goal"])
+        with self.assertRaises(ModelAdmissionStopped):
+            self.store.admit(Action(id="after-failure", task="task", tool="__propose__", arguments={}), 1, self.store.policy())
+        # An explicitly resumed fresh worker with valid history is admitted;
+        # this does not claim to repair the failed worker's native history.
+        self.control("resume")
+        self.assertEqual(self.app.state()["goal"]["status"], "active")
+        self.assertNotIn("reason", self.app.state()["goal"])
+        self.assertNotIn("ended_at_ns", self.app.state()["goal"])
+        self.assertEqual(self.app.state()["configurations"][-1]["reason"], "harness_failure")
+
+    def test_harness_failure_preserves_unknown_effects_and_original_reservations(self):
+        action = Action(id="original-unknown", task="task", tool="evaluate", arguments={})
+        self.store.admit(action, 3, self.store.policy())
+        self.store.started(action)
+        self.store.settle(action, Outcome(status="unknown", data={"handle": "original"}), 0)
+        self.app.command("call_intent", {**self.lease, "call_id": "original-call", "method": "tool", "params": {}})
+        before = self.store.snapshot()
+        self.report_harness_failure()
+        self.assertEqual(self.store.snapshot()["actions"], before["actions"])
+        self.assertEqual(self.store.snapshot()["reserved"], 3)
+        self.assertEqual(self.app.state()["calls"]["original-call"]["status"], "pending")
+        self.app.command("release", self.lease)
+        with self.assertRaises(Conflict):
+            self.app.command("acquire", {"worker_id": "replacement", "mode": "headless"})
+
+    def test_late_harness_failure_does_not_replace_user_pause_or_new_goal(self):
+        self.control("pause")
+        self.assertEqual(self.report_harness_failure()["goal"]["status"], "paused")
+        self.control("set", objective="replacement")
+        replacement = self.app.state()["goal"]
+        self.assertNotEqual(replacement["goal_id"], "goal")
+        self.assertEqual(self.report_harness_failure()["goal"], replacement)
+        self.app.command("goal_outcome", {"status": "budget_limit", "reason": "model_limit"})
+        self.assertEqual(self.report_harness_failure(goal_id=replacement["goal_id"])["goal"]["reason"], "model_limit")
+
+    def test_harness_failure_rejects_invalid_or_stale_reports(self):
+        for summary in ("", 17, "界" * 3000):
+            before = self.store.events()
+            with self.assertRaises(Conflict): self.report_harness_failure(summary=summary)
+            self.assertEqual(self.store.events(), before)
+        with self.assertRaises(Conflict): self.report_harness_failure(lease_epoch=self.lease["lease_epoch"] + 1)
+
     def evidence(self, tier, **values):
         return {"evidence_tier": tier, "evidence_ref": "receipt-" + tier, "task_version": 1,
             "source_sha256": "source", "evaluator_sha256": "evaluator", "measurement_profile_version": "v1",

@@ -17,6 +17,7 @@ import time
 import zipfile
 from diagnostic_policy import diagnostic_reason, verify_record
 from qualification import aggregate, qualify
+from job_identity import same_handle, wire_handles
 
 
 def encoded(value):
@@ -354,13 +355,13 @@ class Pipeline:
             else:
                 next_actions = [step('I', 'pipeline_archive', {}, 'Archive accepted source bytes and evidence hashes; retain successful mechanisms and failure conditions. This does not publish or submit.',
                                      required_arguments=['knowledge'])]
-        return {'next_actions': next_actions, 'autonomy': 'Model chooses and invokes tools within the explicit user task; status never dispatches work.',
+        return wire_handles({'next_actions': next_actions, 'autonomy': 'Model chooses and invokes tools within the explicit user task; status never dispatches work.',
                 'calibration': 'configured' if kinds.get('calibrate') else 'unavailable: no calibration driver configured',
                 'baseline': 'selected' if s['baseline'] else 'absent: establish a correct incumbent, then explicitly select it for self-iteration',
                 'self_iteration': {'tool': 'pipeline_baseline', 'arguments': {'selection': 'incumbent'},
                                    'when': 'Before the next user-authorized optimization iteration; this invalidates prior comparisons.'}
                                   if s['incumbent'] and not s['baseline'] else None,
-                'stop_condition': 'Respect the user-requested scope/rounds; do not loop indefinitely or claim missing official acceptance.'}
+                'stop_condition': 'Respect the user-requested scope/rounds; do not loop indefinitely or claim missing official acceptance.'})
 
     def execute(self, tool, args, output):
         s = self.state
@@ -415,7 +416,7 @@ class Pipeline:
                 if recovery is None: raise ValueError('No unresolved launch matches recover_run')
                 collection = recovery
             else:
-                collection = next((item for item in s['handles'] if item.get('handle') == args.get('handle')), None)
+                collection = next((item for item in s['handles'] if same_handle(item.get('handle'), args.get('handle'))), None)
                 if collection is None: raise ValueError('Collect using an original retained handle')
         elif args.get('recover_run'):
             raise ValueError('Only a collect driver may recover an original launch')
@@ -435,7 +436,7 @@ class Pipeline:
             if stage == 'E' and (driver['kind'] == 'launch' or recovery):
                 if not isinstance(data.get('handle'), dict) or not data['handle']:
                     raise ValueError('Launch/recovery must retain the original task handle')
-                if any(item['handle'] == data['handle'] for item in s['handles']):
+                if any(same_handle(item['handle'], data['handle']) for item in s['handles']):
                     raise ValueError('Launch reused an existing handle; recover the original launch instead')
                 s['handles'].append({'handle': data['handle'], 'source': copy.deepcopy(source),
                     'contract': copy.deepcopy(collection['contract'] if collection else s['contract']),
@@ -456,7 +457,7 @@ class Pipeline:
             if stage == 'E' and driver['kind'] == 'collect' and collection:
                 # A collector explicitly reports terminal completion; an ack is not completion.
                 if data.get('status') in {'completed', 'succeeded'} or data.get('phase') == 'complete':
-                    retained = next((row for row in s['handles'] if row['handle'] == data.get('handle', collection.get('handle'))), None)
+                    retained = next((row for row in s['handles'] if same_handle(row['handle'], data.get('handle', collection.get('handle')))), None)
                     if retained is not None: retained['collected'] = str(output / 'driver/receipt.json')
             if stage == 'I': s['calibration'] = {'binding': self.binding(), 'receipt': str(output / 'driver/receipt.json')}
             if stage == 'J': s['diagnostics'] = {'receipt': str(output / 'driver/receipt.json'), 'source': source['sha256']}
@@ -560,11 +561,11 @@ class Pipeline:
         self.state['receipts'].append({'run': identity, 'tool': action['tool'], 'status': status,
                                        'manifest_sha256': sha(output / 'manifest.json')})
         save(self.root / ('event-%08d.json' % len(self.state['receipts'])), {'parent': self.chain, 'body': self.state, 'sha256': digest(self.state)})
-        return {'status': status, 'data': {'run': identity, 'manifest_sha256': sha(output / 'manifest.json'),
+        return wire_handles({'status': status, 'data': {'run': identity, 'manifest_sha256': sha(output / 'manifest.json'),
                                          'result': result if len(encoded(result)) < 16000 else 'Read result.json with pipeline_read',
                                          **({'promotion_evidence': result['promotion_evidence']}
                                             if action['tool'] == 'pipeline_promote' and status == 'completed' else {}),
-                                         'workflow': self.workflow()}}
+                                         'workflow': self.workflow()}})
 
 
 def main(config, action):

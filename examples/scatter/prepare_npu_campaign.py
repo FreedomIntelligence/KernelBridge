@@ -97,7 +97,8 @@ def prepare(args):
                 'contract': contract, 'files': {path.name: path.read_text() for path in sorted(project.iterdir())},
                 'writable': ['candidate.py'], 'readonly': sorted(path.name for path in project.iterdir())}
     save(root / 'task.json', authored)
-    pins = sorted(HERE.glob('npu_*.py')) + [HERE.parent / 'operator_pipeline/diagnostic_policy.py', config_path,
+    pins = sorted(HERE.glob('npu_*.py')) + [HERE.parent / 'operator_pipeline/diagnostic_policy.py',
+            HERE.parent / 'operator_pipeline/job_identity.py', config_path,
             root / 'task.json', project / 'contract.json', transport]
     profile = {'candidate_source': 'workspace', 'read_roots': [str(root), *sorted(set([*oracle_files.values(), *baseline_files.values()]))],
         'drivers': {name: {'kind': 'diagnostic' if operation in ('ir', 'profiler') else operation,
