@@ -195,6 +195,21 @@ class StreamingTests(unittest.TestCase):
     def test_truncated_stream_and_split_credentials_fail_closed(self):
         with self.assertRaises(ToolFailure): self.request([{"choices": [{"delta": {"content": "partial"}}]}], finish=False)
         with self.assertRaises(ToolFailure): self.request([{"choices": [{"delta": {"content": text}}]} for text in ["secret", "-credential"]], secret="secret-credential")
+        with self.assertRaises(ToolFailure): self.request([{"choices": [{"delta": {"content": text}}]} for text in ["ab s", "ecr", "et-credential tail"]], secret="secret-credential")
+
+    def test_stream_holds_only_a_possible_credential_prefix(self):
+        secret = "sk-0123456789abcdefghijklmnopqrstuvw"
+        pieces = ["第一句话已经结束。", "第二句", "话 sk-01", "2 不是密钥", "。"]
+        chunks = [{"choices": [{"delta": {"content": text}}]} for text in pieces]
+        _, deltas = self.request(chunks + [{"choices": [{"delta": {}, "finish_reason": "stop"}]}], secret=secret)
+        emitted = "".join(item["delta"] for item in deltas)
+        self.assertEqual(emitted, "".join(pieces))
+        # Ordinary prose is forwarded with the frame that carried it; only the
+        # possible credential prefix "sk-01" waits for the next frame.
+        self.assertEqual(deltas[0]["delta"], "第一句话已经结束。")
+        self.assertEqual(deltas[1]["delta"], "第二句")
+        self.assertEqual(deltas[2]["delta"], "话 ")
+        self.assertTrue(all(secret not in emitted[:end] for end in range(len(emitted) + 1)))
 
 
 if __name__ == "__main__":

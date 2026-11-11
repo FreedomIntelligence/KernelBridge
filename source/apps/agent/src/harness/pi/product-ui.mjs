@@ -1,12 +1,28 @@
 import { Text, truncateToWidth } from '@earendil-works/pi-tui';
+import { childMetrics, delegateTitle, reasonLabel } from './tool-render.mjs';
 
 const STATUSES = { active: '进行中', paused: '已暂停', awaiting_user: '等待输入', completed: '已完成',
   budget_limit: '预算耗尽', failed: '失败', cleared: '已清除' };
 const currentGoal = state => state.goal?.status === 'cleared' ? null : state.goal;
 const plain = value => String(value ?? '').replace(/[\x00-\x1f\x7f-\x9f]/g, ' ');
 
+export const runningChildren = state => (state?.subagents ?? []).filter(child => child.status === 'running');
+
+/** Working-row text: elapsed time, live children and the interrupt key. */
+export function workingMessage(state, startedAt) {
+  const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, '0')}s`;
+  const children = runningChildren(state).length;
+  return `${children ? `等待 ${children} 个子代理完成` : '执行中'}… (${elapsed} · Esc 中断)`;
+}
+
+const CHILD_STATUS = { running: '运行中', completed: '完成', failed: '失败', unknown: '待恢复' };
+
+/** One-line child status shared by /agents and tests; metrics come from host receipts. */
 export function subagentStatus(child) {
-  return `${child.agent} · ${child.partial ? '部分结果' : ({ running: '执行中', completed: '已完成', failed: '失败', unknown: '待恢复' }[child.status] ?? child.status)} · ${child.steps ?? 0} 次模型 / ${child.tool_calls ?? 0} 次读取${child.reason && child.reason !== 'answer' ? ' · ' + child.reason : ''}`;
+  const status = child.partial ? `部分结果（${reasonLabel(child.reason)}）`
+    : child.status === 'failed' ? `失败${child.reason ? '：' + reasonLabel(child.reason) : ''}` : CHILD_STATUS[child.status] ?? child.status;
+  return plain([child.agent, status, childMetrics(child), delegateTitle(child)].filter(Boolean).join(' · '));
 }
 
 export function goalSummary(state) {
@@ -61,16 +77,11 @@ export function installProductUI(context, getState, { demo = false } = {}) {
           : `${goal ? `Goal ${STATUSES[goal.status] ?? goal.status}` : 'Session'} · task v${state.task_version} · Trial ${state.trials?.length || 0}`,
         ...(budget.limit == null ? [] : [`预算 ${budget.spent ?? 0}/${budget.limit} · 预留 ${budget.reserved ?? 0}`
           + (state.workspace_mode !== 'project' ? ` · 待处理 ${state.pending_effect_ids?.length ?? 0}` : '')]),
-        ...(state.subagents ?? []).slice(-2).map(child => color(child.status === 'failed' ? 'error' : 'dim',
-          truncateToWidth(plain(`子代理 ${subagentStatus(child)} · ${child.task}`), width))),
+        ...(runningChildren(state).length ? [color('accent', truncateToWidth(`子代理 ${runningChildren(state).length} 个运行中 · /agents 查看`, width))] : []),
         `${goal || state.workspace_mode !== 'project' ? `退出${goal?.on_detach === 'continue' ? '继续' : '暂停'} · ` : ''}/help · /latest`,
       ].join('\n'), 0, 0).render(width);
     },
   }));
-}
-
-export function renderDelegateCall(args, theme) {
-  return new Text(theme.fg('accent', plain(`子代理 ${args.agent} · ${args.mode ?? 'read_only'}`)) + '\n' + plain(args.task), 0, 0);
 }
 
 export function showProductFeedback(context, message, error = false) {
@@ -83,19 +94,4 @@ export function showProductFeedback(context, message, error = false) {
       return rows.length <= limit ? rows : [...rows.slice(0, limit - 1), '…'];
     },
   }) : undefined);
-}
-
-export function renderReceiptResult(result, { expanded }, theme) {
-  if (expanded) return new Text((result.content ?? []).filter(item => item.type === 'text').map(item => item.text).join('\n'), 0, 0);
-  const outcome = result.details?.outcome;
-  const data = outcome?.data ?? {};
-  if (data.agent) {
-    const label = subagentStatus({ ...data, reason: data.reason ?? data.completion_reason, status: outcome?.status ?? 'running' });
-    return new Text(theme.fg(result.isError ? 'error' : 'dim', plain(label)) +
-      (data.summary ? '\n' + plain(data.summary).slice(0, 240) : '') + '\n（Ctrl+O 展开详情）', 0, 0);
-  }
-  const status = result.isError ? '失败' : outcome?.status === 'completed' ? '已完成' : '处理中';
-  const summary = [status, data.correct === true ? '正确性通过' : null, data.fixture_only ? '本地测试' : null,
-    data.reason ? String(data.reason).slice(0, 160) : null].filter(Boolean).join(' · ');
-  return new Text(theme.fg(result.isError ? 'error' : 'dim', summary + '（Ctrl+O 展开详情）'), 0, 0);
 }

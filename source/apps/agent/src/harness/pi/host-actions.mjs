@@ -3,7 +3,9 @@ import { open, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { InputQueue } from '../../application/input-queue.mjs';
 import { workspaceTools } from './workspace-tools.mjs';
-import { goalSummary, statePresentation, installProductUI, showProductFeedback, subagentStatus } from './product-ui.mjs';
+import { goalSummary, statePresentation, installProductUI, showProductFeedback, workingMessage } from './product-ui.mjs';
+import { updateSubagentProgress } from './tool-render.mjs';
+import { agentsPanel } from './agents-panel.mjs';
 import { COMMAND_POLICY_VERSION, PRODUCT_COMMANDS, PRODUCT_COMMAND_NAMES, parseGoalCommand, COMMAND_HELP } from './command-policy.mjs';
 import { sessions } from '../../application/host.mjs';
 import { sessionPicker } from '../../application/session-picker.mjs';
@@ -71,7 +73,10 @@ export function createHostActions(control, effects) {
     pi.on('session_start', async (_event, ctx) => {
       context = ctx;
       await refresh();
-      if (interactive) installProductUI(context, () => state, { demo: process.env.KERNELBRIDGE_DEMO === '1' });
+      if (interactive) {
+        installProductUI(context, () => state, { demo: process.env.KERNELBRIDGE_DEMO === '1' });
+        context.ui.setHiddenThinkingLabel?.('思考中…');
+      }
       if (governed && state.pending_transition) {
         const parent = state.pending_transition.parent;
         const ordinary = state.workspace_mode === 'project' && (!state.goal || ['cleared', 'completed'].includes(state.goal.status));
@@ -128,7 +133,21 @@ export function createHostActions(control, effects) {
         await suggestFork('连续工具失败，建议重新检查假设。', 'errors-' + Math.floor(consecutiveErrors / 3));
       }
     });
+    // The native loader row shows elapsed time and live children, like other
+    // coding CLIs; it is presentation only and stops with the settled run.
+    let workingTimer;
+    const stopWorking = () => { clearInterval(workingTimer); workingTimer = undefined; context?.ui.setWorkingMessage?.(); };
+    pi.on('agent_start', () => {
+      if (!interactive || !context?.ui.setWorkingMessage) return;
+      stopWorking();
+      const started = Date.now();
+      const tick = () => context.ui.setWorkingMessage(workingMessage(state, started));
+      tick();
+      workingTimer = setInterval(tick, 1000);
+      workingTimer.unref?.();
+    });
     pi.on('agent_settled', async event => {
+      stopWorking();
       const providerFailed = governed?.controller.stopResult?.status === 'providers_failed';
       const setupFailed = governed?.controller.stopResult?.status === 'seed_failed';
       const limitReached = ['budget_exhausted', 'budget_limit', 'trial_limit', 'step_limit'].includes(governed?.controller.stopResult?.status);
@@ -309,6 +328,7 @@ export function createHostActions(control, effects) {
   const unsubscribe = control.subscribe(event => {
     if (event.type === 'state') {
       state = event.state;
+      updateSubagentProgress(state.subagents);
       syncTools();
       context?.ui.setStatus('kernelbridge', goalSummary(state));
     } else if (event.type === 'input' && event.receipt.channel !== 'tui') {
@@ -368,7 +388,11 @@ export function createHostActions(control, effects) {
       await refresh();
       for (const receipt of Object.values(state.inputs).filter(item => item.status === 'queued' && item.kind === 'control')) await deliver(receipt);
       const entries = governed.session.sessionManager.getBranch();
-      for (const receipt of Object.values(state.inputs).filter(item => item.status === 'queued' && item.kind !== 'control')) {
+      // The editor is live before initial() settles. A receipt submitted from
+      // it in this process is already owned by Pi's input loop; recovering or
+      // replaying it here would submit the same text twice.
+      const recoverable = item => item.status === 'queued' && item.kind !== 'control' && !delivered.has(item.input_id);
+      for (const receipt of Object.values(state.inputs).filter(recoverable)) {
         const marker = entries.findIndex(entry => entry.type === 'custom' && entry.customType === 'kernelbridge.input' && entry.data?.input_id === receipt.input_id);
         const user = marker < 0 ? undefined : entries.slice(marker + 1).find(entry => entry.type === 'message' && entry.message.role === 'user');
         if (user) {
@@ -378,7 +402,7 @@ export function createHostActions(control, effects) {
         }
       }
       await refresh();
-      const queued = Object.values(state.inputs).filter(item => item.status === 'queued' && item.kind !== 'control');
+      const queued = Object.values(state.inputs).filter(recoverable);
       if (!queued.length && !governed.restored && Object.keys(state.inputs).length === 0 && state.workspace_mode !== 'project') {
         queued.push(await inputs.accept(governed.hello.goal, 'prompt', 'tui'));
       }
@@ -410,16 +434,16 @@ export function createHostActions(control, effects) {
       if (command === '/latest') return { action: 'handled' };
       if (command === '/subagents' || command === '/agents') {
         const current = await refresh();
-        return { action: 'handled', message: [
-          'pi-subagents 0.87.0 · 上游社区组件',
-          'kernel-scout：只读探索 · kernel-reviewer：只读审查',
-          `分工策略：${current.subagent_config?.policy === 'explicit' ? '仅明确请求时启动' : '自动判断独立探索和审查任务；简单问题直接处理'}`,
-          '可直接说：启动两个子代理，分别梳理开发流程和验证流程，再汇总。无需指定 agent 名称。',
-          '父模型调用 delegate；子会话经原有 Journal 记账，结果返回当前对话。',
-          `已启用：${current.subagent_config?.enabled !== false} · 每个模型回复最多 ${current.subagent_config?.max_per_turn ?? 4} 个 · 会话总数 ${current.subagent_config?.max_total ?? '不限'}`,
-          '多个子代理依次执行，每个都有独立上下文；只读、前台、不嵌套。配置入口：subagents。',
-          ...(current.subagents ?? []).map(child => `${subagentStatus(child)}\n${child.task}\n${child.summary || ''}`),
-        ].join('\n') };
+        const config = current.subagent_config ?? {};
+        if (config.enabled === false) return { action: 'handled', message: '子代理已在配置中关闭（subagents.enabled=false）。' };
+        const policy = `${config.policy === 'explicit' ? '仅明确请求时启动' : '自动分工'} · 每次回复最多 ${config.max_per_turn ?? 4} 个 · 会话总数${config.max_total == null ? '不限' : ' ' + config.max_total}`
+          + ` · 每个最多 ${config.max_steps ?? 20} 次模型 / ${config.tool_limit ?? 64} 次读取`;
+        if (!interactive || !context?.ui.custom) {
+          return { action: 'handled', message: [policy, ...(current.subagents ?? []).map(child => `${child.agent} · ${child.status} · ${child.summary || child.task}`)].join('\n') };
+        }
+        await context.ui.custom((tui, _theme, _keybindings, done) => agentsPanel(current.subagents ?? [], policy, done,
+          () => tui.requestRender(), () => tui.terminal.rows));
+        return { action: 'handled' };
       }
       if (command === '/goal') {
         const { operation, ...values } = parseGoalCommand(text);

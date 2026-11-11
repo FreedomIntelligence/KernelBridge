@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { assistant } from '../../clients/protocol.mjs';
 import { serialRpc } from '../../clients/serial-rpc.ts';
 import { RunController } from '../../run/controller.mjs';
@@ -14,7 +15,7 @@ import { projectInstructions } from './context-files.mjs';
 import { workspaceTools } from './workspace-tools.mjs';
 import { projectHarness } from './input.ts';
 import { randomUUID, createHash } from 'node:crypto';
-import { renderReceiptResult, renderDelegateCall } from './product-ui.mjs';
+import { directRenderers } from './tool-render.mjs';
 import { DELEGATION_PROMPT } from './delegation-prompt.mjs';
 
 const SYSTEM = 'You are a kernel engineering agent. Use Pi file tools to inspect and implement the candidate. Use the configured evaluation, knowledge, and receipt tools for domain work. Treat task references as read-only. Only original evaluation receipts establish correctness or performance. After an error, inspect the returned evidence and revise the candidate.';
@@ -34,8 +35,7 @@ function directTools(hello, controller) {
     name: tool.name, label: tool.name, description: tool.description, parameters: tool.parameters,
     exposure: 'model-only',
     promptSnippet: tool.description,
-    ...(tool.name === 'delegate' ? { renderCall: renderDelegateCall } : {}),
-    renderResult: renderReceiptResult,
+    ...directRenderers(tool.name),
     execute: (id, arguments_, signal) => controller.tool(id, tool.name, arguments_, signal),
   }));
 }
@@ -115,6 +115,10 @@ export async function createGovernedRuntime(client, home, dependencies, options 
     const cwd = replay?.capability.workspace ?? hello.native_harness?.workspace?.root ?? home;
     const agentDir = replay?.agentDir ?? join(home, 'agent');
     process.env.PI_CODING_AGENT_DIR = agentDir;
+    // The host renders child progress inside each delegate row. Keep the
+    // community plugin's separate fleet/async widgets out of the product UI.
+    mkdirSync(join(agentDir, 'extensions/subagent'), { recursive: true, mode: 0o700 });
+    writeFileSync(join(agentDir, 'extensions/subagent/config.json'), JSON.stringify({ fleetView: false, asyncWidget: false }) + '\n', { mode: 0o600 });
     const frozenInstructions = projectInstructions(cwd);
     let bridge;
     let plugin;

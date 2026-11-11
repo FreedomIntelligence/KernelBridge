@@ -16,8 +16,8 @@ class SubagentEffect:
     execution_mode = "sequential"
 
     def __init__(self, settings=None) -> None:
-        self.settings = settings or {"max_per_turn": 4, "max_total": None, "max_steps": 6,
-                                     "tool_limit": 16, "timeout": 120}
+        self.settings = settings or {"max_per_turn": 4, "max_total": None, "max_steps": 20,
+                                     "tool_limit": 64, "timeout": 600}
         self.denial = None
         guidance = (
             "Use proactively for independent codebase exploration or a focused second review when delegation saves main-context work. "
@@ -27,6 +27,7 @@ class SubagentEffect:
         )
         self.spec = ToolSpec(name="delegate", description=(
             guidance + "Launch a child agent with an independent context and return its findings. "
+            "Always give a short description (3-6 words) that the user sees while the child runs. "
             "kernel-scout discovers files, searches code and traces implementations; kernel-reviewer checks a focused change or claim against evidence. "
             "Supply a self-contained task, relevant paths/constraints and expected output; children do not inherit the conversation. "
             "Default mode read_only can list/search/read project files, skills and receipts; analysis uses supplied text only. "
@@ -34,6 +35,8 @@ class SubagentEffect:
             "No child may write, run shell/devices or delegate. Answers are advisory, not validation."), credits=1,
             parameters={"type": "object", "additionalProperties": False,
                 "properties": {"agent": {"type": "string", "enum": ["kernel-scout", "kernel-reviewer"]},
+                    "description": {"type": "string", "minLength": 1, "maxLength": 80,
+                                    "description": "Short user-visible label for this child, e.g. 'Trace build flow'."},
                     "task": {"type": "string", "minLength": 1, "maxLength": 32768},
                     "mode": {"type": "string", "enum": ["analysis", "read_only"], "default": "read_only"},
                     "max_steps": {"type": "integer", "minimum": 1, "maximum": self.settings["max_steps"]}},

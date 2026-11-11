@@ -98,9 +98,9 @@ class SubagentConfig(Contract):
     policy: Literal["auto", "explicit"] = "auto"
     max_per_turn: int = Field(ge=1, le=32, default=4)
     max_total: int | None = Field(ge=1, default=None)
-    max_steps: int = Field(ge=1, le=32, default=6)
-    tool_limit: int = Field(ge=0, le=128, default=16)
-    timeout: int = Field(ge=1, le=1800, default=120)
+    max_steps: int = Field(ge=1, le=64, default=20)
+    tool_limit: int = Field(ge=0, le=256, default=64)
+    timeout: int = Field(ge=1, le=3600, default=600)
 
 
 class GoalReviewConfig(Contract):

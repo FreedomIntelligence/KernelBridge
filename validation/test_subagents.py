@@ -88,9 +88,12 @@ class SubagentTests(unittest.TestCase):
     def test_default_readonly_and_delegation_policy(self):
         config = SubagentConfig()
         self.assertEqual(config.policy, 'auto')
+        self.assertEqual((config.max_steps, config.tool_limit, config.timeout), (20, 64, 600))
         effect = SubagentEffect(config.model_dump())
         self.assertIn('Use proactively', effect.spec.description)
         self.assertEqual(effect.spec.parameters['properties']['mode']['default'], 'read_only')
+        self.assertEqual(effect.spec.parameters['properties']['description']['maxLength'], 80)
+        self.assertNotIn('description', effect.spec.parameters['required'])
         explicit = SubagentEffect(SubagentConfig(policy='explicit').model_dump())
         self.assertIn('explicitly request', explicit.spec.description)
         _, rows, child, _ = self.run_child([('read_file', {'path': 'reference/spec.txt'})],
@@ -123,7 +126,7 @@ class SubagentTests(unittest.TestCase):
 
     def test_configuration_limits_and_disabled_binding(self):
         from pydantic import ValidationError
-        for values in ({'policy': 'always'}, {'max_per_turn': 0}, {'max_total': 0}, {'max_steps': 33}, {'tool_limit': -1}, {'timeout': 0}):
+        for values in ({'policy': 'always'}, {'max_per_turn': 0}, {'max_total': 0}, {'max_steps': 65}, {'tool_limit': -1}, {'timeout': 0}):
             with self.assertRaises(ValidationError): SubagentConfig(**values)
         # Disabled configuration is also exercised at the runtime tool registry
         # boundary by the binding test; a missing delegate cannot launch a child.

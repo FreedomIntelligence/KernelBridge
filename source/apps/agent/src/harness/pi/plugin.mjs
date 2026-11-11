@@ -26,7 +26,7 @@ export function createPluginBridge(rpc,provider,cwd) {
         systemPrompt:'Use supplied material and host-permitted discovery/read tools. Follow the host remaining-call instructions and return findings with paths, evidence and unresolved questions before the limit. Never invent measurements. Return an advisory answer, not independent validation.',
         tools:['kernelcat_child_effect'],excludeTools:[],allowNestedSubagents:false,model,thinking:'off',
         systemPromptMode:'replace',inheritProjectContext:false,inheritGlobalContext:false,inheritSkills:false,
-        defaultContext:'fresh',defaultAsync:false,defaultTimeoutMs:60000,
+        defaultContext:'fresh',defaultAsync:false,defaultTimeoutMs:600000,
         skills:[],extensions:[childExtension],defaultReads:[],maxSubagentDepth:1,
       }}));
     }

@@ -31,6 +31,16 @@ def prepare_stream(payload, provider):
             payload["stream_options"] = {"include_usage": True}
 
 
+def _secret_prefix_suffix(text, secret):
+    """Length of the longest suffix of text that is a proper prefix of secret."""
+    if not secret:
+        return 0
+    for length in range(min(len(text), len(secret) - 1), 0, -1):
+        if text.endswith(secret[:length]):
+            return length
+    return 0
+
+
 def request_stream(request, headers, *, provider, max_bytes, client=None, secret=""):
     callback = observer.get()
     text, pending_text, calls, blocks, usage = "", "", {}, {}, {}
@@ -42,8 +52,9 @@ def request_stream(request, headers, *, provider, max_bytes, client=None, secret
         pending_text += delta
         if secret and secret in pending_text:
             raise ToolFailure("provider returned authentication material", details={"category": "credential_echo"})
-        # Hold a suffix so a credential split across frames cannot leak.
-        size = len(pending_text) if final else max(0, len(pending_text) - max(1, len(secret)))
+        # Hold only a suffix that could still become the credential. Emitted
+        # text never contains a full secret, and ordinary prose is not delayed.
+        size = len(pending_text) if final else len(pending_text) - _secret_prefix_suffix(pending_text, secret)
         if size and callback:
             callback({"type": "text_delta", "delta": pending_text[:size]})
         pending_text = pending_text[size:]

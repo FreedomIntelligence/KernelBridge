@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
+import { withProductRenderers } from './tool-render.mjs';
 
 const RESERVED = new Set(['.git', '.kernelagent', '.evaluations']);
 const MAX_FILE = 262144;
@@ -22,7 +23,7 @@ export function workspaceTools(sdk, capability) {
     return (capability.tools ?? Object.keys(factories)).filter(name => factories[name]).map(name => ({
       ...factories[name](root, name === 'bash' ? { exposeSessionEnvironment: false,
         spawnHook: context => ({ ...context, env: { ...context.env, ...(capability.home ? { HOME: capability.home } : {}) } }) } : undefined),
-      exposure: 'model-only' }));
+      exposure: 'model-only' })).map(withProductRenderers);
   }
   const writable = capability.writable_paths;
   const readonly = capability.readonly_paths ?? ['reference'];
@@ -214,5 +215,5 @@ export function workspaceTools(sdk, capability) {
   bash.description += ' Commands run in an isolated workspace snapshot with no network. Only authorized regular-file changes persist; failures and timeouts must be inspected before retrying.';
   return [read, write, edit, ls, search(sdk.createFindToolDefinition), search(sdk.createGrepToolDefinition), bash]
     .filter(tool => capability.tools.includes(tool.name))
-    .map(tool => ({ ...tool, exposure: 'model-only' }));
+    .map(tool => withProductRenderers({ ...tool, exposure: 'model-only' }));
 }
