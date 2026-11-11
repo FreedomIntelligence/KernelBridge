@@ -8,6 +8,7 @@ import { startScreen } from './start-screen.mjs';
 export const HELP = `KernelBridge
   kernelagent                              Open codegen in the current project; wait for input
   kernelagent "TASK"                        Execute an initial prompt, then stay interactive
+  kernelagent --tui-mode regular|fullscreen  regular keeps output in terminal scrollback (default: regular)
   kernelagent [-C DIR] [--config PATH] [--model MODEL] [--budget CREDITS]
   kernelagent resume [ID_OR_TITLE]          Pick a saved session in this project; --all searches all projects
   kernelagent resume --last                Resume this project's latest session
@@ -49,7 +50,7 @@ export async function applicationMain(args) {
   const flags = { '--task': 'task', '--config': 'config', '--profile': 'profile', '--output': 'output',
     '--python': 'python', '--expected-python-modules': 'expectedPythonModules', '--attach': 'attach', '--on-detach': 'onDetach',
     '--cwd': 'cwd', '-C': 'cwd', '--model': 'model', '--provider': 'provider', '--budget': 'budget', '--prompt': 'prompt', '--goal': 'goal',
-    '--goal-token-budget': 'goalTokenBudget' };
+    '--goal-token-budget': 'goalTokenBudget', '--tui-mode': 'tuiMode' };
   for (let i = ['tui', 'resume'].includes(args[0]) ? 1 : 0; i < args.length; i++) {
     if (args[i] === '--session-only') options.sessionOnly = true;
     else if (args[i] === '--goal-from-task') options.sessionOnly = false;
@@ -115,6 +116,7 @@ export async function applicationMain(args) {
         KERNELBRIDGE_SESSIONS: dirname(client.directory), KERNELBRIDGE_HOME: process.env.KERNELBRIDGE_HOME,
         COLORTERM: process.env.COLORTERM, TERM_PROGRAM: process.env.TERM_PROGRAM, PI_OFFLINE: '1',
         KERNELBRIDGE_DEMO: process.env.KERNELBRIDGE_DEMO === '1' ? '1' : undefined,
+        KERNELBRIDGE_TUI_MODE: options.tuiMode ?? process.env.KERNELBRIDGE_TUI_MODE,
       }).filter(([, value]) => value !== undefined)),
     });
     child.on('message', message => { if (message?.type === 'resume_application' && typeof message.identity === 'string') resumeIdentity = message.identity; });

@@ -80,8 +80,9 @@ def main():
         children, _ = send('disabled_by_user', '这次不要启动任何子代理。请你自己读取 recovery/implementation.py，简述缺失 handle 时返回什么。')
         assert not children, children
         checks.append('user_no_delegation_constraint_respected')
-        ui.send('/subagents'); ui.until(lambda: '分工策略：自动判断' in ui.text())
+        ui.send('/agents'); ui.until(lambda: 'kernel-scout' in ui.text() and '本会话（' in ui.text())
         (output / 'subagents-screen.txt').write_text(ui.text())
+        os.write(ui.master, b'\x1b'); ui.until(lambda: '本会话（' not in ui.text())
         assert all((project / name).read_text() == text for name, text in files.items())
         ui.send('/quit'); ui.until(lambda: ui.child.poll() is not None); assert ui.child.returncode == 0
         checks.append('native_pi_status_and_child_summaries_no_file_mutation')

@@ -52,11 +52,17 @@ class Provider(BaseHTTPRequestHandler):
         if 'read_file' in tools and 'read' not in tools:
             label = (re.search('CHILD_[A-Z]+', text) or ['CHILD_X'])[0]
             step = self.children[label]; self.children[label] += 1
-            time.sleep(DELAY)
+            time.sleep(4 if label.startswith('CHILD_SLOW') else DELAY)
             plan = [('list_files', {'path': '.', 'pattern': '*.py'}), ('search_text', {'query': 'def '}),
                     ('read_file', {'path': 'solution.py'})]
             if step < len(plan): calls, content = [plan[step]], ''
             else: content = f'{label} 结论：solution.py 定义 add，证据 solution.py:1。'
+        elif tools and not answered and 'CANCEL_PARALLEL' in text:
+            calls = [('delegate', {'agent': 'kernel-scout', 'description': '慢速 A', 'task': 'CHILD_SLOWA trace slowly'}),
+                     ('delegate', {'agent': 'kernel-reviewer', 'description': '慢速 B', 'task': 'CHILD_SLOWB review slowly'})]
+            content = '启动两个慢速子代理。'
+        elif tools and 'AFTER_CANCEL' in text:
+            content = 'AFTER_CANCEL_REPLY'
         elif tools and '[子代理结果]' in text:
             content = 'BACKGROUND_SEEN 已读取后台子代理结果。'
         elif tools and not answered and 'BACKGROUND_START' in text:
@@ -182,6 +188,18 @@ def main():
         assert any(item['initiator'] == 'agent' and item['text'].startswith('[子代理结果]') and item['status'] == 'completed'
                    for item in state['inputs'].values())
         checks.append('background_child_notifies_and_parent_continues')
+        before = len(client.call('status')['subagents'])
+        ui.send('CANCEL_PARALLEL'); ui.until(lambda: '等待 2 个子代理完成' in ui.text(), timeout=60)
+        os.write(ui.master, b'\x1b')
+        ui.until(lambda: len(client.call('status')['subagents']) == before + 2
+                 and all(row['status'] != 'running' for row in client.call('status')['subagents'][before:])
+                 and not client.call('status')['pending_effect_ids'], timeout=60)
+        cancelled = client.call('status')['subagents'][before:]
+        assert all(row['status'] == 'failed' and row['reason'] == 'cancelled' for row in cancelled), cancelled
+        settle(1); (output / 'cancel-screen.txt').write_text(ui.text())
+        ui.send('AFTER_CANCEL'); ui.until(lambda: 'AFTER_CANCEL_REPLY' in ui.text() and '等待输入' in ui.text(), timeout=60)
+        assert client.call('status')['budget']['reserved'] == 0
+        checks.append('esc_cancels_concurrent_children_and_parent_continues')
         ui.send('/quit'); ui.until(lambda: ui.child.poll() is not None); assert ui.child.returncode == 0
         (output / 'scenario.json').write_text(json.dumps({'status': 'passed', 'checks': checks}, ensure_ascii=False, indent=2) + '\n')
         print(json.dumps({'status': 'passed', 'checks': checks}, ensure_ascii=False), flush=True)

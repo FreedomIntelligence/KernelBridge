@@ -184,6 +184,55 @@ const NATIVE = {
   },
 };
 
+// ---------------------------------------------------------------- exploration groups
+// Consecutive read/search/list calls collapse into one row, as in other coding
+// CLIs. Assistant text, any other tool and user input end a group. Ctrl+O shows
+// every call individually.
+const EXPLORE = new Set(['read', 'grep', 'find', 'ls']);
+const groupOf = new Map();
+let currentGroup = null;
+
+export function explorationBoundary() { currentGroup = null; }
+
+function joinGroup(id, name) {
+  if (groupOf.has(id)) return groupOf.get(id);
+  // Only the first registration of a call affects grouping; re-renders do not.
+  if (!EXPLORE.has(name)) { groupOf.set(id, null); currentGroup = null; return null; }
+  currentGroup ??= { members: [], leaderView: undefined };
+  currentGroup.members.push({ id, name, status: 'running' });
+  groupOf.set(id, currentGroup);
+  currentGroup.leaderView?.();
+  return currentGroup;
+}
+
+/** Rebuild groups for restored history: blocks in transcript order. */
+export function seedExplorationGroups(blocks) {
+  explorationBoundary();
+  for (const block of blocks) {
+    if (block.type === 'tool') {
+      const group = joinGroup(block.id, block.name);
+      const member = group?.members.find(item => item.id === block.id);
+      if (member && block.status) member.status = block.status;
+    } else explorationBoundary();
+  }
+  explorationBoundary();
+}
+
+function groupSummary(group) {
+  const count = name => group.members.filter(member => member.name === name).length;
+  const parts = [count('read') && `读取 ${count('read')} 个文件`, count('grep') && `搜索 ${count('grep')} 次`,
+    count('find') && `查找 ${count('find')} 次`, count('ls') && `列出 ${count('ls')} 个目录`].filter(Boolean);
+  const failed = group.members.filter(member => member.status === 'failed').length;
+  return { text: parts.join(' · '), failed, running: group.members.some(member => member.status === 'running') };
+}
+
+function groupRows(group, theme, context, width) {
+  const { text, failed, running } = groupSummary(group);
+  const dot = running ? theme.fg(Math.floor(Date.now() / 600) % 2 ? 'muted' : 'dim', '⏺') : theme.fg(failed ? 'error' : 'success', '⏺');
+  const rows = wrapTextWithAnsi(`${dot} ${theme.fg('toolTitle', theme.bold('浏览'))} ${theme.fg('muted', text)}`, width);
+  return [...rows, ...hanging([(failed ? theme.fg('error', `${failed} 次失败 · `) : '') + theme.fg('muted', `${expandKey(context)} 展开`)], width, theme)];
+}
+
 /** Attach product renderers to a native Pi tool definition (project or isolated workspace). */
 export function withProductRenderers(tool) {
   const spec = NATIVE[tool.name];
@@ -193,11 +242,25 @@ export function withProductRenderers(tool) {
     renderShell: 'self',
     renderCall(args, theme, context) {
       if (context.executionStarted && !context.state.startedAt) context.state.startedAt = Date.now();
-      return new Rows(width => headerRows(theme, context, spec.title, spec.detail(args, context.cwd), width), context.outputPad);
+      const group = joinGroup(context.toolCallId, tool.name);
+      if (group?.members[0].id === context.toolCallId) group.leaderView = context.invalidate;
+      return new Rows(width => {
+        if (group && group.members.length > 1 && !context.expanded) {
+          return group.members[0].id === context.toolCallId ? groupRows(group, theme, context, width) : [];
+        }
+        return headerRows(theme, context, spec.title, spec.detail(args, context.cwd), width);
+      }, context.outputPad);
     },
     renderResult(result, options, theme, context) {
       const view = { ...context, expanded: options.expanded, isPartial: options.isPartial };
+      const group = groupOf.get(context.toolCallId);
+      const member = group?.members.find(item => item.id === context.toolCallId);
+      if (member) {
+        const status = options.isPartial ? 'running' : context.isError ? 'failed' : 'completed';
+        if (member.status !== status) { member.status = status; if (group.members[0].id !== context.toolCallId) group.leaderView?.(); }
+      }
       return new Rows(width => {
+        if (group && group.members.length > 1 && !options.expanded) return [];
         let rows;
         try {
           rows = !view.isPartial && view.isError ? failure(result, view, theme) : spec.result(result, view, theme);
@@ -336,6 +399,7 @@ export function renderReceiptResult(result, options, theme, context = {}) {
 
 /** Renderers for Host-sealed direct tools; delegate gets live child progress. */
 export function directRenderers(name) {
-  if (name === 'delegate') return { renderShell: 'self', renderCall: delegateCall, renderResult: delegateResult };
-  return { renderShell: 'self', renderCall: receiptCall(name), renderResult: renderReceiptResult };
+  const boundary = render => (args, theme, context) => { joinGroup(context.toolCallId, name); return render(args, theme, context); };
+  if (name === 'delegate') return { renderShell: 'self', renderCall: boundary(delegateCall), renderResult: delegateResult };
+  return { renderShell: 'self', renderCall: boundary(receiptCall(name)), renderResult: renderReceiptResult };
 }

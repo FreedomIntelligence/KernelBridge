@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { InputQueue } from '../../application/input-queue.mjs';
 import { workspaceTools } from './workspace-tools.mjs';
 import { goalSummary, statePresentation, installProductUI, showProductFeedback, workingMessage } from './product-ui.mjs';
-import { updateSubagentProgress } from './tool-render.mjs';
+import { updateSubagentProgress, explorationBoundary, seedExplorationGroups } from './tool-render.mjs';
 import { agentsPanel, BUILTIN_AGENTS } from './agents-panel.mjs';
 import { COMMAND_POLICY_VERSION, PRODUCT_COMMANDS, PRODUCT_COMMAND_NAMES, parseGoalCommand, COMMAND_HELP } from './command-policy.mjs';
 import { sessions } from '../../application/host.mjs';
@@ -12,6 +12,24 @@ import { sessionPicker } from '../../application/session-picker.mjs';
 import { projectInfo } from '../../application/project-info.mjs';
 
 export { COMMAND_POLICY_VERSION } from './command-policy.mjs';
+
+/** Transcript order of text and tool calls, for presentation grouping only. */
+function transcriptBlocks(entries) {
+  const blocks = [];
+  const results = new Map(entries.filter(entry => entry.type === 'message' && entry.message.role === 'toolResult')
+    .map(entry => [entry.message.toolCallId, entry.message.isError ? 'failed' : 'completed']));
+  for (const entry of entries) {
+    if (entry.type !== 'message') continue;
+    const { role, content } = entry.message;
+    if (role === 'user') { blocks.push({ type: 'boundary' }); continue; }
+    if (role !== 'assistant' || !Array.isArray(content)) continue;
+    for (const block of content) {
+      if (block.type === 'text' && block.text?.trim()) blocks.push({ type: 'boundary' });
+      else if (block.type === 'toolCall') blocks.push({ type: 'tool', id: block.id, name: block.name, status: results.get(block.id) ?? 'completed' });
+    }
+  }
+  return blocks;
+}
 const DISABLED = new Set(['/share', '/bug', '/debug']);
 const DISPLAY = new Set(['/copy', '/name', '/session', '/changelog', '/hotkeys']);
 
@@ -72,6 +90,7 @@ export function createHostActions(control, effects) {
   const extension = pi => {
     pi.on('session_start', async (_event, ctx) => {
       context = ctx;
+      seedExplorationGroups(transcriptBlocks(ctx.sessionManager.getBranch()));
       // Hide Pi's own footer until the host state is known (no startup flash).
       if (interactive) ctx.ui.setFooter(() => ({ invalidate() {}, render: () => [] }));
       await refresh();
@@ -98,6 +117,7 @@ export function createHostActions(control, effects) {
       }
     });
     pi.on('input', async event => {
+      explorationBoundary();
       try {
         const receipt = inputs.consume(event.text);
         if (receipt.status !== 'queued') return { action: 'handled' };

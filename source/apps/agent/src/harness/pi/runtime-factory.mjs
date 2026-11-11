@@ -15,7 +15,7 @@ import { projectInstructions } from './context-files.mjs';
 import { workspaceTools } from './workspace-tools.mjs';
 import { projectHarness } from './input.ts';
 import { randomUUID, createHash } from 'node:crypto';
-import { directRenderers } from './tool-render.mjs';
+import { directRenderers, explorationBoundary } from './tool-render.mjs';
 import { DELEGATION_PROMPT } from './delegation-prompt.mjs';
 
 const SYSTEM = 'You are a kernel engineering agent. Use Pi file tools to inspect and implement the candidate. Use the configured evaluation, knowledge, and receipt tools for domain work. Treat task references as read-only. Only original evaluation receipts establish correctness or performance. After an error, inspect the returned evidence and revise the candidate.';
@@ -164,6 +164,7 @@ export async function createGovernedRuntime(client, home, dependencies, options 
         if (id !== undefined) { generation ??= id; if (id !== generation) return; }
         const kind = delta.type === 'text_delta' ? 'text' : delta.type === 'thinking_delta' ? 'thinking' : null;
         if (!kind || !delta.delta) return;
+        if (kind === 'text') explorationBoundary();
         if (!streamed) { partial.content = []; events.push({ type: 'start', partial }); streamed = true; }
         if (open?.kind !== kind) {
           close();
@@ -201,6 +202,7 @@ export async function createGovernedRuntime(client, home, dependencies, options 
             message.kernelbridgeHostStop = true;
           }
           if (streamed) close();
+          if (message.content?.some(block => block.type === 'text' && block.text.trim())) explorationBoundary();
           events.push({ type: 'done', reason: message.stopReason, message });
           events.end(message);
         } catch (error) {

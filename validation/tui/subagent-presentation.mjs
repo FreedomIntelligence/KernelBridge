@@ -81,3 +81,22 @@ test('native tools render a status header and one-line summaries', () => {
   assert.equal(formatDuration(125000), '2m05s');
   assert(screen(read.renderCall({ path: 'x' }, theme, context())).split('\n').every(line => line.length <= 80));
 });
+
+test('consecutive exploration calls collapse into one row until a boundary', async () => {
+  const { explorationBoundary } = await import('../../source/apps/agent/src/harness/pi/tool-render.mjs');
+  explorationBoundary();
+  const tool = name => withProductRenderers({ name, execute() {} });
+  const rows = [['read', 'g1'], ['read', 'g2'], ['grep', 'g3']].map(([name, id]) => ({ name, id,
+    call: tool(name).renderCall({ path: 'a.py', pattern: 'x' }, theme, context({ toolCallId: id })) }));
+  assert.match(screen(rows[0].call), /⏺ 浏览 读取 2 个文件 · 搜索 1 次/);
+  assert.equal(rows[1].call.render(80).length, 0);
+  assert.equal(rows[2].call.render(80).length, 0);
+  const expanded = tool('read').renderCall({ path: 'a.py' }, theme, context({ toolCallId: 'g2', expanded: true }));
+  assert.match(screen(expanded), /⏺ Read\(a\.py\)/);
+  explorationBoundary();
+  const after = tool('read').renderCall({ path: 'b.py' }, theme, context({ toolCallId: 'g4' }));
+  assert.match(screen(after), /⏺ Read\(b\.py\)/);
+  const bash = tool('bash').renderCall({ command: 'ls' }, theme, context({ toolCallId: 'g5' }));
+  const next = tool('read').renderCall({ path: 'c.py' }, theme, context({ toolCallId: 'g6' }));
+  assert.match(screen(bash), /⏺ Bash\(ls\)/); assert.match(screen(next), /⏺ Read\(c\.py\)/);
+});

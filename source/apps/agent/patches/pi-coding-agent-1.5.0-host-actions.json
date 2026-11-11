@@ -1,8 +1,8 @@
 {
   "version": "1.5.0",
   "source_sha256": "718980c4931aa457ba8f531c07c0f2ef4d2c8f1f660f044028029f59f11daa2c",
-  "patched_sha256": "9f0e82310dc21459dc7697e7c37613389ca19797d16c8f7b41d68997b5e92221",
-  "patch_sha256": "aea1bf0317a9cac5e06ae3cbb486cf5bde0e0c014cf93bdd7d280482059a7c38",
+  "patched_sha256": "b8752a9f890860b7f3cc4f97e560fca780ee08bea76fceb3263de32c67411447",
+  "patch_sha256": "451a72befab178747b34a7b178df6ebd91c0cfbd548daa9b7701559876bb95d0",
   "commands": [
     "/arminsayshi",
     "/bug",

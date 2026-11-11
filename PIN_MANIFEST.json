@@ -612,24 +612,24 @@
       "sha256": "8deb59f1a8202b7d50b8b77304206ab8ac2d05d3a81566796870c5ba5f8ee60c"
     },
     "README.md": {
-      "bytes": 9176,
-      "sha256": "8b92e6cb2e05b8658a5a9bf0a720aaa8690c7ded2dc1e58c314b28837d31214f"
+      "bytes": 9794,
+      "sha256": "20d9c7a4e4b91e0dcfe5135d383366395323defa1f6c2d40d895861414b3289a"
     },
     "docs/architecture/tui-implementation-plan.md": {
       "bytes": 44715,
       "sha256": "d82cbfab532e22c760560d1d949630428b434f08b5338aed3241fe7a85390b36"
     },
     "docs/architecture/tui-subagent-redesign.md": {
-      "bytes": 46141,
-      "sha256": "7a95e30bd2f7521e972d64c55e0eb08e3126119e4963c82f6f383e4f3f38e3bf"
+      "bytes": 52297,
+      "sha256": "329db7ebcfcec340c9f82cf04aa2dbb8276b2a7f7e89bfeca0c62cbbf692ce6f"
     },
     "docs/operator-workflow.md": {
       "bytes": 8818,
       "sha256": "f4b8ce5c553169e58efc4ac57724303e81a9d193b6ff4bf9fc1874aa9c013e91"
     },
     "docs/tui.md": {
-      "bytes": 20780,
-      "sha256": "3612f23263002c94b6e638984901b8936df99805f22d1e33d184b44039601f66"
+      "bytes": 22562,
+      "sha256": "61eb02dc5117f1c854a04a060dc791e28371963b6a8f54ff79d41c358d1d2d56"
     },
     "examples/cann/README.md": {
       "bytes": 10939,
@@ -1209,11 +1209,11 @@
     },
     "source/apps/agent/patches/pi-coding-agent-1.5.0-host-actions.json": {
       "bytes": 718,
-      "sha256": "75a339a14800f32848e6dc3f183be7e66655767a65f940c66bff95df12f64559"
+      "sha256": "4ea31b914fccb627804680dafbf5de8ed18a29ad36b3fc3248ce8f298faa79c7"
     },
     "source/apps/agent/patches/pi-coding-agent-1.5.0-host-actions.patch": {
-      "bytes": 15312,
-      "sha256": "aea1bf0317a9cac5e06ae3cbb486cf5bde0e0c014cf93bdd7d280482059a7c38"
+      "bytes": 17211,
+      "sha256": "451a72befab178747b34a7b178df6ebd91c0cfbd548daa9b7701559876bb95d0"
     },
     "source/apps/agent/python/generated_startup.py": {
       "bytes": 31225,
@@ -1244,8 +1244,8 @@
       "sha256": "ca01c721f4559885750bf1f1a93d81741b55f0af192603fcad247c0226de4380"
     },
     "source/apps/agent/src/application/cli.mjs": {
-      "bytes": 8356,
-      "sha256": "ce80e1293a790f401a576b5c8bbc5fe7d81a0c6381124d20c4b5f0b6ec1fecb2"
+      "bytes": 8574,
+      "sha256": "ef1adf9b8956f01b324b1c9e9a2f669ba66bd3d20f8d89b401cfa0def5eb91c2"
     },
     "source/apps/agent/src/application/client.mjs": {
       "bytes": 4050,
@@ -1480,16 +1480,16 @@
       "sha256": "2bc8835a12f5e1840be77fbdcb3cc2922af46257ba249d42a857487c55861abf"
     },
     "source/apps/agent/src/harness/pi/host-actions.mjs": {
-      "bytes": 37254,
-      "sha256": "42be1689f082c3d01eee5cea56d2a08116b8c168bc7db66b6e684555a385162b"
+      "bytes": 38324,
+      "sha256": "ba59f273442e7a5dfb7bc8fb3fb0ac9fc1981f2869ec175307d83266caf36748"
     },
     "source/apps/agent/src/harness/pi/input.ts": {
       "bytes": 2080,
       "sha256": "282f8d012b9449a4ce85ba1ec4323774269d91d1060d3b7821e224ece9aa484f"
     },
     "source/apps/agent/src/harness/pi/interactive-driver.mjs": {
-      "bytes": 564,
-      "sha256": "1e23ab8399d9e4a9c644c9be213bd5a14de1009c995ce5609aef402c0200f46c"
+      "bytes": 874,
+      "sha256": "802cd140e2dc230b8d979148e56beb75752c23dc20f9e9fa35a1969222765e36"
     },
     "source/apps/agent/src/harness/pi/interactive-patch.mjs": {
       "bytes": 2650,
@@ -1528,8 +1528,8 @@
       "sha256": "fc5998c78d2582d6c6b470d97909f80fda2dbc0d6f3374d44e56ffd515588e04"
     },
     "source/apps/agent/src/harness/pi/runtime-factory.mjs": {
-      "bytes": 19088,
-      "sha256": "7eb50de7dd1c251ebf284e3030b43880e03fb99b46a7768d8beac871cf576fc4"
+      "bytes": 19274,
+      "sha256": "64a401636c899723282ed9db5efe0f1158d1711be73fbf75d8ea7533fff38e69"
     },
     "source/apps/agent/src/harness/pi/sdk.d.mts": {
       "bytes": 578,
@@ -1540,8 +1540,8 @@
       "sha256": "5c95e62bc2d4ee529c1aac8d4558cde09c4653ee2eda14c9f6ee7bc3f4022ff1"
     },
     "source/apps/agent/src/harness/pi/tool-render.mjs": {
-      "bytes": 17939,
-      "sha256": "d576d5b93bc07678c41518b480eced1452441e3b6b4efea569fbc71262cc7bca"
+      "bytes": 21403,
+      "sha256": "401d7c4dc006c406ec7f6bd7a0637b74ad3625c6fce73130feb4f63cb54c5f07"
     },
     "source/apps/agent/src/harness/pi/worker.mjs": {
       "bytes": 718,
@@ -3863,6 +3863,10 @@
       "bytes": 17520,
       "sha256": "5808b8924a075a084abc3616c29b989f43a358fca43364aaf8e3aa97871c90e5"
     },
+    "source/scripts/update_manifest.py": {
+      "bytes": 2252,
+      "sha256": "574f958911e6ebd252b1077d7d84e7aeeabd549eb6d96f97f41c32b05d81bbf1"
+    },
     "validation/ACCEPTANCE.md": {
       "bytes": 1834,
       "sha256": "41956a48a5c841497acc29d7af8b99cadb25a949762e6be6d1c3e68a4a248c15"
@@ -4188,20 +4192,20 @@
       "sha256": "38fdf6cdc840dd72cc7ef035572b9c1dc92c1f526b9469648aead55597cacf6c"
     },
     "validation/tui/subagent-presentation.mjs": {
-      "bytes": 6752,
-      "sha256": "84ba71bf1c2811cbbe5aa181016106cab08be4a4cbf5c107ddd179c3b47e8e15"
+      "bytes": 8074,
+      "sha256": "a1274f3c0529f2ccdfd5bce7270a38bee9884e0a04e714a8f1f72ec97aaad7dc"
     },
     "validation/tui/subagent_cancel_scenario.py": {
       "bytes": 3380,
       "sha256": "051af5dec3579c8d152f683a541a5331baa27ddf6bf66cafda5dbcdc46475a21"
     },
     "validation/tui/subagent_live.py": {
-      "bytes": 6928,
-      "sha256": "f2bf9d316c4cbbdf402927a4d69aa5c794775e084431994de3f75084f373f327"
+      "bytes": 7030,
+      "sha256": "85008d7099e48fc4f089662d532e82eea043c47f23d0b2d73984109ef44a541d"
     },
     "validation/tui/subagent_parallel.py": {
-      "bytes": 12308,
-      "sha256": "fa02b85696c156e1049bc09e34fe93d2834ebf398e2b7eb4e0a7bd8e8079c55f"
+      "bytes": 13805,
+      "sha256": "d4675c2c177b08048dc00395754696d5cd719465d9e872a832f8c7b5c38ea838"
     },
     "validation/tui/test_authority.py": {
       "bytes": 14216,

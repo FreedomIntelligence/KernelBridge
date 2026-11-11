@@ -64,7 +64,7 @@ The original `createSession({manifest})`, `runTask`, and external LoopX APIs rem
 | `/fork`, `/fork ENTRY`, `/clone`, `/tree` | Fork current/historical conversation; isolated tasks also restore the recorded source; tree selection creates a fork |
 | `/resume [ID_OR_TITLE]`, `/resume --all` | Project session picker or direct resume of the original host/history; no tool replay |
 | `/resume PATH`, `/import PATH` in isolated task mode | Resume a retained original native session with its matching source checkpoint; no new Trial |
-| `/subagents`, `/agents` | Show delegation policy, configured limits, child progress and results |
+| `/subagents`, `/agents` | List available agent types and this session's runs; Enter opens a report, `s` stops a running child |
 | `/model ROUTE`, `/thinking LEVEL`, `/scoped-models` | Select only frozen profile routes; thinking requires a matching route |
 | `/settings`, `/trust`, `/reload` | Inspect or reload the frozen resource set |
 | `/export`, `/copy`, `/name`, `/session`, `/changelog`, `/hotkeys` | Native presentation; exports go under the run's `exports/` |
@@ -77,38 +77,48 @@ Goal command syntax follows [Codex's documented Goal interface](https://develope
 
 This aligns the main Goal/session behaviors with Codex and Claude Code; it is not a claim of identical implementation. KernelBridge retains completed Goal evidence. An optional fresh completion evaluator is available for project Goals: add `"goal_review": {"enabled": true, "context_bytes": 131072}` to the model configuration. After each completed input, at a settled boundary, it evaluates the objective against retained model/tool receipts in a fresh, tool-free request. A working model's `finish_goal`/`update_goal complete` becomes a completion request and cannot skip this review. Verdicts are shown in the TUI and persisted as `met`, `continue`, or `blocked`. Reviews use the same model route, Journal, credit and Goal token limits; missing/invalid responses never complete a Goal, unknown effects remain fenced, and user pause/replacement wins over late replies. Review is disabled by default and does not run at ordinary idle startup. Like [Claude Code's documented evaluator](https://code.claude.com/docs/en/goal), it assesses presented evidence and does not execute commands independently. Explicit device acceptance still requires source-bound evaluator receipts.
 
-The native editor completes only commands the host supports. Subagent plugin commands and other disabled entries do not appear in completion. Sending a prompt or command returns the viewport to the latest message; scrolling back while reading remains supported. `/latest` provides the same action without a terminal-specific shortcut. Command feedback appears above the editor. The compact footer shows the current model and directory in codegen, and explicit Goal/Trial details in experiment mode. Budget is shown only when set; full protocol receipts remain available through exports and SDK state. Automatic Goal prompts display a short continuation label while their complete original text stays in the Journal. A pause between model preparation and admission settles without calling the provider, and the same worker can resume.
+The default `--tui-mode regular` keeps output in the terminal's own scrollback, like Claude Code; `--tui-mode fullscreen` restores Pi's alternate screen. The native editor completes only commands the host supports. Subagent plugin commands and other disabled entries do not appear in completion. Sending a prompt or command returns the viewport to the latest message; scrolling back while reading remains supported. `/latest` provides the same action without a terminal-specific shortcut. Command feedback appears above the editor. The compact footer shows the current model and directory in codegen, and explicit Goal/Trial details in experiment mode. Budget is shown only when set; full protocol receipts remain available through exports and SDK state. Automatic Goal prompts display a short continuation label while their complete original text stays in the Journal. A pause between model preparation and admission settles without calling the provider, and the same worker can resume.
 
 Quit and detach wait for a settled operation; interrupt first if needed. Native display commands record their dispatch boundary; host commands such as compaction record success or failure after completion. `/new` starts a new conversation in ordinary codegen; in an isolated task it starts a fresh Trial. A project Goal does not implicitly create a Trial. Working files remain in place. Import accepts source-bound sessions from this application's retained archive.
 
 ## Subagents and fork suggestions
 
-The implementation uses the **community `pi-subagents@0.87.0` plugin**, through its public delegation events, required-child extension and capability ceiling. It is not an official built-in Pi subagent component. Pi supplies child session orchestration; the host admits each child model/tool call and checks its original receipts.
+`delegate` is a model-visible tool. With the default `subagents.policy: "auto"` the parent delegates focused, independent investigations, reviews, test runs or scoped changes proactively; short lookups stay in the parent. User/project prohibitions take precedence; `policy: "explicit"` requires an explicit request, and `enabled: false` removes the tool.
 
-`delegate` is a model-visible tool. The default `subagents.policy: "auto"` instructs the parent to delegate focused, independent investigations or reviews proactively, especially separate audits of independent components. Simple lookups remain in the parent. The tool description identifies `kernel-scout` (file discovery and implementation tracing) and `kernel-reviewer` (focused evidence review); the parent supplies a self-contained question, paths and constraints, then synthesizes results. No agent name or special phrase is required. An explicit request such as `启动两个子代理，分别梳理开发流程和验证流程，再汇总` asks for actual delegation. User/project prohibitions still take precedence. Set `policy: "explicit"` to require an explicit request, or `enabled: false` to remove the tool entirely. Policy controls model instructions; it is not a natural-language authorization classifier.
+| Agent | Tools | Available in |
+| --- | --- | --- |
+| `kernel-scout` | list/search/read files, skills and receipts | all modes |
+| `kernel-reviewer` | the same, for a focused second review | all modes |
+| `kernel-tester` | read tools plus `run_command` (tests, builds, diagnostics) | project codegen |
+| `kernel-worker` | read/write in an isolated Git worktree branch plus `run_command` | project codegen in a Git project |
 
-The parent calls `delegate` with `agent`, `task`, optional `mode: "analysis" | "read_only"` (default `read_only`) and `max_steps`. Read-only children get bounded `list_files`, literal `search_text`, paginated `read_file`, skill and receipt tools. Discovery skips caches, symlinks and reserved host paths. Children have fresh contexts, so relevant user constraints must accompany the task. The TUI shows child activity and model/read counts, displays partial summaries explicitly, and `/subagents` lists original results and failures.
+Custom agents use the same Markdown format as Claude Code subagents: `~/.kernelbridge/agents/*.md` (user) and `<project>/.kernelbridge/agents/*.md` (project; overrides user by name). Frontmatter: `name`, `description`, optional `tools` (`read`, `test`, `write`, or a Claude Code tool list such as `Read, Grep, Bash`) and `model` (a configured route). The body is the agent's instructions. Isolated device tasks expose read-only agents only. Definitions are read when the host starts and become part of the frozen tool schema.
 
-This follows the tool/description/orchestration pattern, not feature-for-feature parity. [Claude Code](https://code.claude.com/docs/en/sub-agents) automatically selects agents from descriptions and current context through `Agent`; [current Codex documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents) describes local CLI delegation after a direct request or project/skill instruction, with proactive use available in supported Ultra configurations. KernelBridge defaults to proactive selection as requested. Its current children remain read-only and sequential in the foreground; background writable workers, steering individual children, and nested teams are not implemented.
+The parent supplies `agent`, a short `description` (shown in the TUI), a self-contained `task`, and optionally `mode` (`read_only` by default; `analysis` uses supplied text only), `max_steps` and `background`. Calls issued together in one reply run concurrently, up to `subagents.max_concurrent` (default 6); further calls queue. Results are recorded in reply order. With `background: true` the call returns immediately; the child keeps running across turns, and its result arrives as a `[子代理结果]` message that resumes the parent. `agents_status` reports progress, and `stop_agent` or `s` in `/agents` stops a running child. A background child cannot outlive its worker: when the TUI exits it is recorded as interrupted, never as success, and the next session reports it.
+
+Like Claude Code and Codex, there are no default per-child step, read or time limits. `max_steps`, `tool_limit`, `timeout`, `max_per_turn` and `max_total` remain available as optional ceilings. When a child approaches the context bound, or reaches a configured ceiling, its last model call has no tools and returns the findings so far; that receipt is marked `partial` with a `completion_reason`. Shared credit and Goal token limits still apply, and concurrency can overshoot a Goal token limit by at most the calls already in flight.
+
+`run_command` runs non-interactively in the project (tester) or in the worktree (worker), with a scrubbed environment and a private `HOME`; host model and device credentials are not inherited. Output keeps the last 64 KB. A worker's edits are committed to its own `kernelbridge/agent-*` branch; the result lists the diffstat and an apply command, and the parent decides whether to apply it. Worktrees without changes are removed. Nothing is merged or pushed automatically.
+
+Each delegate row shows `⏺ agent(description)` with live progress (current tool, reads, model calls, tokens and elapsed time). While children run, the working row shows `等待 N 个子代理完成`. Ctrl+O shows a child's report. `/agents` lists the available agent types and this session's runs; Enter opens a report.
 
 ```json
-{
-  "subagents": {
-    "enabled": true,
-    "policy": "auto",
-    "max_per_turn": 4,
-    "max_total": null,
-    "max_steps": 6,
-    "tool_limit": 16,
-    "timeout": 120
-  },
-  "fork_policy": { "enabled": false, "minimum_observations": 3, "cooldown_turns": 3 }
-}
+{ "subagents": { "enabled": true, "policy": "auto", "max_concurrent": 6, "background": true } }
 ```
 
-`max_per_turn` counts delegate calls in one model reply; `max_total` counts attempted delegations across the session, including rejected attempts. `null` leaves that total unlimited. Children currently run sequentially in the foreground. Analysis mode has one model step and no tools; read-only mode can inspect permitted files, skills and receipts. Neither mode can write, invoke shell/device tools or spawn nested children. The final allowed read-only model step (or the next call after the read limit) has no tools and returns existing findings plus unresolved questions. Its receipt is marked `partial` with `completion_reason`, not full task completion. A model that still asks for tools is rejected at the original limit. Counts, steps, tools and timeout are validated on the host; the shared credit/Goal token limits also apply. Child advice is not independent correctness or device evidence. A failed child can settle without losing the parent. Esc stops the child, preserves its in-flight receipts, and permits another parent prompt after known cancellation settles. An unknown child effect remains fenced and must be reconciled; cancellation cannot disguise it as a known failure.
+Child advice is not independent correctness or device evidence. Esc stops foreground children, preserves their in-flight receipts and permits another parent prompt after known cancellation settles. An unknown child effect remains fenced and must be reconciled; cancellation cannot disguise it as a known failure.
+
+Implementation notes: a reply made only of delegate calls records a `delegation` batch plan, so its children do not form a source-order dependency chain in the Journal. Each delegation permit has its own ordered RPC lane, child model and tool calls run on host threads, and admission provenance is attributed to the delegate's own tool call. The children run in Pi through the community `pi-subagents@0.87.0` plugin; the host admits every child model and tool call.
 
 When automatic forks are disabled, repeated tool failures or multiple compactions show a suggestion without changing the branch. Explicit task measurements can also produce a plateau suggestion. Project forks preserve files and spent usage; task forks require an exact retained source checkpoint. Resume preserves session identity; recovery may use a writable copy of the immutable native checkpoint, without changing the branch identity or replaying tools.
+
+## Tool output and streaming
+
+Tool calls render like other coding CLIs: a status header `⏺ Tool(main argument)` (grey while running, green on success, red on failure) and a one-line summary under `⎿`: lines read, lines written, `+a −b` with a short diff for edits, match/file counts for searches, and for shell commands the live tail while running, then duration and exit code. Test/build commands and failures keep the output tail; other commands keep the head. Errors show project-relative paths. Consecutive reads, searches and listings collapse into one `浏览` row. Ctrl+O shows every call and its full output; receipt-backed tools show readable fields instead of JSON.
+
+Assistant text streams as it arrives; only a suffix that could still form a credential is held back. Reasoning deltas (`reasoning_content`) display as a collapsible thinking block while streaming and are not part of the settled reply. The working row shows elapsed time and `Esc 中断`.
+
+`--tui-mode regular` renders inline, keeping output in the terminal's own scrollback like Claude Code; `--tui-mode fullscreen` uses Pi's alternate screen with in-app scrolling (`Ctrl+End` returns to the latest message). `KERNELBRIDGE_TUI_MODE` sets the same choice.
 
 Operator tools and no-Torch self iteration are documented in [operator-workflow.md](operator-workflow.md).
 
