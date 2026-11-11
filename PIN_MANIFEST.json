@@ -615,6 +615,10 @@
       "bytes": 9794,
       "sha256": "20d9c7a4e4b91e0dcfe5135d383366395323defa1f6c2d40d895861414b3289a"
     },
+    "docs/architecture/harness-optimization-log.md": {
+      "bytes": 15619,
+      "sha256": "b7af14aabdc0e3301285ac8a5a1afe66887d0927a43cc7a1799f4a318c8dc479"
+    },
     "docs/architecture/tui-implementation-plan.md": {
       "bytes": 44715,
       "sha256": "d82cbfab532e22c760560d1d949630428b434f08b5338aed3241fe7a85390b36"
@@ -750,6 +754,10 @@
     "examples/cann/matmul-template.py": {
       "bytes": 6014,
       "sha256": "f4b2c23bf97d8f03c2d38f8111340802348347d199f2ccda44ab680be5067c6c"
+    },
+    "examples/cann/native-interface.md": {
+      "bytes": 12371,
+      "sha256": "fc7eaeb64e9a91e11bff7ea13b5a51a9aaa71d7901e28b2921446f51790f7556"
     },
     "examples/cann/native-template.py": {
       "bytes": 6115,
@@ -1180,8 +1188,8 @@
       "sha256": "2d5651f39b6643e582e146caaeef5dc920db87683083391c6379629d2bf0507e"
     },
     "examples/scatter/prepare_npu_campaign.py": {
-      "bytes": 11391,
-      "sha256": "dc59f530dfbd4dbb9b4a3cd750921e7a5d1f4b81765b9acecbc3535c4fc8f823"
+      "bytes": 11320,
+      "sha256": "14a1d2f53ec28e72e8663c7a1a50bc644e6d4fd328d97a21e0ea6a3fc86bb7e2"
     },
     "examples/scatter/reference.py": {
       "bytes": 1570,
@@ -4094,6 +4102,10 @@
     "validation/test_native_failure.py": {
       "bytes": 2403,
       "sha256": "a6bedb63d4a10cc86ab923a6c73a69579759228f6711e7c71b86184402cd9c44"
+    },
+    "validation/test_native_interface.py": {
+      "bytes": 5704,
+      "sha256": "1679713b31507eb05a0002ed602e2899417dee9791ada2b22bc43249cc80ca84"
     },
     "validation/test_npu_events.py": {
       "bytes": 1852,

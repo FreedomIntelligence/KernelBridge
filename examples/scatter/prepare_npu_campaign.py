@@ -4,6 +4,7 @@ Candidate implementation is deliberately absent. The application's model-turn
 limit is independent from the number of native attempts made during the trial.
 """
 import argparse
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -11,6 +12,8 @@ import sys
 import uuid
 
 HERE = Path(__file__).resolve().parent
+NATIVE_INTERFACE = HERE.parent / 'cann/native-interface.md'
+NATIVE_INTERFACE_VERSION = 'kernelbridge.native-six-source-interface/v1'
 
 
 def save(path, value):
@@ -85,14 +88,11 @@ def prepare(args):
         'drivers': names, 'candidate_abi': task.get('candidate_abi'),
         'execution': 'E executes one native job containing build, correctness and ABBA; F/G/J only project its original receipt.',
         'calibration': 'unavailable: no official calibration driver; I may archive accepted local evidence only'})
+    interface = NATIVE_INTERFACE.read_text()
     (project / 'ABI.md').write_text(
-        'Candidate format: candidate.py contains exactly six literal string assignments: project_json_src, '
-        'host_tiling_src, host_operator_src, kernel_src, python_bind_src, model_src.\n'
-        'These are the operator JSON schema, host tiling declaration, host registration/tiling source, '
-        'native kernel source, Python extension binding, and ModelNew Python wrapper respectively.\n'
-        'The native compiler uses the declared operator name and the pinned CANN profile. '
-        'The independently frozen semantic/measurement contract is in contract.json. '
-        'No implementation is provided. The application model-turn limit is not an attempt limit.\n')
+        '# Task ABI\n\nDeclared by this task; the shared compiler interface follows.\n\n```json\n'
+        + json.dumps(task.get('candidate_abi') or {}, ensure_ascii=False, indent=2)
+        + '\n```\n\n' + interface)
     authored = {'schema_version': 'kernelbridge.operator-task/v1', 'instruction': task.get('instruction', task.get('goal')),
                 'contract': contract, 'files': {path.name: path.read_text() for path in sorted(project.iterdir())},
                 'writable': ['candidate.py'], 'readonly': sorted(path.name for path in project.iterdir())}
@@ -130,7 +130,9 @@ def prepare(args):
     save(root / 'clean-input-manifest.json', {'trial_id': trial_id, 'candidate_present': False,
          'session_history': None, 'seed_implementation': None, 'formal_device_jobs': 0,
          'application': {'max_model_turns': 20}, 'task_source': str(args.task.resolve()) if args.task else None,
-         'npu_profile_source': str(args.profile.resolve()) if args.profile else None})
+         'npu_profile_source': str(args.profile.resolve()) if args.profile else None,
+         'native_interface': {'version': NATIVE_INTERFACE_VERSION, 'source': 'examples/cann/native-interface.md',
+                              'sha256': hashlib.sha256(interface.encode()).hexdigest()}})
     return {'trial': str(root), 'project': str(project), 'task': str(root / 'task.json'),
             'tools': str(root / 'business-tools.json'), 'mode': mode, 'device': device, 'candidate_present': False}
 

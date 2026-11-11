@@ -189,3 +189,63 @@ source is supplied. Test max/min and the independent Cube task from fresh
 sessions. Keep model, 20-call accounting, oracle, measurement, scheduling and
 stream limit fixed. Defer remaining-call telemetry and artifact-index changes
 so this first comparison changes only one mechanism.
+
+### Resource grounding variant 1 — completed, unsuccessful
+
+Frozen mechanism: `3086d18`. Each task started from new inputs and a new session
+under `.validation/harness-trials/grounding-{max,min,matmul}-01/run`. Input
+equivalence is recorded in `grounding-input-equivalence.json`; only declared
+reference access and capability/path grounding changed. The final hash-verified
+index is `.validation/harness-grounding-summary.json`; each trial has a
+`final-audit.json`, original Journal, observer transcript and terminal outcome.
+
+| Task | Calls (parent / child) | Reported tokens | Model tools / failures | Observed stages | E3 / speedup |
+| --- | --- | --- | --- | --- | --- |
+| max | 16 / 4 | 269,245 | 30 / 7 | A | no / unavailable |
+| min | 20 / 0 | 325,177; one call unknown | 23 / 7 | A B C | no / unavailable |
+| Cube | 20 / 0 | 382,285 | 26 / 12 | A B C D; E launch and recovery | no / unavailable |
+
+All three reached the original shared 20-call ceiling and exited normally;
+elapsed times were 113.03, 183.96 and 193.53 seconds respectively. No compaction
+or review call occurred. Min call 16 failed with `provider stream exceeded byte
+limit` and returned no usage, so its token figure is a known subtotal. No trial
+called J, read an IR/profiler artifact, completed F/G/H, or produced a paired
+measurement. There are no measured case/family regressions to enumerate.
+
+The reference repair worked: max call 3 and min call 4 read their readonly eager
+and benchmark references; the following actual request contained the full
+13,744-character benchmark. Host-absolute reference failures ceased. Retain this
+as a functional repair, **not a demonstrated optimization-efficiency gain**.
+Scatter did not reach device execution. Cube first entered E at call 15 and
+attempted recovery at call 16, but SLAI/SOCKS reset before SSH bootstrap. The
+original source was `06b28b69c3b647b944a0008fcd77f28c83373af2b2b4cf157994ab627aff73a5`;
+the original action was
+`operator-cb2a9565-23d5-4f8d-a53c-373ed9b33c73/step/14/model/ds/call/0`.
+No handle, compilation result or timing was returned. Keep that effect fenced;
+never infer compiler failure or redispatch from a missing response. The first
+successful read-only reconnect at 2026-11-11T12:07:57Z found no original remote
+attempt directory; its exact receipt remains in the trial's `recovery-evidence/`.
+
+Three independent remaining limitations were observed, and are not combined
+into one experiment:
+
+- The six-source ABI document listed field names but omitted generated paths,
+  JSON schema, binding symbols and compiler interfaces. Max and min spent calls
+  searching unavailable SDK/templates and guessed the interfaces. This applies
+  equally to the independent Cube task.
+- Successful reference output was replaced by a 209-byte receipt stub after a
+  few turns despite ample model context. Max spent calls 6/7/10–15 recovering or
+  paging the reference; a receipt fetch returned 29,707 characters with source
+  duplicated in content and structured data. This is a context-retention issue,
+  not simply a model ignoring previously available text.
+- The enforced 20-call limit and remaining allowance were absent from actual
+  model requests. A trusted telemetry patch is kept as an unapplied private
+  draft so it cannot confound the next comparison.
+
+**Hypothesis 2:** a source-versioned, generic compiler-interface document will
+reduce avoidable interface discovery and malformed candidates. Supply the same
+document to all three tasks, with signatures and placeholders only. Add no
+operator implementation, tile size, algorithm or case-specialized advice. Keep
+the model, oracle, measurement, scheduling, context policy and call accounting
+unchanged. Fresh trials may start only after the original Cube identity is
+confirmed inactive and the document integration passes local qualification.
