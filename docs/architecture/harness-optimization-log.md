@@ -69,6 +69,33 @@ assertions and corrected reruns remain alongside it. Reaching correct native
 execution and a measured above-noise improvement still requires fresh NPU trials
 after transport and original deployment identity are recovered.
 
+### Rebase qualification against main `ae59e4f`
+
+The branch was rebased onto `ae59e4f`, retaining the independent harness repairs
+from both previous merge commits. The product TUI layout is byte-identical to
+that main revision, including its width-dependent footer priorities and the
+standalone Pi trace plugin. The operator examples, worker and executor sources
+remain byte-identical to the previously qualified `b31b9bb` snapshot. The user
+subsequently authorized a direct fast-forward update of `main`, contingent on
+checking that its remote tip has not advanced. The original remote feature branch
+is preserved; no force push is needed.
+
+Post-rebase validation passed 53 TUI Python tests, 71 targeted pipeline/receipt
+tests and 114 Node tests with type checking. The two optional Node replay cases
+were separately exercised with valid original artifacts in a 15-test replay run.
+Actual terminal scenarios passed 10 interaction checks, eight parallel/background
+checks and 10 ordinary-codegen checks (three ordinary turns, 16 local fixture
+requests). Parent inputs complete while a child remains running; completion
+notifications retain their system identity and can continue the parent; Esc
+still permits the next input. The initial two PTY failures used old footer-text
+assertions. Only their fixtures changed: detach policy is checked at a wide
+width, and the narrow footer and background status follow the remote layout.
+Original failures and passing reruns remain under `.validation/rebase-ae59e4f/`.
+
+These are local integration checks and original-receipt replay, with no new model
+trial or NPU performance result. The resumed optimization goal still requires
+recovery of the original deployment identity before fresh device trials.
+
 ## Goal and accounting
 
 The active goal supersedes the earlier request for 20 externally coordinated
