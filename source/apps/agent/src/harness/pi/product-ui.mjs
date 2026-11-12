@@ -69,6 +69,19 @@ export function goalElapsed(goal, usage) {
     : `${Math.floor(seconds / 3600)}h${pad(Math.floor(seconds / 60) % 60)}m`;
 }
 
+/** The transcript row for an automatic Goal continuation: why it runs, from the decision
+    the host recorded in the continuation's last line (calls used, limits, a fresh Trial). */
+export function continuationLabel(text) {
+  let data;
+  try { data = JSON.parse(String(text).slice(String(text).lastIndexOf('\n') + 1)); } catch { return 'Goal 自动继续'; }
+  const turns = data?.decision?.model_turns, goal = data?.goal ?? {};
+  if (!Number.isInteger(turns)) return 'Goal 自动继续';
+  const calls = goal.max_model_turns == null ? `已用 ${turns} 次模型调用` : `已用 ${turns}/${goal.max_model_turns} 次模型调用`;
+  const unlimited = goal.max_model_turns == null && goal.token_budget == null && data?.budget?.limit == null;
+  const trial = { trial_limit: ' · 本 Trial 达到调用上限，开始新 Trial', measured_plateau: ' · 结果停滞，开始新 Trial' }[data.decision.reason] ?? '';
+  return `Goal 自动继续 · ${calls}${unlimited ? ' · 未设上限' : ''}${trial}`;
+}
+
 export function statePresentation(state) {
   const goal = currentGoal(state);
   const budget = state.budget ?? {};

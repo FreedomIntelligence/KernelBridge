@@ -3,7 +3,7 @@ import { open, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { InputQueue } from '../../application/input-queue.mjs';
 import { workspaceTools } from './workspace-tools.mjs';
-import { goalSummary, statePresentation, installProductUI, showProductFeedback, workingMessage } from './product-ui.mjs';
+import { continuationLabel, goalSummary, statePresentation, installProductUI, showProductFeedback, workingMessage } from './product-ui.mjs';
 import { DETERMINISTIC, updateSubagentProgress, explorationBoundary, seedExplorationGroups } from './tool-render.mjs';
 import { agentsPanel, BUILTIN_AGENTS } from './agents-panel.mjs';
 import { COMMAND_POLICY_VERSION, PRODUCT_COMMANDS, PRODUCT_COMMAND_NAMES, parseGoalCommand, commandHelp } from './command-policy.mjs';
@@ -482,7 +482,7 @@ export function createHostActions(control, effects, { observer = control } = {})
       ? '⏺ ' + text.split('\n')[0].slice('[子代理结果] '.length).replace(/（agent_id: [^）]*）/, '')
       : policyInputs.has(text)
       && !Object.values(state?.inputs ?? {}).some(receipt => receipt.initiator === 'user' && receipt.text === text)
-      ? 'Goal 自动继续' : text,
+      ? continuationLabel(text) : text,
     feedback: (message, error) => showProductFeedback(context, message, error),
     async beforeModel() {
       const manager = governed.session.sessionManager;

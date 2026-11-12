@@ -731,9 +731,12 @@ class ApplicationHost:
         goal = state["goal"]
         settled = [item for item in state["inputs"].values() if item["kind"] != "control" and item["status"] == "completed"]
         latest = max(settled, key=lambda item: item["completed_seq"], default=None)
-        if (self.config.workspace_mode == "project" and goal and goal["status"] == "active"
+        # Both workspace modes: with no limit set, a model that keeps answering
+        # without tools would otherwise be continued indefinitely.
+        if (goal and goal["status"] == "active"
                 and latest and latest["kind"] == "policy"
-                and latest["completed_seq"] > max(goal.get("start_seq", -1), goal.get("resume_seq", -1))
+                and latest["completed_seq"] > max([-1, *(value for value in (goal.get("start_seq"), goal.get("resume_seq"))
+                                                         if isinstance(value, int))])
                 and not state["pending_effect_ids"] and not state["calls"]):
             from kernelcat_executor.state.goal_progress import continuation_has_progress
             if not continuation_has_progress(list(self.owner.gateway.store._events(self.owner.gateway.store.events())), latest):
@@ -746,7 +749,7 @@ class ApplicationHost:
         if input_id in state["inputs"]:
             return {"action": "wait", "reason": "decision_already_consumed"}
         self.journal.command("configuration", {**connection.worker, "operation": "loopx_decision", **decision})
-        from kernelcat_executor.state.goal_progress import plan_text
+        from kernelcat_executor.state.goal_progress import limits_text, plan_text
         text = (("Continue the explicitly requested coding Goal. Implement and verify the remaining work. "
                 "Use get_goal to inspect progress when needed. When all requested work is verified, call update_goal "
                 "with status complete and a summary of actual checks (finish_goal is also supported). "
@@ -756,7 +759,9 @@ class ApplicationHost:
                    if state.get("plan") else "")
                 if self.config.workspace_mode == "project" else "Continue the current task from original receipts. "
                 "Complete the declared correctness/performance acceptance; do not treat a single timing as a paired gain. "
-                "Inspect missing or failed measurements before diagnosing stagnation.\n")
+                "Inspect missing or failed measurements before diagnosing stagnation. If you cannot proceed without the "
+                "user, say exactly what is missing; a tool-free automatic turn returns control to the user.\n")
+                + limits_text(state, decision) + "\n"
                 + canonical({"task": state["task"], "goal": state["goal"], "budget": state["budget"],
                              "best": state["best"], "decision": decision}))
         receipt = self.journal.command("accept", {"input_id": input_id, "text": text, "kind": "policy",
