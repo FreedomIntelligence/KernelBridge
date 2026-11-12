@@ -2352,8 +2352,8 @@
       "sha256": "a24ad854c7cb7c4e41c2962f34bd326efdc3f179486e819f746ba422715c9b45"
     },
     "source/packages/executor/src/kernelcat_executor/capabilities/commands.py": {
-      "bytes": 8770,
-      "sha256": "36ec5a7b63a3ecdd19129851ba118dcb96ef788f81b854e062f1803d1674186e"
+      "bytes": 9523,
+      "sha256": "516e8bc3c0be3a808da9657e1d7abfe131785856079cf1521211cc1e4fb55ed0"
     },
     "source/packages/executor/src/kernelcat_executor/capabilities/delegation.py": {
       "bytes": 7018,
@@ -3280,8 +3280,8 @@
       "sha256": "a07f207f2ce5934751159b78c65217d2f07b096d7d6eb7fb6363a2e59f4d0fdd"
     },
     "source/packages/executor/src/kernelcat_executor/operations/delegated.py": {
-      "bytes": 13525,
-      "sha256": "7608ffbe0f7acb8c138c518ed945fbf4db15062b2ad240c8b9e6a7f779aa82c5"
+      "bytes": 13739,
+      "sha256": "36573c77610fdd04a85e176681a9b462c42e674024194e34ecd3eda9b71f85b6"
     },
     "source/packages/executor/src/kernelcat_executor/operations/events.py": {
       "bytes": 2573,
@@ -3940,8 +3940,8 @@
       "sha256": "8db520172c53bc10edb09106a1cfa98299ec14b7308345244c433dcdcaca8c4f"
     },
     "source/packages/pi-lattice-trace/src/otlp.ts": {
-      "bytes": 11436,
-      "sha256": "455fb0a8e9e7d236aefad2c3d2addec5f5d5fe52c1a2f415313d8474c291c19f"
+      "bytes": 12112,
+      "sha256": "d1e1cae1a513cdd1aa53661ba7d714c466b0e4e032cf47084e9482a2ed88391f"
     },
     "source/packages/pi-lattice-trace/src/server.ts": {
       "bytes": 4681,

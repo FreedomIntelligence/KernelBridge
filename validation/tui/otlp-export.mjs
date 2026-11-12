@@ -86,3 +86,14 @@ test('export POSTs OTLP/HTTP JSON and reports failures', async () => {
     await assert.rejects(exportTrace(trace(), { env: {} }), /OTEL_EXPORTER_OTLP_ENDPOINT/);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
+
+test('a command run for an action gets the traceparent of that action span', async () => {
+  const { traceparentFor } = await import('../../source/packages/pi-lattice-trace/src/otlp.ts');
+  // The same literal is asserted by validation/tui/test_traceparent.py against the Python executor.
+  assert.equal(traceparentFor('application-test', 'task/step/0/model/primary/call/0'), '00-8c5625cd1d97ac5943b189ec2bbc5a6f-d85f241c1b4c5055-01');
+  const sample = trace();
+  const read = sample.steps.find(step => step.tool === 'read');
+  const span = spansOf(traceToOtlp(sample)).find(item => item.name === 'execute_tool read');
+  const [, traceId, spanId] = traceparentFor(sample.session.id, read.action_id).split('-');
+  assert.equal(span.traceId, traceId); assert.equal(span.spanId, spanId);
+});

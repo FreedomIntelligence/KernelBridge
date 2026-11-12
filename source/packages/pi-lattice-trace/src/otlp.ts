@@ -40,6 +40,15 @@ export function otlpHeaders(env: Record<string, string | undefined> = process.en
 }
 
 const hex = (value: string, length: number) => createHash('sha256').update(value).digest('hex').slice(0, length);
+const traceIdOf = (session: string) => hex('kernelbridge.trace:' + session, 32);
+/** A step's span key: its host action when it has one (known before the tool runs), else its step id. */
+const spanKeyOf = (step: Step) => step.action_id ? 'action:' + step.action_id : String(step.id);
+
+/** The W3C traceparent KernelBridge gives a command run for this action (kernelcat_executor commands.traceparent). */
+export function traceparentFor(sessionId: string, actionId: string): string {
+  const traceId = traceIdOf(sessionId);
+  return `00-${traceId}-${hex(traceId + ':action:' + actionId, 16)}-01`;
+}
 type Attr = { key: string; value: Json };
 function attr(key: string, value: unknown): Attr | null {
   if (value === null || value === undefined) return null;
@@ -53,7 +62,7 @@ const attrs = (entries: [string, unknown][]) => entries.map(([key, value]) => at
 export function traceToOtlp(trace: Trace, options: OtlpOptions = {}): Json {
   const content: ContentCapture = { prompts: false, tools: false, outputs: false, ...options.content };
   const conversation = trace.session.id ?? 'session';
-  const traceId = hex('kernelbridge.trace:' + conversation, 32);
+  const traceId = traceIdOf(conversation);
   const spanId = (key: string) => hex(traceId + ':' + key, 16);
   const baseMs = trace.session.started_ns ? Math.round(trace.session.started_ns / 1e6) : Date.now();
   const nanos = (seconds: number) => (BigInt(baseMs) * 1_000_000n + BigInt(Math.round(seconds * 1e9))).toString();
@@ -73,16 +82,17 @@ export function traceToOtlp(trace: Trace, options: OtlpOptions = {}): Json {
   const spawnOf = new Map<string, Step>(); const returnOf = new Map<string, Step>();
   for (const step of steps) { if (step.kind === 'spawn' && step.child) spawnOf.set(step.child, step); if (step.kind === 'return' && step.child) returnOf.set(step.child, step); }
   const redacted = (enabled: boolean, value: unknown): [string, unknown][] => !enabled && value ? [['kernelbridge.content.redacted', true]] : [];
+  const keyById = new Map(steps.map(step => [step.id, spanKeyOf(step)]));
 
   let compacted = new Set<string>();
   for (const step of steps) {
-    const parentKey = step.turn && steps.some(item => item.id === step.turn) ? step.turn : laneKey(step.agent);
+    const parentKey = step.turn && keyById.has(step.turn) ? keyById.get(step.turn)! : laneKey(step.agent);
     const common: [string, unknown][] = [['gen_ai.conversation.id', conversation], ['session.id', conversation],
       ['kernelbridge.step.id', step.id], ['kernelbridge.agent.id', step.agent], ['kernelbridge.context.tokens', step.ctx]];
     if (step.src === 'model') {
       const model = step.model ?? trace.session.model ?? 'unknown';
       const finish = step.status === 'error' ? 'error' : step.kind === 'final' ? 'stop' : 'tool_calls';
-      span(step.id, `chat ${model}`, CLIENT, laneKey(step.agent), step.t0, step.t1, [...common,
+      span(spanKeyOf(step), `chat ${model}`, CLIENT, laneKey(step.agent), step.t0, step.t1, [...common,
         ['gen_ai.operation.name', 'chat'], ['gen_ai.request.model', model], ['gen_ai.response.finish_reasons', [finish]],
         ['gen_ai.usage.input_tokens', step.tokIn], ['gen_ai.usage.output_tokens', step.tokOut],
         ['gen_ai.usage.cache_read.input_tokens', step.cacheReal], ['gen_ai.usage.cache_write.input_tokens', step.cacheWrite],
@@ -95,7 +105,7 @@ export function traceToOtlp(trace: Trace, options: OtlpOptions = {}): Json {
       compacted.delete(step.agent);
     } else if (step.src === 'tool' && step.kind !== 'return') {
       const finished = step.kind === 'spawn' && step.child ? returnOf.get(step.child) : undefined;
-      span(step.id, `execute_tool ${step.tool}`, INTERNAL, parentKey, step.t0, finished ? finished.t1 : step.t1, [...common,
+      span(spanKeyOf(step), `execute_tool ${step.tool}`, INTERNAL, parentKey, step.t0, finished ? finished.t1 : step.t1, [...common,
         ['gen_ai.operation.name', 'execute_tool'], ['gen_ai.tool.name', step.tool], ['gen_ai.tool.call.id', step.callId ?? null],
         ['kernelbridge.action.id', step.action_id ?? null], ['openinference.span.kind', 'TOOL'], ['tool.name', step.tool],
         ['gen_ai.tool.call.arguments', content.tools ? JSON.stringify(step.args ?? {}) : null],
@@ -105,7 +115,7 @@ export function traceToOtlp(trace: Trace, options: OtlpOptions = {}): Json {
         ...redacted(content.tools, step.args && Object.keys(step.args).length), ...redacted(content.outputs, step.out)],
         ['error', 'denied'].includes(step.status) ? `${step.status}: ${step.title}` : null);
     } else if (step.kind === 'compact') {
-      span(step.id, 'kernelbridge.compaction', INTERNAL, laneKey(step.agent), step.t0, step.t1, [...common,
+      span(spanKeyOf(step), 'kernelbridge.compaction', INTERNAL, laneKey(step.agent), step.t0, step.t1, [...common,
         ['kernelbridge.compaction.tokens_before', step.before], ['kernelbridge.compaction.tokens_after', step.after],
         ['kernelbridge.compaction.summary', content.outputs ? step.note : null], ...redacted(content.outputs, step.note)]);
       compacted.add(step.agent);
@@ -121,7 +131,7 @@ export function traceToOtlp(trace: Trace, options: OtlpOptions = {}): Json {
     const t0 = lane === trace.rows[0] ? 0 : Math.min(...laneSteps.map(step => step.t0), spawn?.t0 ?? Infinity);
     const t1 = lane === trace.rows[0] ? end : Math.max(...laneSteps.map(step => step.t1), returnOf.get(lane)?.t1 ?? 0);
     const name = lane === trace.rows[0] ? 'main' : agent.short ?? lane;
-    span(laneKey(lane), `invoke_agent ${name}`, INTERNAL, lane === trace.rows[0] ? null : spawn ? spawn.id : laneKey(trace.rows[0]),
+    span(laneKey(lane), `invoke_agent ${name}`, INTERNAL, lane === trace.rows[0] ? null : spawn ? spanKeyOf(spawn) : laneKey(trace.rows[0]),
       Number.isFinite(t0) ? t0 : 0, Number.isFinite(t1) ? t1 : end, [['gen_ai.operation.name', 'invoke_agent'], ['gen_ai.agent.name', name],
         ['gen_ai.conversation.id', conversation], ['session.id', conversation], ['openinference.span.kind', 'AGENT'],
         ['kernelbridge.agent.id', lane], ['kernelbridge.parent_agent.id', agent.parent ?? null]]);

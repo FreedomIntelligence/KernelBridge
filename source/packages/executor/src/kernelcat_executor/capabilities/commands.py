@@ -6,6 +6,7 @@ whether to apply that branch. Nothing here pushes, merges or touches remotes.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import signal
 import selectors
@@ -23,6 +24,15 @@ ENV_KEYS = ("PATH", "LANG", "LC_ALL", "TZ")
 MAX_OUTPUT = 64 * 1024
 
 
+def traceparent(session_id: str, action_id: str) -> str:
+    """W3C traceparent naming this action's span in the session's exported trace
+    (pi-lattice-trace otlp.ts derives the same ids), so a subprocess that emits
+    OpenTelemetry spans joins it."""
+    trace_id = hashlib.sha256(("kernelbridge.trace:" + session_id).encode()).hexdigest()[:32]
+    span_id = hashlib.sha256((trace_id + ":action:" + action_id).encode()).hexdigest()[:16]
+    return f"00-{trace_id}-{span_id}-01"
+
+
 def command_environment(home: Path) -> dict[str, str]:
     env = {key: os.environ[key] for key in ENV_KEYS if key in os.environ}
     env.setdefault("PATH", "/usr/local/bin:/usr/bin:/bin")
@@ -31,7 +41,8 @@ def command_environment(home: Path) -> dict[str, str]:
     return env
 
 
-def run_command_tool(root: Path, cancelled: Callable[[], bool] = lambda: False) -> FunctionTool:
+def run_command_tool(root: Path, cancelled: Callable[[], bool] = lambda: False,
+                     trace_session: Callable[[], str | None] = lambda: None) -> FunctionTool:
     """Interruptible process-group execution with bounded output and per-call HOME."""
     def run(action: Action) -> Outcome:
         command = action.arguments["command"]
@@ -44,7 +55,11 @@ def run_command_tool(root: Path, cancelled: Callable[[], bool] = lambda: False) 
             if cancelled():
                 return Outcome(status="failed", data={"reason": "cancelled", "unexecuted": True,
                     "command": command, "cancelled": True, "output": ""})
-            process = subprocess.Popen(["/bin/sh", "-c", command], cwd=root, env=command_environment(Path(home)),
+            environment = command_environment(Path(home))
+            session = trace_session()
+            if session:
+                environment["TRACEPARENT"] = traceparent(session, action.id)
+            process = subprocess.Popen(["/bin/sh", "-c", command], cwd=root, env=environment,
                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
             killed = False
             try:

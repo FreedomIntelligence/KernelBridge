@@ -144,7 +144,7 @@
 - [x] **O-1** 步骤模型补 `cacheWrite` 和 `reasoningOut`；截断的输出加 `truncated` 和 `original_length`。
 - [x] **O-2** 可选的 OTLP/HTTP 导出，默认关闭，用标准的 `OTEL_EXPORTER_OTLP_*` 环境变量；同时写 OpenTelemetry 的 span 名和 `openinference.span.kind`；在轨迹里记录所用约定的版本。
 - [x] **O-3** 导出默认不带内容；提示词、工具参数、工具输出三个独立开关；被隐去的写成显式占位，而不是空值。
-- [ ] **O-4** 把 `TRACEPARENT` 传给工具子进程，让它们的 span 能接到我们的轨迹上。
+- [x] **O-4** 把 `TRACEPARENT` 传给工具子进程，让它们的 span 能接到我们的轨迹上（子代理的 `run_command` 已注入，span ID 按动作 ID 派生，Python 与 JS 算法一致并有测试；Pi 原生 `bash` 和用户 `!` 命令在 worker 里拿不到宿主的动作 ID，不注入，以免指向错误的 span）。
 
 ---
 

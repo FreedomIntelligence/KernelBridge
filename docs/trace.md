@@ -102,6 +102,8 @@ The vendored viewer orders the fork prefix by comparing step ids as strings, whi
 
 Spans also carry OpenInference kinds (`AGENT`, `LLM`, `TOOL`), so Phoenix and Langfuse group them the same way. The OpenTelemetry GenAI conventions are still at Development status; the resource records which conventions were used. Ids derive from the session and step ids, so exporting the same session again produces the same ids.
 
+Commands that the `kernel-tester` and `kernel-worker` subagents run with `run_command` get a W3C `TRACEPARENT` naming their action's span in this trace. A command that emits OpenTelemetry spans of its own therefore joins the exported trace. Pi's native `bash` tool and user `!` commands do not get one: the worker that runs them does not know the host's action id, and a guessed id would point at the wrong span.
+
 No message content is exported by default. `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true` exports all of it; `KERNELBRIDGE_OTEL_CAPTURE=prompts,tools,outputs` selects parts. Withheld content is marked `kernelbridge.content.redacted`, never sent as an empty value. Clipped tool outputs carry `kernelbridge.output.truncated` and `original_length`.
 
 ## Saved Pi session files
