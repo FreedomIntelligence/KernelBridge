@@ -57,10 +57,28 @@ export async function runApplicationWorker(directory, ticket, { interactive = fa
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const args = process.argv.slice(2);
-    const directory = args[args.indexOf('--host') + 1];
-    const ticket = args[args.indexOf('--ticket') + 1];
-    if (!args.includes('--host') || !args.includes('--ticket')) throw new Error('Worker requires --host and its one-use --ticket');
-    await runApplicationWorker(directory, ticket, { interactive: !args.includes('--headless') });
+    if (args.includes('--prewarm')) {
+      // Started by the CLI while the host boots: the modules above are loaded. The
+      // host directory and the one-use ticket arrive over IPC, never on argv.
+      if (!process.send) throw new Error('--prewarm requires the CLI IPC channel');
+      const start = await new Promise((resolveStart, rejectStart) => {
+        process.once('disconnect', () => rejectStart(new Error('CLI closed before handing over the session')));
+        process.once('message', resolveStart);
+        process.send({ type: 'prewarmed' });
+      });
+      const environment = start?.environment ?? {};
+      if (start?.type !== 'start' || typeof start.host !== 'string' || typeof start.ticket !== 'string'
+          || Object.entries(environment).some(([key, value]) => !['KERNELBRIDGE_SESSIONS', 'KERNELBRIDGE_TUI_MODE'].includes(key) || typeof value !== 'string')) {
+        throw new Error('Invalid worker start message');
+      }
+      Object.assign(process.env, environment);
+      await runApplicationWorker(start.host, start.ticket, { interactive: true });
+    } else {
+      const directory = args[args.indexOf('--host') + 1];
+      const ticket = args[args.indexOf('--ticket') + 1];
+      if (!args.includes('--host') || !args.includes('--ticket')) throw new Error('Worker requires --host and its one-use --ticket');
+      await runApplicationWorker(directory, ticket, { interactive: !args.includes('--headless') });
+    }
   } catch (error) {
     // Keep the originating stack (and any transport cause) when startup fails.
     // String(error) hid the only evidence for failures before a session exists.

@@ -49,15 +49,18 @@ async function offlineHistory(path, identity, fallback) {
   return { title: (name ?? goal ?? firstPrompt ?? fallback).slice(0, 120), has_history: Boolean(name || goal || firstPrompt) };
 }
 
+const DISCOVERY_CONCURRENCY = 8;
+
 export async function sessions({ registry = registryRoot() } = {}) {
   let names;
   // A running Pi worker has an isolated HOME. Callers in that scope must use
   // the registry of their authenticated host, not infer it from process.env.
   registry = resolve(registry);
   try { names = await readdir(registry); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
-  const result = [];
   const projects = new Map();
-  for (const name of names.sort().filter(name => name.startsWith('application-'))) {
+  // Each live host answers state() from its own process (up to ~0.5 s with history),
+  // so sessions are read a few at a time instead of one after another.
+  async function discover(name) {
     let summary, journal;
     try {
       const descriptor = JSON.parse(await readFile(join(registry, name, 'descriptor.json'), 'utf8'));
@@ -67,8 +70,9 @@ export async function sessions({ registry = registryRoot() } = {}) {
       const info = await stat(journal).catch(() => null);
       // Older sessions did not record their branch. Resolve repository grouping
       // from the current checkout without inventing a historical branch.
-      if (!projects.has(config.workspace)) projects.set(config.workspace, await projectInfo(config.workspace));
-      const project = descriptor.project ?? (projects.get(config.workspace) && { ...projects.get(config.workspace), branch: null });
+      if (!projects.has(config.workspace)) projects.set(config.workspace, projectInfo(config.workspace));
+      const current = await projects.get(config.workspace);
+      const project = descriptor.project ?? (current && { ...current, branch: null });
       summary = { application_session_id: name, output: descriptor.output, cwd: config.workspace,
         workspace_mode: config.workspace_mode ?? 'isolated', title: task.goal.slice(0, 120),
         project, bytes: info?.size ?? null, updated: info?.mtimeMs ?? 0 };
@@ -76,15 +80,21 @@ export async function sessions({ registry = registryRoot() } = {}) {
       try {
         const state = await client.state();
         const firstPrompt = Object.values(state.inputs ?? {}).find(item => item.kind === 'prompt')?.text;
-        result.push({ ...summary, title: (state.name ?? state.goal?.objective ?? firstPrompt ?? summary.title).slice(0, 120),
+        return { ...summary, title: (state.name ?? state.goal?.objective ?? firstPrompt ?? summary.title).slice(0, 120),
           has_history: Boolean(state.name || state.goal || firstPrompt),
-          goal: state.goal, lease: state.lease, connected: true });
+          goal: state.goal, lease: state.lease, connected: true };
       } finally { client.close(); }
     } catch (error) {
       if (summary && journal) Object.assign(summary, await offlineHistory(journal, name, summary.title));
-      result.push({ ...summary, application_session_id: name, connected: false, error: error.message });
+      return { ...summary, application_session_id: name, connected: false, error: error.message };
     }
   }
+  const pending = names.sort().filter(name => name.startsWith('application-'));
+  const result = new Array(pending.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(DISCOVERY_CONCURRENCY, pending.length) }, async () => {
+    while (next < pending.length) { const index = next++; result[index] = await discover(pending[index]); }
+  }));
   return result.sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0));
 }
 
