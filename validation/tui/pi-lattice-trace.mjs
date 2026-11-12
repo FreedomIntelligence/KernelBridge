@@ -294,3 +294,25 @@ test('pi-subagents children get lanes from their messages or their session files
     assert.equal(new Set(trace.steps.map(s => s.id)).size, trace.steps.length, 'ids stay unique across lanes');
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test('a sanitized real session projects with provider token counts and paired tools', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { sessionBranch } = await import('../../source/packages/pi-lattice-trace/src/session-file.ts');
+  // Structure, ids, timestamps and usage of a real DeepSeek session; every text replaced by x.
+  const text = readFileSync(new URL('./fixtures/pi-session-sanitized.jsonl', import.meta.url), 'utf8');
+  const { header, entries, tree } = sessionBranch(text);
+  const trace = projectSession(entries, { header, tree, live: false });
+  const assistants = entries.filter(entry => entry.type === 'message' && entry.message.role === 'assistant');
+  const models = trace.steps.filter(step => step.src === 'model');
+  assert.equal(models.length, assistants.length);
+  models.forEach((step, index) => {
+    const usage = assistants[index].message.usage;
+    assert.equal(step.tokIn, usage.input + usage.cacheRead + usage.cacheWrite);
+  });
+  const tools = trace.steps.filter(step => step.src === 'tool');
+  const calls = assistants.flatMap(entry => entry.message.content.filter(block => block.type === 'toolCall'));
+  assert.equal(tools.length, calls.length);
+  assert.ok(tools.every(step => step.status !== 'warn'), 'every call found its result');
+  assert.ok(trace.steps.every(step => Number.isFinite(step.t0) && step.t1 >= step.t0));
+  assert.equal(trace.session.status, 'idle');
+});

@@ -221,7 +221,7 @@ startTraceServer(options: {
   - `/tree` 之后 `getBranch()` 只包含当前路径；
   - 追加记录之后 ID 不变；
   - 校准之后，每次模型调用的 `ctx` 等于下一次调用的 `tokIn`。
-- [ ] **A2-3**（未做：本地没有可用的真实 pi 会话；KernelBridge 的 `state/pi-sessions/` 用 KernelBridge 的 provider 记录，留待下一轮）真实会话回放：KernelBridge 的 `state/pi-sessions/` 存的就是 pi 原生会话，可以挑 2–3 个本地跑一遍，确认不抛异常、步数合理。这些会话可能含私人内容，不提交；只提交一份脱敏后的 fixture。
+- [x] **A2-3** 真实会话回放：`validation/tui/pi_real_replay.py` 回放本机 KernelBridge 运行留下的 7 份真实 DeepSeek 会话（227 步、101 次模型调用），投影零异常、零无效步骤，101 个输入 token 与同一运行 Journal 里 provider 报告的 `prompt_tokens` 全部一致，最大的 3 份在 Chrome 渲染无错误；脱敏样本 `validation/tui/fixtures/pi-session-sanitized.jsonl` 进仓库并有单元测试
 - [x] **A2-4** 完成标准：全部单元测试通过，用 `node --test` 运行。
 
 **A3 插件入口**（M）
