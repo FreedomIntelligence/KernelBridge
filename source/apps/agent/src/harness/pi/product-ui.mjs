@@ -8,13 +8,16 @@ const currentGoal = state => state.goal?.status === 'cleared' ? null : state.goa
 const plain = value => String(value ?? '').replace(/[\x00-\x1f\x7f-\x9f]/g, ' ');
 
 export const runningChildren = state => (state?.subagents ?? []).filter(child => child.status === 'running');
+/** Inputs the host accepted but has not started yet. */
+export const queuedInputs = state => Object.values(state?.inputs ?? {}).filter(item => item.status === 'queued').length;
 
-/** Working-row text: elapsed time, live children and the interrupt key. */
+/** Working-row text: elapsed time, live children, queued messages and the interrupt key. */
 export function workingMessage(state, startedAt, activity = '执行中') {
   const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
   const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, '0')}s`;
   const children = runningChildren(state).length;
-  return `${children ? `等待 ${children} 个子代理完成` : activity}… (${elapsed} · esc 中断)`;
+  const queued = queuedInputs(state);
+  return `${children ? `等待 ${children} 个子代理完成` : activity}… (${[elapsed, ...(queued ? [`${queued} 条排队`] : []), 'esc 中断'].join(' · ')})`;
 }
 
 const CHILD_STATUS = { running: '运行中', completed: '完成', failed: '失败', unknown: '待恢复' };

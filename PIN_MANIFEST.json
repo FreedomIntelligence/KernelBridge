@@ -616,8 +616,8 @@
       "sha256": "8b753b3f64fefda655c88dd4fb8605d86174a8ee69db59b093780df1ef766336"
     },
     "docs/architecture/harness-optimization-log.md": {
-      "bytes": 36824,
-      "sha256": "70a0789467d057885d162c55a33f83d494598cae396d0be7ad3c456d750017f8"
+      "bytes": 36866,
+      "sha256": "9ddacfe551f6b85862c0f6f237c06658a4d8755ef950cc00c59343ab708a6339"
     },
     "docs/architecture/harness-trial-results.md": {
       "bytes": 2898,
@@ -640,8 +640,8 @@
       "sha256": "273bfed2fdbdd95ff4c5bfc26cb1bd2f8240de483aecd55c98a0fd60b317d8b3"
     },
     "docs/tui.md": {
-      "bytes": 24715,
-      "sha256": "25f1a831a3fb8214818f07bd55009ff3cabea1c82884694c4406bcba3d5b2de3"
+      "bytes": 24879,
+      "sha256": "f536b66715c3cb3fe999c9615c3f22e4894ba1a893dfe07423181eed228e2f36"
     },
     "examples/cann/README.md": {
       "bytes": 10939,
@@ -1572,8 +1572,8 @@
       "sha256": "2bc8835a12f5e1840be77fbdcb3cc2922af46257ba249d42a857487c55861abf"
     },
     "source/apps/agent/src/harness/pi/host-actions.mjs": {
-      "bytes": 44283,
-      "sha256": "089e59419418c9ead2c798d2852d3312a0e3afc5b82b1f542b0157a71b950a70"
+      "bytes": 44567,
+      "sha256": "33ef7558fc146fb56d347e41ec2f4cf64456c9607959474b2617f4c3290d327e"
     },
     "source/apps/agent/src/harness/pi/input.ts": {
       "bytes": 2101,
@@ -1608,8 +1608,8 @@
       "sha256": "2cbcf09af0cb89f5d89fc81f63f8816208f88e40eaea30fdcb0c5cb804bde88a"
     },
     "source/apps/agent/src/harness/pi/product-ui.mjs": {
-      "bytes": 10554,
-      "sha256": "f1fd7d0c98e54f02cb14bd7b7f0e5d1bfb9dda91c26b7af40b19be757bac0131"
+      "bytes": 10846,
+      "sha256": "d87229785e26f30ecb580583bf14290fb4bc612d7b617dba3620ed8754c7913f"
     },
     "source/apps/agent/src/harness/pi/replay-context-extension.ts": {
       "bytes": 13755,
@@ -4424,8 +4424,8 @@
       "sha256": "38fdf6cdc840dd72cc7ef035572b9c1dc92c1f526b9469648aead55597cacf6c"
     },
     "validation/tui/subagent-presentation.mjs": {
-      "bytes": 12301,
-      "sha256": "0a5ef72d50a662447370e8d37e66e147c8e34874c2ab2a9757dc29bb807e9fe2"
+      "bytes": 12703,
+      "sha256": "94d7eac809796a473072351383864b604237218f8da8dfd25261fb5ebced1008"
     },
     "validation/tui/subagent_cancel_scenario.py": {
       "bytes": 3380,

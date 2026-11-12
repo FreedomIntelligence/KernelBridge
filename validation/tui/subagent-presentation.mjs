@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { installProductUI, subagentStatus, workingMessage, welcomeBox, elidePath } from '../../source/apps/agent/src/harness/pi/product-ui.mjs';
+import { installProductUI, subagentStatus, workingMessage, welcomeBox, elidePath, queuedInputs } from '../../source/apps/agent/src/harness/pi/product-ui.mjs';
 import { commandHelp } from '../../source/apps/agent/src/harness/pi/command-policy.mjs';
 import { initTheme } from '../../source/apps/agent/node_modules/@earendil-works/pi-coding-agent/dist/index.js';
 import { visibleWidth } from '../../source/apps/agent/node_modules/@earendil-works/pi-tui/dist/index.js';
@@ -126,6 +126,10 @@ test('welcome box and footer follow the Claude Code / Codex layout', () => {
   assert.ok(visibleWidth(narrow) <= 48, narrow);
   assert(rows.every(line => visibleWidth(line) <= 72));
   assert.match(workingMessage({ subagents: [] }, Date.now(), '运行命令'), /^运行命令… \(0s · esc 中断\)$/);
+  // Queued input is visible while a turn runs, and only when something is queued.
+  const queued = { subagents: [], inputs: { a: { status: 'queued' }, b: { status: 'queued' }, c: { status: 'applied' } } };
+  assert.match(workingMessage(queued, Date.now()), /^执行中… \(0s · 2 条排队 · esc 中断\)$/);
+  assert.equal(queuedInputs({ inputs: { a: { status: 'applied' } } }), 0);
 });
 
 test('the footer keeps the directory name when the path is too long', () => {

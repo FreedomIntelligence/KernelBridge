@@ -22,8 +22,8 @@ measure the model's ability to interpret available IR or profiler evidence.
 
 ## Harness feedback repair after main synchronization
 
-The working branch incorporates `main` at `9d98de8`, including its TUI and trace
-changes. This user-requested functional repair bundles several mechanisms; it
+The working branch incorporates `main` through `5af7700`, including its TUI,
+trace, queued-input and interruption-feedback changes. This user-requested functional repair bundles several mechanisms; it
 is not a single-variable optimization experiment and has no new device speedup
 claim. Original clean trials and their frozen profiles remain unchanged.
 
