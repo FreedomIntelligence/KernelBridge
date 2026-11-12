@@ -40,9 +40,11 @@ export function statePresentation(state) {
   const goal = currentGoal(state);
   const budget = state.budget ?? {};
   const criteria = state.task?.contract?.acceptance;
+  // Labels are two characters wide, so values already align; the path is shortened
+  // because an absolute path would wrap away from its own label.
   return [goal ? `目标：${goal.objective}` : '尚未设置 Goal。输入 /goal 目标内容 开始持续执行。',
     `状态：${goal ? STATUSES[goal.status] ?? goal.status : '普通会话'}`,
-    ...(state.cwd ? [`目录：${state.cwd}`, `模型：${state.model}`] : []),
+    ...(state.cwd ? [`目录：${elidePath(state.cwd, 52)}`, `模型：${state.model}`] : []),
     ...(state.workspace_mode !== 'project' ? [`任务版本 ${state.task_version} · Trial ${state.trials?.length || 0}`] : []),
     ...(goal && state.goal_usage ? [`已用时 ${state.goal_usage.elapsed_seconds}s · 模型调用 ${state.goal_usage.model_turns} · tokens ${state.goal_usage.tokens}${goal.token_budget == null ? '' : '/' + goal.token_budget}`,
       ...(state.goal_usage.usage_unknown_calls ? [`${state.goal_usage.usage_unknown_calls} 次调用未报告 token 用量`] : [])] : []),
@@ -56,6 +58,19 @@ export function statePresentation(state) {
 
 const home = homedir();
 const shortPath = path => path && home && (path === home || path.startsWith(home + '/')) ? '~' + path.slice(home.length) : path ?? '';
+
+/** Keeps the directory's own name visible: the middle is elided, not the tail. */
+export function elidePath(path, width) {
+  const text = shortPath(path);
+  if (!width || visibleWidth(text) <= width) return text;
+  const parts = text.split('/');
+  const last = parts[parts.length - 1];
+  for (let keep = parts.length - 1; keep > 0; keep--) {
+    const candidate = [...parts.slice(0, keep), '…', last].join('/');
+    if (visibleWidth(candidate) <= width) return candidate;
+  }
+  return truncateToWidth('…/' + last, width, '…');
+}
 
 /** Left and right segments on one row; the left side is truncated first. */
 function split(left, right, width) {
@@ -86,6 +101,14 @@ export function welcomeBox(state, theme, width, { demo = false } = {}) {
     border('╰' + '─'.repeat(inner + 2) + '╯')];
 }
 
+/** The branch and the right-hand hint stay whole; only the path gives up room. */
+function bottom(state, branch, detach, color, width) {
+  const tail = branch ? ` (${branch})` : '';
+  const right = `${detach}/help`;
+  const room = Math.max(8, width - visibleWidth(right) - 2 - visibleWidth(tail));
+  return split(color('dim', elidePath(state.cwd, room) + tail), color('dim', right), width);
+}
+
 /** Product status stays visible without exposing broker IDs, synthetic token limits or plugin internals. */
 export function installProductUI(context, getState, { demo = false } = {}) {
   context.ui.setHeader((_tui, theme) => ({
@@ -113,21 +136,27 @@ export function installProductUI(context, getState, { demo = false } = {}) {
       return [
         split(left, right, width),
         ...(children ? [truncateToWidth(color('accent', `子代理 ${children} 个运行中 · /agents 查看`), width, '…')] : []),
-        ...(budget.limit == null ? [] : [truncateToWidth(color('muted', `预算 ${budget.spent ?? 0}/${budget.limit} · 预留 ${budget.reserved ?? 0}`
-          + (state.workspace_mode !== 'project' ? ` · 待处理 ${state.pending_effect_ids?.length ?? 0}` : '')), width, '…')]),
-        split(color('dim', shortPath(state.cwd) + (branch ? ` (${branch})` : '')), color('dim', `${detach}/help`), width),
+        ...(budget.limit == null ? [] : [truncateToWidth(color('muted', [`预算 ${budget.spent ?? 0}/${budget.limit}`,
+          ...(budget.reserved ? [`预留 ${budget.reserved}`] : []),
+          ...(state.pending_effect_ids?.length ? [`待处理 ${state.pending_effect_ids.length}`] : [])].join(' · ')), width, '…')]),
+        bottom(state, branch, detach, color, width),
       ];
     },
   }));
 }
 
+/** Host feedback is marked so it reads as the product speaking, not model output. */
 export function showProductFeedback(context, message, error = false) {
   if (!context) return;
   context.ui.setWidget('kernelbridge-feedback', message ? (tui, theme) => ({
     invalidate() {},
     render(width) {
-      const rows = new Text(theme.fg(error ? 'error' : 'accent', String(message)), 0, 0).render(width);
-      const limit = Math.max(3, Math.floor(tui.terminal.rows / 2));
+      const lines = String(message).split('\n');
+      // The marker goes on the first line only: blocks such as /help keep their own alignment.
+      const body = [(error ? '✗ ' : '⏺ ') + lines[0], ...lines.slice(1)].join('\n');
+      const rows = new Text(theme.fg(error ? 'error' : 'accent', body), 0, 0).render(width);
+      // Blocks such as /help use the height the editor and footer leave free.
+      const limit = Math.max(3, (tui.terminal?.rows ?? 24) - 7);
       return rows.length <= limit ? rows : [...rows.slice(0, limit - 1), '…'];
     },
   }) : undefined);

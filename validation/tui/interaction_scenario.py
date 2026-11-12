@@ -135,8 +135,11 @@ def main():
         screen.resize(24, 48)
         os.killpg(child.pid, signal.SIGWINCH)
         send('/help')
-        until(lambda: all(part in text() for part in ['/goal pause | resume | clear', '/quit', '可用命令', '待处理 0']))
+        until(lambda: all(part in text() for part in ['/goal pause | resume | clear', '/quit', '可用命令', '/agents', '/trace']))
         assert '退出暂停' in text()
+        # Zero counters are not shown; every rendered row fits the 48-column terminal.
+        assert '待处理 0' not in text() and '预留 0' not in text()
+        assert all(len(line) <= 48 for line in screen.display), screen.display
         assert 'controlled' not in '\n'.join(screen.display[-5:])
         save('narrow-help-screen')
         final = state()

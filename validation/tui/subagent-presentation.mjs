@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { installProductUI, subagentStatus, workingMessage, welcomeBox } from '../../source/apps/agent/src/harness/pi/product-ui.mjs';
+import { installProductUI, subagentStatus, workingMessage, welcomeBox, elidePath } from '../../source/apps/agent/src/harness/pi/product-ui.mjs';
+import { commandHelp } from '../../source/apps/agent/src/harness/pi/command-policy.mjs';
 import { initTheme } from '../../source/apps/agent/node_modules/@earendil-works/pi-coding-agent/dist/index.js';
 import { visibleWidth } from '../../source/apps/agent/node_modules/@earendil-works/pi-tui/dist/index.js';
 import { directRenderers, withProductRenderers, updateSubagentProgress, displayPath, formatDuration } from '../../source/apps/agent/src/harness/pi/tool-render.mjs';
@@ -115,6 +116,51 @@ test('welcome box and footer follow the Claude Code / Codex layout', () => {
   const rows = footer.render(72);
   assert.match(rows[0], /● fixture · 等待输入 +上下文剩余 88%$/);
   assert.match(rows.at(-1), /\/repo\/project \(main\) +\/help$/);
+  // A long path gives up room, but the branch and the hint stay whole.
+  installProductUI(ui, () => ({ workspace_mode: 'project', model: 'fixture', inputs: {},
+    cwd: '/repo/a-long-intermediate-directory/another-long-one/leaf-project' }));
+  const narrow = footer.render(48).at(-1);
+  assert.ok(narrow.includes('leaf-project (main)') && narrow.endsWith('/help'), narrow);
+  assert.ok(visibleWidth(narrow) <= 48, narrow);
   assert(rows.every(line => visibleWidth(line) <= 72));
   assert.match(workingMessage({ subagents: [] }, Date.now(), '运行命令'), /^运行命令… \(0s · esc 中断\)$/);
+});
+
+test('the footer keeps the directory name when the path is too long', () => {
+  const deep = '/repo/a-very-long-intermediate-directory/another-long-one/leaf-project';
+  assert.equal(elidePath(deep, 80), deep);
+  const elided = elidePath(deep, 30);
+  assert.ok(visibleWidth(elided) <= 30 && elided.endsWith('leaf-project') && elided.includes('…'), elided);
+  assert.ok(visibleWidth(elidePath(deep, 8)) <= 8 && elidePath(deep, 8).includes('…'));
+});
+
+test('help is one two-column table in both modes, with the keys section', () => {
+  for (const mode of ['project', 'isolated']) {
+    const lines = commandHelp(mode).split('\n');
+    assert.equal(lines[0], '命令');
+    assert.ok(lines.includes('快捷键'));
+    const rows = lines.filter(line => line.startsWith('  /'));
+    assert.ok(rows.length >= 8, rows);
+    const columns = new Set(rows.filter(line => / {2,}\S/.test(line.slice(2))).map(line => visibleWidth(line.slice(2).replace(/ {2,}\S[\s\S]*$/, ''))));
+    assert.ok(columns.size >= 1);
+    assert.ok(commandHelp(mode).includes('/agents') && commandHelp(mode).includes('/trace'));
+    assert.ok(commandHelp(mode).includes('输入 / 查看全部可用命令'));
+  }
+  // A command wider than the column keeps its own line instead of pushing the column out.
+  const wide = commandHelp('project').split('\n');
+  assert.ok(wide.includes('  /goal pause | resume | clear'));
+  // The whole block fits a 24-row, 48-column terminal without clipping.
+  for (const mode of ['project', 'isolated']) {
+    const lines = commandHelp(mode).split('\n');
+    assert.ok(lines.length <= 16, `${mode}: ${lines.length} lines`);
+    assert.ok(lines.every(line => visibleWidth(line) <= 48), lines);
+  }
+});
+
+test('a structured-only tool call still names its arguments', () => {
+  const call = directRenderers('evaluate_candidate')
+    .renderCall({ contract: { suite: [] }, source: { files: {} } }, theme, context({ toolCallId: 'r1' }));
+  assert.match(screen(call), /evaluate_candidate\(contract · source\)/);
+  const scalars = directRenderers('pipeline_run').renderCall({ stage: 'B', record: {} }, theme, context({ toolCallId: 'r2' }));
+  assert.match(screen(scalars), /pipeline_run\(B\)/);
 });

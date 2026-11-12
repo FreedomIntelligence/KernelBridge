@@ -125,9 +125,11 @@ Operator tools and no-Torch self iteration are documented in [operator-workflow.
 
 ## Layout and theme
 
-The interface follows the Claude Code / Codex layout. A welcome box shows the product, quick commands and the working directory. User messages are prefixed with `>` and assistant text with `⏺`; there are no background blocks. Tool rows use status marks as described above. While the agent works, the row above the editor shows an animated `✻` mark and the current step: thinking, running a command, reading files, or waiting for N subagents. It also shows elapsed time and `esc 中断`.
+The interface follows the Claude Code / Codex layout. A welcome box shows the product, quick commands and the working directory. User messages are prefixed with `>` and assistant text with `⏺`; there are no background blocks, and one blank line separates transcript rows. Tool rows use status marks as described above. While the agent works, the row above the editor shows an animated `✻` mark and the current step: thinking, running a command, reading files, or waiting for N subagents. It also shows elapsed time and `esc 中断`.
 
-The footer has two lines. The first shows the model and state, plus Codex-style remaining context (`上下文剩余 X%`). The last shows the directory with branch and `/help`. Running subagents, budgets and the Goal detach policy appear only when relevant. The bundled themes `kernelbridge-dark` and `kernelbridge-light` follow the terminal's appearance (`source/apps/agent/themes/`); `/settings` can select another installed theme. `/help` lists the commands and keys in two columns.
+The footer has two lines. The first shows the model and state, plus Codex-style remaining context (`上下文剩余 X%`). The last shows the directory with branch and `/help`; when the path is too long its middle is elided so the directory's own name and the branch stay readable. Running subagents and budgets appear only when relevant, and zero-valued reserved and pending counters are not shown. The bundled themes `kernelbridge-dark` and `kernelbridge-light` follow the terminal's appearance (`source/apps/agent/themes/`); `/settings` can select another installed theme.
+
+`/help` prints one two-column table for both modes, listing the commands available in that mode followed by the keys. It fits a 24-row, 48-column terminal without clipping. Host feedback is marked `⏺` for notices and `✗` for errors, so product messages do not read as model output.
 
 ## Goal policy and evidence
 

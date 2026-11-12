@@ -70,10 +70,13 @@ test('product footer keeps budget and exit policy visible at narrow widths', () 
     const lines = footer.render(width);
     assert.ok(lines.every(line => visibleWidth(line) <= width));
     assert.match(lines.join('\n'), /16\/200/);
-    assert.match(lines.join('\n'), /待处理 0/);
+    // Zero reserved and zero pending are noise: Claude Code and Codex show neither.
+    assert.doesNotMatch(lines.join('\n'), /预留 0|待处理 0/);
     assert.match(lines.join('\n'), /退出暂停/);
     assert.doesNotMatch(lines.join('\n'), /01234567|2\.1M|controlled/);
   }
+  state.pending_effect_ids = ['one', 'two']; state.budget.reserved = 3;
+  assert.match(footer.render(80).join('\n'), /预留 3 · 待处理 2/);
   assert.match(statePresentation(state), /\/goal 目标内容/);
 });
 

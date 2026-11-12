@@ -6,21 +6,12 @@ import { workspaceTools } from './workspace-tools.mjs';
 import { goalSummary, statePresentation, installProductUI, showProductFeedback, workingMessage } from './product-ui.mjs';
 import { updateSubagentProgress, explorationBoundary, seedExplorationGroups } from './tool-render.mjs';
 import { agentsPanel, BUILTIN_AGENTS } from './agents-panel.mjs';
-import { COMMAND_POLICY_VERSION, PRODUCT_COMMANDS, PRODUCT_COMMAND_NAMES, parseGoalCommand, COMMAND_HELP } from './command-policy.mjs';
+import { COMMAND_POLICY_VERSION, PRODUCT_COMMANDS, PRODUCT_COMMAND_NAMES, parseGoalCommand, commandHelp } from './command-policy.mjs';
 import { sessions } from '../../application/host.mjs';
 import { sessionPicker } from '../../application/session-picker.mjs';
 import { projectInfo } from '../../application/project-info.mjs';
 
 export { COMMAND_POLICY_VERSION } from './command-policy.mjs';
-
-const PROJECT_HELP = [
-  '命令',
-  ...[['/new  /clear', '新对话，保留工作文件'], ['/resume', '恢复历史会话'], ['/agents', '子代理类型与运行记录'],
-    ['/model', '切换模型'], ['/trace', '浏览器中查看实时轨迹'], ['/compact', '压缩上下文'], ['/goal 目标内容', '持续执行直到完成'], ['/name 标题', '命名当前会话'],
-    ['/quit  /exit', '退出']].map(([command, text]) => `  ${command.padEnd(16)}${text}`),
-  '快捷键',
-  '  esc 中断 · ctrl+o 展开工具输出 · ! 运行 shell · !! 运行 shell（不进上下文）',
-].join('\n');
 
 /** What the working row says while a tool runs (Claude Code shows the active step). */
 const TOOL_ACTIVITY = { bash: '运行命令', read: '读取文件', grep: '搜索代码', find: '查找文件', ls: '浏览目录',
@@ -490,8 +481,7 @@ export function createHostActions(control, effects) {
       }
       if (DISABLED.has(command)) return { action: 'reject', message: `${command} is disabled by the host profile` };
       if (!actions.commands().some(item => '/' + item.name === command)) return { action: 'reject', message: `不可用的命令：${command}。输入 /help 查看支持的命令。` };
-      if (command === '/help' || command === '/hotkeys') return { action: 'handled', message: state.workspace_mode === 'project'
-        ? PROJECT_HELP : COMMAND_HELP };
+      if (command === '/help' || command === '/hotkeys') return { action: 'handled', message: commandHelp(state.workspace_mode) };
       if (command === '/latest') return { action: 'handled' };
       if (command === '/trace') {
         // The CLI process hosts the viewer; this worker has no Journal access of its own.

@@ -363,8 +363,10 @@ function delegateResult(result, options, theme, context) {
 
 function receiptCall(name) {
   return (args, theme, context) => new Rows(width => {
-    const detail = Object.values(args ?? {}).filter(value => typeof value === 'string' || typeof value === 'number')
-      .map(oneLine).join(' · ');
+    const entries = Object.entries(args ?? {}).filter(([, value]) => value != null && value !== '');
+    const scalars = entries.filter(([, value]) => typeof value === 'string' || typeof value === 'number').map(([, value]) => oneLine(value));
+    // A structured-only call still names what it was given, so no row reads as a bare tool name.
+    const detail = (scalars.length ? scalars : entries.map(([key]) => key)).join(' · ');
     return headerRows(theme, context, name, detail.length > 80 ? detail.slice(0, 79) + '…' : detail, width);
   }, context.outputPad);
 }
