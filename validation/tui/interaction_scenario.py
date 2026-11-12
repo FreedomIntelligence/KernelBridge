@@ -163,6 +163,8 @@ def main():
         branch = subprocess.run(['git', 'branch', '--show-current'], cwd=state()['cwd'], capture_output=True, text=True).stdout.strip()
         wide_footer = next(line.rstrip() for line in reversed(screen.display) if line.strip())
         assert wide_footer.endswith('/help'), wide_footer
+        wide_path = wide_footer.rsplit(f' ({branch})', 1)[0] if branch else wide_footer.rsplit('  ', 1)[0]
+        assert wide_path.rstrip().rsplit('/', 1)[-1] == Path(state()['cwd']).name, wide_footer
         if branch: assert f'({branch})' in wide_footer, wide_footer
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 48, 0, 0))
         screen.resize(24, 48)
@@ -179,7 +181,17 @@ def main():
         send('/help')
         until(lambda: all(part in text() for part in ['/goal pause | resume | clear', '/quit', '可用命令', '/agents', '/trace']))
         footer = next(line.rstrip() for line in reversed(screen.display) if line.strip())
-        assert leaf in footer, footer
+        # Check the path label, not an accidental basename match in branch/help.
+        path_label = footer.rsplit(f' ({branch})', 1)[0] if branch else footer.rsplit('  ', 1)[0]
+        if branch and path_label == footer:
+            path_label = footer.rsplit(' (', 1)[0]
+        path_label = path_label.rstrip()
+        shown_leaf = path_label.rsplit('/', 1)[-1]
+        prefix = shown_leaf[:-1]
+        assert shown_leaf == leaf or (
+            path_label.startswith('…/') and shown_leaf.endswith('…') and shown_leaf.count('…') == 1
+            and prefix and prefix != leaf and leaf.startswith(prefix)
+        ), footer
         if not branch or f'({branch})' in footer:
             assert footer.endswith('/help'), footer
         else:

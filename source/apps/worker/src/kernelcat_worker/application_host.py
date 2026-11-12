@@ -674,7 +674,41 @@ class ApplicationHost:
         from kernelcat_executor.contracts.models import Outcome
         state = self.status()
         goal = {key: str(value) if key.endswith("_ns") else value for key, value in state["goal"].items()} if state["goal"] else None
-        return Outcome(data={"goal": goal, "usage": state.get("goal_usage"), "budget": state["budget"]})
+        # Explain the existing ledger; this read neither admits work nor settles
+        # pending effects. In particular, a Trial counts a context session, not
+        # an experiment or a tool invocation within that session.
+        session_count = len(state.get("trials", []))
+        usage = dict(state["goal_usage"]) if state.get("goal_usage") is not None else None
+        if usage is not None:
+            usage["context_sessions"] = session_count
+        definitions = {
+            "max_trials": {"unit": "context_sessions", "used": session_count,
+                "applies_to": "starting another context session (fork/reset/clone)",
+                "counting": "application Trial records; candidate edits, tool calls and device attempts do not consume a Trial"},
+            "max_model_turns": {"unit": "model_calls", "used": (usage or {}).get("model_turns", 0),
+                "applies_to": "model admission", "counting": "shared parent, child, compaction and review calls"},
+            "token_budget": {"unit": "tokens", "used": (usage or {}).get("tokens", 0),
+                "applies_to": "model admission", "counting": "shared parent, child, compaction and review receipts"},
+            "max_forks": {"unit": "context_transitions", "applies_to": "new context transitions under the workspace policy"},
+        }
+        limits = {key: {"limit": goal[key], **definition} for key, definition in definitions.items()
+                  if goal is not None and goal.get(key) is not None}
+        if state.get("max_trial_turns") is not None:
+            trials = state.get("trials", [])
+            start = trials[-1].get("start_model_turns", 0) if trials else 0
+            limits["max_trial_turns"] = {"limit": state["max_trial_turns"], "unit": "model_calls",
+                "used": state["model_turns"] - start, "scope": "current_context_session",
+                "source": "policy.max_steps", "applies_to": "current-session continuation",
+                "counting": "application model-call records since this Trial's start_model_turns"}
+        budget = state["budget"]
+        if budget.get("limit") is not None:
+            limits["credits"] = {"limit": budget["limit"], "unit": "credits",
+                "used": budget["spent"], "reserved": budget["reserved"],
+                "applies_to": "shared model and tool admission"}
+        return Outcome(data={"goal": goal, "usage": usage, "budget": budget, "limits": limits,
+            "limit_semantics": "Configured Goal, current-session and credit limits are listed. Absent/null limits are unset; usage is not an allowance. "
+                "A Trial is a context session, not a candidate or device attempt. Its limit constrains new sessions, "
+                "not iterations in the current session. Other budgets and unresolved-effect fences still apply."})
 
     def update_codegen_goal(self, action):
         from kernelcat_executor.contracts.models import Outcome

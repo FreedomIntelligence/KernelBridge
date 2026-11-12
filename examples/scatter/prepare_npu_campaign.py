@@ -51,9 +51,13 @@ def prepare(args):
     research_setting = research_settings[0] if research_settings else False
     if type(research_setting) is not bool and not isinstance(research_setting, dict):
         raise ValueError('online_research must be a boolean or provider settings object')
+    application = dict((runtime or {}).get('application') or {})
+    goal = {'enabled': True, 'complete_on_acceptance': True, **((runtime or {}).get('goal') or {})}
     max_model_turns = getattr(args, 'max_model_turns', None)
-    if max_model_turns is None and runtime is not None:
-        max_model_turns = runtime.get('application', {}).get('max_model_turns')
+    if max_model_turns is not None:
+        application['max_model_turns'] = max_model_turns
+    # Preserve the nullable preparation schema; null declares no ceiling.
+    max_model_turns = application.setdefault('max_model_turns', None)
     if max_model_turns is not None and (type(max_model_turns) is not int or max_model_turns < 1):
         raise ValueError('max_model_turns must be a positive integer or absent')
     diagnostic_switches = supplied.get('diagnostics', {})
@@ -182,7 +186,9 @@ def prepare(args):
     save(root / 'business-tools.json', tools)
     fragment = {'schema_version': 'kernelbridge.operator-profile/v1', 'config': {'business_tools': tools},
                 'acceptance': {'scope': measurement['scope'], 'baseline_files': baseline_files},
-                'application': {'max_model_turns': max_model_turns}, 'goal': {'enabled': True, 'max_trials': 1, 'complete_on_acceptance': True}}
+                # A fresh workspace/session provides clean isolation. It does
+                # not imply a user budget on later context sessions or attempts.
+                'application': application, 'goal': goal}
     save(root / 'profile-fragment.json', fragment)
     if runtime is not None:
         runtime.pop('online_research', None)
@@ -195,11 +201,12 @@ def prepare(args):
             raise ValueError('Combined business tools exceed the configured 32-tool limit')
         runtime['config'] = dict(runtime.get('config', {}), business_tools=combined)
         runtime['config'].pop('online_research', None)
-        runtime['application'] = dict(runtime.get('application', {}), max_model_turns=max_model_turns)
+        runtime['application'] = application
         save(root / 'profile.json', runtime)
     save(root / 'clean-input-manifest.json', {'trial_id': trial_id, 'candidate_present': False,
          'session_history': None, 'seed_implementation': None, 'formal_device_jobs': 0,
-         'application': {'max_model_turns': max_model_turns}, 'task_source': str(args.task.resolve()) if args.task else None,
+         'application': {'max_model_turns': max_model_turns},
+         'task_source': str(args.task.resolve()) if args.task else None,
          'npu_profile_source': str(args.profile.resolve()) if args.profile else None,
          'native_interface': {'version': NATIVE_INTERFACE_VERSION, 'source': 'examples/cann/native-interface.md',
                               'sha256': hashlib.sha256(interface.encode()).hexdigest()},

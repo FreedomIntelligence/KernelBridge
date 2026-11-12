@@ -26,8 +26,9 @@ from kernelcat_executor.capabilities.filesystem import Workspace
 from kernelcat_executor.capabilities.llm import APIProposer, SYSTEM
 from kernelcat_executor.capabilities.runtime_artifacts import RuntimeArtifacts
 from kernelcat_executor.capabilities.task_instructions import admitted_task_instructions, MAX_INSTRUCTION_BYTES
+from kernelcat_executor.capabilities.workspace_tools import FunctionTool
 from kernelcat_executor.contracts.context import ContextOverflow
-from kernelcat_executor.contracts.models import Action, Outcome, Policy, Task, ToolSpec, canonical, digest
+from kernelcat_executor.contracts.models import Action, Conflict, Outcome, Policy, Task, ToolSpec, canonical, digest
 from kernelcat_executor.contracts.providers import WireOptions
 from kernelcat_executor.operations.authority import ExecutionRPC
 from kernelcat_executor.operations.delegated import DelegatedEffects
@@ -177,8 +178,29 @@ class ChildInstructionTests(unittest.TestCase):
                     if native:
                         expected = expected.replace('and make one tool call at a time.',
                             'and return text or a bounded batch of tool calls.')
-                        expected += 'Use finish as the only call in its turn. Text completion never promotes a kernel.\n'
+                        expected += ('When your work is complete, return your findings directly as text without tool calls. '
+                                     'Text completion never promotes a kernel.\n')
                     self.assertEqual(self.system(payload, provider), expected)
+
+    def test_native_completion_guidance_matches_the_offered_tools(self):
+        read = ToolSpec(name='read_file', description='Read a candidate.', parameters={'type': 'object'}, credits=0)
+        finish = ToolSpec(name='finish', description='Finish analysis.', parameters={'type': 'object'}, credits=0)
+        for provider in ('openai', 'anthropic'):
+            for offered in ((), (read,), (read, finish)):
+                with self.subTest(provider=provider, tools=[tool.name for tool in offered]):
+                    # Untrusted context cannot advertise a capability absent from the registry.
+                    context = self.context() | {'tools': [{'name': 'finish'}]}
+                    payload = self.api(provider).prepare(context, offered).payload()
+                    system = self.system(payload, provider)
+                    names = [tool['function']['name'] if provider == 'openai' else tool['name']
+                             for tool in payload.get('tools', [])]
+                    self.assertEqual(names, [tool.name for tool in offered])
+                    self.assertEqual('Use finish as the only call in its turn.' in system, finish in offered)
+                    self.assertEqual('return your findings directly as text without tool calls.' in system, finish not in offered)
+                    self.assertIn('Text completion never promotes a kernel.', system)
+                    if not offered:
+                        self.assertNotIn('tool_choice', payload)
+                        self.assertNotIn('parallel_tool_calls', payload)
 
     def test_harness_projection_remains_the_authority_for_parent_requests(self):
         harness = {'system_prompt': 'PARENT_NATIVE_SYSTEM', 'messages': [{'role': 'user', 'content': 'parent request'}], 'tools': []}
@@ -227,26 +249,52 @@ class ChildInstructionTests(unittest.TestCase):
 
     def test_real_delegated_projection_has_instructions_without_parent_chat(self):
         effect = SubagentEffect()
-        gateway = Gateway(self.store, [effect], self.task.scope)
+        def unexpected_tool(_action):
+            self.fail('A completed advisory answer must not execute a tool')
+        tools = [FunctionTool(ToolSpec(name=name, description='Fixture parent tool.',
+                    parameters={'type': 'object'}, credits=0), unexpected_tool)
+                 for name in ('read_file', 'finish')]
+        gateway = Gateway(self.store, [effect, *tools], self.task.scope)
         self.store.register_task(self.task.model_dump(mode='json'))
-        prior = Action(id='parent-model', task=self.task.id, tool='__propose__',
-                       arguments={'conversation': 'PRIVATE_PARENT_CONVERSATION'})
-        gateway.internal(prior, 0, lambda: Outcome())
-        action = Action(id='parent-delegate', task=self.task.id, tool='delegate',
-                        arguments={'agent': 'kernel-scout', 'task': 'Inspect the admitted candidate', 'mode': 'analysis'})
-        identity = action.id + '/leaf/step/0/model/primary'
-        owner = ExecutionSession(gateway, {}, [], cwd=self.root,
-            child_proposers={'primary': self.api(identity=identity)})
-        self.addCleanup(owner.close)
-        owner._task = self.task
-        owner._messages = [{'text': 'PRIVATE_PARENT_CONVERSATION'}]
-        child = DelegatedEffects(owner, action, prior.id)
-        result = child.model('primary')
-        self.assertEqual(result['text'], 'Fixture child answer.')
-        body = recorded_request(self.store, identity).body_json
-        self.assertNotIn('PRIVATE_PARENT_CONVERSATION', body)
-        self.assertNotIn('PARENT_GOAL_PRIVATE', body)
-        self.assertIn(self.slice.files[0].text, self.system(json.loads(body), 'openai'))
+        for provider in ('openai', 'anthropic'):
+            for mode in ('analysis', 'read_only'):
+                with self.subTest(provider=provider, mode=mode):
+                    suffix = provider + '-' + mode
+                    prior = Action(id='parent-model-' + suffix, task=self.task.id, tool='__propose__',
+                                   arguments={'conversation': 'PRIVATE_PARENT_CONVERSATION'})
+                    gateway.internal(prior, 0, lambda: Outcome())
+                    action = Action(id='parent-delegate-' + suffix, task=self.task.id, tool='delegate',
+                                    arguments={'agent': 'kernel-scout', 'task': 'Inspect the admitted candidate', 'mode': mode})
+                    identity = action.id + '/leaf/step/0/model/primary'
+                    owner = ExecutionSession(gateway, {}, [], cwd=self.root,
+                        child_proposers={'primary': self.api(provider, identity=identity)})
+                    self.addCleanup(owner.close)
+                    owner._task = self.task
+                    owner._messages = [{'text': 'PRIVATE_PARENT_CONVERSATION'}]
+                    child = DelegatedEffects(owner, action, prior.id)
+                    before = len(self.transmitted)
+                    result = child.model('primary')
+                    self.assertEqual(result['text'], 'Fixture child answer.')
+                    self.assertEqual(result['calls'], [])
+                    self.assertEqual(child.summary, result['text'])
+                    self.assertEqual(child.completion_reason, 'answer')
+                    with self.assertRaisesRegex(Conflict, 'final model receipt'):
+                        child.model('primary')
+                    self.assertEqual(len(self.transmitted), before + 1)
+                    body = recorded_request(self.store, identity).body_json
+                    self.assertNotIn('PRIVATE_PARENT_CONVERSATION', body)
+                    self.assertNotIn('PARENT_GOAL_PRIVATE', body)
+                    payload = json.loads(body)
+                    system = self.system(payload, provider)
+                    self.assertIn(self.slice.files[0].text, system)
+                    self.assertNotIn('Use finish as the only call', system)
+                    self.assertIn('return your findings directly as text without tool calls.', system)
+                    names = [tool['function']['name'] if provider == 'openai' else tool['name']
+                             for tool in payload.get('tools', [])]
+                    self.assertEqual(set(names), set() if mode == 'analysis' else {'read_file', 'read_receipt'})
+                    if mode == 'analysis':
+                        self.assertEqual(child.max_steps, 1)
+                        self.assertNotIn('tool_choice', payload)
 
     def actual_case_sensitive(self, root):
         probe = root / 'KbCaseSensitivityProbe'

@@ -16,6 +16,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'examples/scatter'))
 import npu_job_supervisor as supervisor
 import npu_trial
+import npu_pipeline_driver as adapter
 from ascend_sources import candidate
 
 
@@ -30,6 +31,7 @@ class SupervisedTrialTests(unittest.TestCase):
         sdk = self.deployment / 'sdk'; sdk.mkdir()
         (sdk / 'set_env.sh').write_text('export ASCEND_HOME_PATH="' + str(sdk) + '"\n')
         (self.deployment / 'profile.json').write_text(json.dumps({'sdk': str(sdk), 'python': sys.executable}))
+        (self.deployment / 'tools/npu_eager.py').write_text('# CPU fixture oracle; never executed\n')
         self.source = self.root / 'candidate.py'; self.source.write_text(candidate('max', 33))
         self.state = self.root / 'state'
         self.config = {'candidate': str(self.source), 'state': str(self.state), 'mode': 'max',
@@ -58,8 +60,15 @@ print('[ERROR] CPU fixture diagnostic retained',flush=True)
 mode=BEHAVIOR
 if mode=='signal':os.kill(os.getpid(),signal.SIGTERM)
 if mode=='exit7':raise SystemExit(7)
-if mode in ('success','early-result'):
- (out/'result.json').write_text(json.dumps({'status':'completed','correct':True,'source_sha256':hashlib.sha256(Path(a.candidate).read_bytes()).hexdigest(),'cases':[]}))
+if mode in ('success','early-result','failed-report','success-exit7'):
+ failed=mode=='failed-report'
+ report={'status':'failed' if failed else 'completed','correct':not failed,'source_sha256':hashlib.sha256(Path(a.candidate).read_bytes()).hexdigest(),'cases':[],
+         'driver_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'baseline_sha256':hashlib.sha256(Path(__file__).with_name('npu_eager.py').read_bytes()).hexdigest(),
+         'device':0,'warmup':3,'repeats':10,'pairs':3,'build_completed':not failed,'failure_stage':'compile' if failed else None,
+         'message':'fixture.cpp:7: error: original undeclared SDK symbol' if failed else ''}
+ (out/'result.json').write_text(json.dumps(report,indent=2,allow_nan=False)+'\\n')
+ if failed:raise SystemExit(1)
+ if mode=='success-exit7':raise SystemExit(7)
 if mode in ('sleep','early-result'):time.sleep(30)
 '''.replace('BEHAVIOR', repr(behavior))
         (self.deployment / 'tools/npu_benchmark.py').write_text(code)
@@ -78,6 +87,107 @@ if mode in ('sleep','early-result'):time.sleep(30)
 
     @property
     def folder(self): return self.state / 'attempt-0001'
+
+    def projection_request(self):
+        files = {name: adapter.sha(self.deployment / 'tools' / name)
+                 for name in ('npu_benchmark.py', 'npu_eager.py')}
+        oracle = {'root': str(self.deployment / 'tools'), 'files': files, 'sha256': adapter.manifest_sha(files)}
+        source_files = {'candidate.py': adapter.sha(self.folder / 'candidate.py')}
+        source = {'root': str(self.folder), 'files': source_files, 'sha256': adapter.manifest_sha(source_files)}
+        contract = {'task': {'outputs': 'CPU fixture only'}, 'suite': [{'id': 'cpu-case'}],
+                    'oracle': {'kind': 'independent', 'description': 'CPU fixture', 'files': oracle},
+                    'measurement': {'device': 0, 'warmup': 3, 'repeats': 10, 'pairs': 3}}
+        frozen = json.loads(json.dumps(contract))
+        frozen['oracle']['files'] = {name: str(self.deployment / 'tools' / name) for name in files}
+        config = dict(self.config, contract=frozen)
+        request = {'source': source, 'binding': {'source': source['sha256']}, 'contract': contract,
+                   'handle': self.handles[-1], 'role': 'F', 'action_id': 'cpu-original-projection',
+                   'output': str(self.root / ('projection-' + self.config['mode']))}
+        return config, request
+
+    def test_failed_report_then_exit_one_keeps_hash_and_compiler_feedback_for_all_modes(self):
+        self.benchmark('failed-report')
+        for mode in ('max', 'min', 'matmul'):
+            with self.subTest(mode=mode):
+                self.state = self.root / ('state-' + mode)
+                self.config.update(mode=mode, state=str(self.state))
+                outcome = self.run_trial()
+                self.assertEqual(outcome['status'], 'completed', outcome)
+                self.assertEqual(outcome['data']['result_origin'], 'benchmark')
+                observation = json.loads((self.folder / 'observation.json').read_bytes())
+                self.assertEqual(observation['execution_exit']['returncode'], 1)
+                expected = observation['result_sha256']
+                self.assertEqual(outcome['data']['remote_result_sha256'], expected)
+                self.assertEqual(outcome['data']['run_log']['remote_result_sha256'], expected)
+                self.assertEqual(adapter.sha(self.folder / 'device-result.json'), expected)
+                self.assertFalse((self.folder / 'execution-failure.json').exists())
+                config, request = self.projection_request()
+                folder, result, summary, evidence = adapter.original(config, request)
+                feedback = adapter.terminal_feedback(folder, request, result, evidence)
+                self.assertEqual(feedback['failure_stage'], 'compile')
+                self.assertIn('undeclared SDK symbol', feedback['first_compiler_diagnostic']['text'])
+                self.assertEqual(feedback['remote_result_sha256'], expected)
+                self.assertEqual(feedback['run_log']['artifact']['sha256'], adapter.sha(folder / 'run.log'))
+                checks = adapter.execute(config, 'check', request)
+                self.assertEqual(checks['checks'], dict.fromkeys(('build', 'semantics', 'full'), False))
+
+    def test_forged_supervised_report_hash_cannot_become_a_terminal_result(self):
+        self.benchmark('failed-report')
+        def forged(argv, **kwargs):
+            reply = self.transport(argv, **kwargs)
+            if argv[3] == npu_trial.COLLECT:
+                value = json.loads(reply['stdout']); value['result_sha256'] = '0' * 64
+                reply['stdout'] = json.dumps(value).encode()
+            return reply
+        outcome = self.run_trial(forged)
+        self.assertEqual(outcome['status'], 'unknown', outcome)
+        self.assertIn('hash changed', outcome['data']['error'])
+        self.assertFalse((self.folder / 'result.json').exists())
+        self.assertFalse((self.folder / 'device-result.json').exists())
+        self.assertEqual(self.calls.count(npu_trial.LAUNCH), 1)
+
+    def test_nonzero_exit_with_success_report_is_unknown_and_adapter_rejects_it(self):
+        self.benchmark('success-exit7')
+        outcome = self.run_trial()
+        self.assertEqual(outcome['status'], 'unknown', outcome)
+        self.assertIn('Nonzero native exit', outcome['data']['error'])
+        self.assertFalse((self.folder / 'result.json').exists())
+        self.assertFalse((self.folder / 'device-result.json').exists())
+        observation = json.loads((self.folder / 'observation.json').read_bytes())
+        # Reproduce a conflicting pre-existing projection in this private CPU
+        # fixture; the independent adapter must not upgrade it to F success.
+        npu_trial.save(self.folder / 'device-result.json', observation['result'])
+        npu_trial.save(self.folder / 'result.json', {'status': 'completed', 'correct': True,
+            'result_origin': 'benchmark', 'remote_result_sha256': observation['result_sha256'],
+            'remote_attempt': self.handles[0]['attempt'], 'original_handle': self.handles[0],
+            'execution_exit_sha256': observation['execution_exit_sha256'],
+            'execution_exit_path': str(self.folder / 'execution-exit.json')})
+        config, request = self.projection_request()
+        with self.assertRaisesRegex(ValueError, 'Nonzero native exit'):
+            adapter.execute(config, 'check', request)
+        self.assertEqual(self.calls.count(npu_trial.LAUNCH), 1)
+
+    def test_failed_report_cannot_borrow_a_changed_exit_or_summary_binding(self):
+        self.benchmark('failed-report')
+        self.assertEqual(self.run_trial()['status'], 'completed')
+        config, request = self.projection_request()
+        exit_path = self.folder / 'execution-exit.json'; raw_exit = exit_path.read_bytes()
+        summary_path = self.folder / 'result.json'; raw_summary = summary_path.read_bytes()
+        try:
+            changed = json.loads(raw_exit); changed['returncode'] = 2
+            exit_path.write_text(json.dumps(changed))
+            with self.assertRaisesRegex(ValueError, 'supervisor exit binding changed'):
+                adapter.execute(config, 'check', request)
+            exit_path.write_bytes(raw_exit)
+            changed = json.loads(raw_summary); changed['execution_exit_sha256'] = '0' * 64
+            npu_trial.save(summary_path, changed)
+            with self.assertRaisesRegex(ValueError, 'supervisor exit binding changed'):
+                adapter.execute(config, 'check', request)
+        finally:
+            exit_path.write_bytes(raw_exit); summary_path.write_bytes(raw_summary)
+        self.assertEqual(adapter.execute(config, 'check', request)['checks'],
+                         dict.fromkeys(('build', 'semantics', 'full'), False))
+        self.assertEqual(self.calls.count(npu_trial.LAUNCH), 1)
 
     def test_real_entry_exec_preserves_child_birth_and_result_requires_verified_exit(self):
         result = self.run_trial()

@@ -1127,3 +1127,136 @@ cannot supply an old process's missing exit retroactively. The next clean batch
 is planned independently, preserving the old unresolved session and artifacts;
 it is not a retry of that original handle. No new clean batch is reported as
 started by this entry.
+
+### Clean e19 min: native compile failure and lost diagnostic binding
+
+The terminal-recovery changes were merged and pushed to main as `e19c804`.
+A subsequent independent clean min session is recorded in
+`.validation/next-clean-preparation/trajectory/observations/min-7eec272bd535fc56/final-report.md`
+and its JSON/index files in the `harness-terminal-recovery` checkout. This
+session reached 37 settled model calls: 30 parent and seven child, with no
+compact/review calls and 1,687,106 reported tokens (1,564,147 parent and 122,959
+child). The first candidate appeared at global call 23 and the first evaluate
+at call 24. There was one actual native attempt and no F/G/H, E1 or E3 result.
+No explicit J invocation or actual profiler/IR-content read occurred. This run
+did not meet the 20-call qualification objective.
+
+The new min failure is distinct from the older unresolved d07 min attempt.
+The new original benchmark report records a compile failure with
+`build_completed=false`; its first diagnostic is
+`OPS_CHECK_NULL_WITH_CONTEXT was not declared in this scope`. The original
+supervisor separately records return code 1 with no signal. Both objects are
+bound to the original source and handle. The benchmark SHA256 is
+`a13c9ef72ea37be8dcddb3c5e4434a0dbe2c0e72b45162161fc0d7cda4fdc08a`;
+the distinct supervisor-exit SHA256 is
+`450e5b3934e9904f37c1408ee8ecc3d3dff8f5f7116d0979ffa4464c42d01ef3`.
+This is a known native failure, not a missing remote exit.
+
+The local projection instead selected `result_origin=supervisor_exit`, retained
+`remote_result_sha256=null`, and lost the benchmark digest used by the already
+captured 14,758-byte original run-log receipt. The adapter's strict log verifier
+then raised `Original run log binding changed`. The outer evaluate returned
+pending with `original_handle:null`. The failed E artifact manifest omitted the
+captured run/build log. Calls 25–37 received the generic failure, exit receipt
+and binding error but not the specific compiler diagnostic. The model resumed
+the original evaluation at call 25 and attempted original collection at call
+29; neither operation launched a second native job. No candidate edit followed
+call 23. The record does not support saying the model ignored an advertised
+compiler-error artifact.
+
+Two separate guidance problems also occurred. Preparation hardcoded
+`max_trials=1`, which the parent interpreted as one allowed native candidate
+attempt, despite the task appendix distinguishing a Goal Trial/session from a
+candidate or device attempt. Aggregate model-turn, token and credit caps were
+unset. At global call 37 the model explicitly requested `update_goal(blocked)`;
+the host respected that request and entered `awaiting_user` (Goal Journal
+sequence 1051, settled boundary 1063). This was not the host's automatic
+`awaiting_original_receipt` boundary. Separately, the read-only child's prompt
+instructed it to use `finish`, while its actual registry did not include that
+tool. Global call 11 was rejected as `unregistered_tool`; call 12 supplied a
+normal-text fallback. The child eventually delivered its 2,349-byte advisory
+summary. All 37 requests, including the seven child requests, contained the
+frozen project/task guidance.
+
+The `native-failure-binding` work addresses these as three independent generic
+repairs: preserve the independently bound benchmark and supervisor evidence
+through terminal failure/log projection; keep an unspecified campaign budget
+absent while respecting explicit settings; and generate child completion
+instructions from the actual registered tools. Original byte hashes, source,
+handle and log identity checks must remain strict. None of these changes
+supplies an operator implementation, alters the frozen workload/oracle/timing,
+or qualifies a failed attempt. A later reduction in calls cannot be attributed
+to any one of these changes without a separate controlled comparison.
+
+The first full Python acceptance invocation ran 487 tests and failed with three
+failures and two errors; one additional test was skipped. The five unsuccessful
+checks exposed a compatibility regression: removing the old nullable
+`application.max_model_turns` field changed the manifest schema, although no
+numeric budget was intended. The nullable field was restored, preserving an
+unset numerical limit. The skipped check lacked this checkout's link to the
+existing shared scatter dependencies; after restoring that link, the DQ check
+passed separately (1/1). The old max/Cube historical-receipt optional fixture
+also passed separately (1/1), recorded in
+`.validation/failed-benchmark/historical-receipts.log`. The failed full run is
+retained in `.validation/acceptance/python-full.log`.
+
+The first full TUI invocation passed 26/27 groups at timeout scale 1.02, with
+one failure and no flaky or environmental outcomes. The interaction assertion
+required the full directory basename even when a long branch name correctly
+shortened that footer. Its test now requires the precise allowed shortened
+prefix; production UI behavior was unchanged. All 144 referenced evidence files
+matched their recorded hashes. The original failed full-run receipt remains
+`.validation/acceptance/tui-full/acceptance.json`, SHA256
+`aa74b0380c50d55eb2cb4e6cac6f2787ca2e625364da8769669519a4a6d807c0`.
+`get_goal` also now reports `policy.max_steps` in its separate scope rather than
+presenting it as a numeric aggregate Goal budget.
+
+The rebuilt second full Python invocation passed **487/487**, with no skips,
+in 229.800 seconds (`.validation/acceptance/python-r2.log`). The final focused
+TUI invocation passed **7/7** at timeout scale 1.0, with no failed, flaky or
+environmental group. It includes full npm (**225 passed**, one actual
+case-sensitive-filesystem skip) and authority (**167/167**). All 30 referenced
+evidence files matched their recorded lengths and hashes. The receipt is
+`.validation/acceptance/tui-final-focused/acceptance.json`, SHA256
+`d2343ecb80f4ce860c859e7d4927ef2b23db63a3eaa91ee3894e15fb31ea64a7`.
+This TUI qualification combines the first full invocation's 26 passing groups
+with the seven-group follow-up; it is not another full 27/27 invocation. The
+first Python compatibility failures, missing-dependency skip and first TUI
+assertion failure remain retained. These results qualify the repaired harness;
+there is no successful optimization result for this new version yet. A new
+independent clean trial is still required.
+
+### Best max session preserved independently
+
+The complete best observed max session is retained outside the disposable
+worktrees at
+`~/.kernelbridge/optimization-archives/scatter-max/d07af47-application-f44e42d3-bf1f-4add-963a-2719fda4202f`.
+It contains 589 byte-preserved original files, all four native attempts and their
+failures, the complete original conversation/Journal, and independent review
+records. The final archive manifest indexes 601 files including archive metadata
+and review artifacts; verification passed for all indexed files. The supporting
+record is `.validation/reward-integrity/max-archive-verification.json` in the
+`harness-terminal-recovery` checkout. The archive preserves original absolute
+locators and also provides relative indices; it supports reading/restoring the
+conversation, not a claim that automatic scatter execution can be resumed after
+relocation. Original live-session directories were not moved or deleted.
+
+The independent source and receipt audit identified no reward-hacking behavior
+in the complete reviewed candidate, and reproduced F/G/H consistency and the
+original timing/qualification calculation without running a new device job.
+Its six fixed cases passed and the same-device `torch_npu` eager composition
+comparison has geometric mean speedup 5.250296121197787×, log gain
+1.5881532232479976 above the original calibrated threshold
+0.02801543203215286. This is not a comparison against the `torch_scatter`
+extension. All 41 parent calls, 2,920,583 reported tokens and four native attempts
+remain part of the session cost; the archive does not retain only the winner.
+
+This remains one qualified six-case result, not independent stable reproduction
+or E4. The successful candidate has no profiler trace or IR artifact. The review
+did not independently reread remote binaries, obtain the historically unavailable
+full run log, or attest a native extension outside its evaluator process. It
+makes no claim for unseen shapes or an official score. The old d07 min attempt
+remains unknown; the new e19 min attempt has a known compile failure whose
+feedback was projected incorrectly. Neither has min qualification, and Cube has
+not started in these recorded batches. No fresh successful optimization result
+is implied by the repair or archive review.

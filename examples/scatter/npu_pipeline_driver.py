@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 import sys
 
-from npu_trial import LOG_PAGE_BYTES, MAX_LOG_BYTES, attempt_records, attempt_number, invoke_remote, recover_run_log, save, transport, trial, same_handle, wire_handle, wire_summary
+from npu_trial import LOG_PAGE_BYTES, MAX_LOG_BYTES, attempt_records, attempt_number, execution_exit, invoke_remote, recover_run_log, save, transport, trial, same_handle, validate_benchmark_result, wire_handle, wire_summary
 from npu_benchmark import FIELDS, sources
 from npu_diagnostics import MAX_ARTIFACT
 try:
@@ -163,6 +163,22 @@ def original(config, request):
     original_sha = hashlib.sha256(original_bytes).hexdigest()
     if original_sha != observation['result_sha256'] or original_sha != summary['remote_result_sha256']:
         raise ValueError('Original device result hash changed')
+    handle = observation.get('handle')
+    if (summary.get('result_origin') == 'benchmark'
+            or isinstance(handle, dict) and 'supervisor' in handle):
+        expected_intent = dict(intent, attempt=attempt_number(intent),
+                               **{key: config[key] for key in ('mode', 'device') if key in config})
+        raw_exit, receipt = execution_exit(observation, expected_intent)
+        exit_path = folder / 'execution-exit.json'
+        if (exit_path.resolve() != exit_path or not exit_path.is_file()
+                or exit_path.read_bytes() != raw_exit
+                or summary.get('execution_exit_sha256') != observation['execution_exit_sha256']
+                or summary.get('execution_exit_path') != str(exit_path)
+                or not same_handle(handle, summary['original_handle'])
+                or observation.get('identity_verified') is not True
+                or handle['supervisor']['code_sha256'] != sha(Path(__file__).with_name('npu_job_supervisor.py'))):
+            raise ValueError('Original benchmark supervisor exit binding changed')
+        validate_benchmark_result(observation, expected_intent, receipt)
     qualified = observation['result']
     if observation.get('cpu_fallback') or any(marker in observation.get('log_tail', '') for marker in ('fall back to run on the CPU', 'npu_cpu_fallback')):
         qualified = {**qualified, 'status': 'failed', 'correct': False, 'message': 'CPU fallback detected; not qualified NPU timing'}

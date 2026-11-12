@@ -457,3 +457,85 @@ its missing exit evidence. A subsequent clean batch is planned with an
 independent session and namespace while preserving that unresolved original;
 it must not redispatch the old handle. This entry records no new batch launch
 or optimization result.
+
+## e19 clean-min feedback audit and native-failure-binding follow-up
+
+The earlier terminal-recovery delivery was merged and pushed to main as
+`e19c804`. A later clean min session is retained in the
+`harness-terminal-recovery` checkout under
+`.validation/next-clean-preparation/trajectory/observations/min-7eec272bd535fc56/`.
+It used 37 settled calls (30 parent, seven child), 1,687,106 reported tokens and
+one actual native attempt. It has no F/G/H or E1/E3, and no explicit J or actual
+profiler/IR-content read. These are observational results, not passing operator
+acceptance or evidence of improved optimization efficiency.
+
+The original benchmark report and supervisor exit establish a native compile
+failure and return code 1. An independently captured original run-log receipt
+binds the benchmark digest, but the local supervisor-failure projection omitted
+that digest. Strict log verification raised `Original run log binding changed`,
+and the outer evaluate incorrectly returned pending with a null original handle.
+The specific compiler diagnostic did not reach later model requests. This new
+known failure must not be conflated with the older d07 min attempt, for which
+original terminal evidence remains absent and unknown is still the correct
+state. Neither path authorizes replacement of the old handle.
+
+The same audit identified two independent instruction defects: a hardcoded
+`max_trials=1` was interpreted as a one-candidate budget, and a read-only child
+was told to use an unregistered `finish` tool. The final stop was the model's
+explicit `update_goal(blocked)`, which the host honored as `awaiting_user`;
+it was not an automatic missing-receipt pause. The child recovered with text
+after an extra model call. The new repair round addresses source/handle-bound
+failure/log projection, unspecified versus explicit campaign budgets, and
+registry-aware child completion guidance. It does not add operator answers,
+relax identity checks, or alter suite/oracle/timing contracts.
+
+The first full Python invocation ran **487 tests**, ending with **three
+failures, two errors and one skip** in
+`.validation/acceptance/python-full.log`. The failures/errors all came from
+removing the existing nullable `application.max_model_turns` field. That schema
+compatibility is restored without installing a numeric budget. The skip was due
+to a missing local link to the existing shared scatter dependencies; after the
+link was restored, the DQ check passed separately (**1/1**). The optional
+historical max/Cube receipt check also passed separately (**1/1**) in
+`.validation/failed-benchmark/historical-receipts.log`. These separate checks do
+not turn the failed first full invocation into a pass.
+
+The first full TUI invocation passed **26/27** groups at timeout scale **1.02**,
+with one failed group and zero flaky/environmental groups. The sole interaction
+failure was an assertion requiring the complete directory basename when the
+long branch name legitimately shortened the footer. The assertion now checks
+the precise allowed shortened prefix; production UI behavior was not changed.
+All **144** referenced evidence files matched their recorded hashes. The failed
+full-run receipt is `.validation/acceptance/tui-full/acceptance.json`, SHA256
+`aa74b0380c50d55eb2cb4e6cac6f2787ca2e625364da8769669519a4a6d807c0`.
+The `get_goal` projection also exposes `policy.max_steps` in a separate scope,
+keeping it distinct from an absent aggregate Goal budget.
+
+The rebuilt second full Python invocation passed **487/487**, with **zero
+skips**, in **229.800 seconds** (`.validation/acceptance/python-r2.log`). The
+final focused TUI invocation passed **7/7**, with zero failed, flaky or
+environmental groups at timeout scale **1.0**. Its full npm run passed **225**
+tests with one genuine case-sensitive-filesystem skip; authority passed
+**167/167**. All **30** referenced evidence files matched their recorded lengths
+and hashes. The receipt is `.validation/acceptance/tui-final-focused/acceptance.json`, SHA256
+`d2343ecb80f4ce860c859e7d4927ef2b23db63a3eaa91ee3894e15fb31ea64a7`.
+
+This TUI qualification is the first full invocation's 26 passing groups plus
+the seven-group focused follow-up, **not** a new full 27/27 invocation. The
+failed first Python invocation and its missing-dependency skip remain retained,
+as does the original TUI assertion failure. The second full Python invocation
+includes the restored dependencies and has no skip. Multiple independent
+changes preclude a single-factor explanation of any later difference in
+model-call count. No successful optimization run on this repaired version is
+reported; a new independent clean trial remains pending.
+
+The best max session was independently archived at
+`~/.kernelbridge/optimization-archives/scatter-max/d07af47-application-f44e42d3-bf1f-4add-963a-2719fda4202f`:
+589 original files were copied byte-for-byte and its final 601-file manifest
+verified. All four native attempts, failures and the full conversation are
+retained. A read-only integrity review found no identified reward-hacking
+behavior and reproduced the original receipt/timing consistency; this is not a
+new NPU run or a proof against arbitrary native interference. The six-case
+5.250296× result remains a single qualified same-device eager comparison,
+without independent stable reproduction/E4 or successful-candidate profiler/IR
+evidence. This entry records no new successful min or Cube result.

@@ -390,6 +390,24 @@ def execution_exit(observation, intent):
     return raw, record
 
 
+def validate_benchmark_result(observation, intent, receipt):
+    """Keep a real failed benchmark report distinct from a missing report."""
+    result = observation.get('result')
+    if (not isinstance(result, dict) or result.get('status') not in {'completed', 'failed'}
+            or type(result.get('correct')) is not bool):
+        raise ValueError('Original benchmark has no valid terminal status')
+    if result.get('source_sha256') != intent['source_sha256']:
+        raise ValueError('Original benchmark source identity differs')
+    # Both pinned native benchmark drivers atomically write this exact format.
+    # Match the adapter's independent raw receipt validation before projection.
+    raw = (json.dumps(result, indent=2, allow_nan=False) + '\n').encode()
+    if hashlib.sha256(raw).hexdigest() != observation.get('result_sha256'):
+        raise ValueError('Original benchmark result hash changed')
+    if receipt['returncode'] != 0 and (result['status'] != 'failed' or result['correct'] is not False):
+        raise ValueError('Nonzero native exit conflicts with benchmark success or correctness')
+    return result
+
+
 def execution_failure(config, folder, intent, observation, run):
     raw, receipt = execution_exit(observation, intent)
     original = folder / 'execution-exit.json'
@@ -451,8 +469,13 @@ def collect(config, folder, run):
                 except (KeyError, ValueError, TypeError) as error:
                     return unknown_observation(folder, intent, 'Original supervisor exit is invalid: ' + str(error),
                                                observation=observation, identity_conflict=True)
-                if receipt['returncode'] != 0 or observation['result'] is None:
+                if observation['result'] is None:
                     return execution_failure(config, folder, intent, observation, run)
+                try:
+                    validate_benchmark_result(observation, intent, receipt)
+                except (ValueError, TypeError) as error:
+                    return unknown_observation(folder, intent, 'Original benchmark result is invalid: ' + str(error),
+                                               observation=observation)
             else:
                 awaiting_original_exit = observation.get('supervisor_alive') is True and (
                     observation.get('lifecycle_state') == 'running' and observation.get('alive') is True

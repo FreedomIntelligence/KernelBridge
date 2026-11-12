@@ -147,7 +147,10 @@ class APIProposer:
         if self.wire_options.native_turns:
             system = system.replace("and make one tool call at a time.",
                                     "and return text or a bounded batch of tool calls.")
-            system += "Use finish as the only call in its turn. Text completion never promotes a kernel.\n"
+            system += ("Use finish as the only call in its turn. "
+                       if any(tool.name == "finish" for tool in tools)
+                       else "When your work is complete, return your findings directly as text without tool calls. ")
+            system += "Text completion never promotes a kernel.\n"
         if self._task_instruction_prompt:
             task_prompt = "\n" + self._task_instruction_prompt
             limit = context.get("policy", {}).get("context_bytes")
