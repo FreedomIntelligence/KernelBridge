@@ -30,7 +30,15 @@ class ToolCall(Contract):
         return self
 
 
-Content = Annotated[TextContent | ToolCall, Field(discriminator="type")]
+class ThinkingContent(Contract):
+    """Provider reasoning (DeepSeek reasoning_content). Shown in the transcript and sent
+    back within the same user turn, as thinking mode with tool calls requires; never a
+    tool call, never evidence."""
+    type: Literal["thinking"] = "thinking"
+    thinking: str
+
+
+Content = Annotated[TextContent | ToolCall | ThinkingContent, Field(discriminator="type")]
 
 
 class ToolBatchPlan(Contract):
@@ -60,6 +68,10 @@ class AssistantTurn(Contract):
             raise ValueError("an empty response is not a completed turn")
         canonical(self.usage)
         return self
+
+    @property
+    def reasoning(self) -> str:
+        return "".join(block.thinking for block in self.content if isinstance(block, ThinkingContent))
 
     @property
     def tool_calls(self) -> tuple[ToolCall, ...]:

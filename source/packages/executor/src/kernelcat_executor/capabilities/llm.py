@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import urlsplit
 from typing import Literal, cast
 
 import httpx
@@ -20,7 +21,7 @@ from kernelcat_executor.contracts.models import (
     ToolSpec,
     canonical,
 )
-from kernelcat_executor.contracts.providers import WireOptions, validate_endpoint
+from kernelcat_executor.contracts.providers import DEEPSEEK_LEVELS, WireOptions, validate_endpoint
 from kernelcat_executor.contracts.requests import ModelRequest
 from kernelcat_executor.generated.harness import HarnessInput
 
@@ -55,8 +56,13 @@ class APIProposer:
         self.model = model
         self.allow_insecure_http = allow_insecure_http
         self.wire_options = wire_options or WireOptions()
-        if provider != "openai" and self.wire_options.thinking is not None:
+        if provider != "openai" and (self.wire_options.thinking is not None
+                                     or self.wire_options.reasoning_effort is not None
+                                     or self.wire_options.reasoning_levels):
             raise ValueError("explicit thinking control requires OpenAI-compatible transport")
+        # Runtime selection (/model, /effort); None keeps the configured wire options.
+        # The host records each change in the Journal and re-applies it on restart.
+        self.reasoning: str | None = None
         self.max_response_bytes = max_response_bytes
         validate_endpoint(base_url, allow_insecure_http)
         if max_response_bytes <= 0:
@@ -67,6 +73,68 @@ class APIProposer:
         # Only trusted composition supplies this immutable input. Never promote
         # a field from model-provided context or delegate arguments into system.
         self._task_instruction_prompt = task_instructions.render() if task_instructions else ""
+
+    def reasoning_levels(self) -> tuple[str, ...]:
+        """Levels a user may select. Declared by the operator; DeepSeek's own endpoint
+        has documented levels; any other endpoint offers none unless declared."""
+        declared = self.wire_options.reasoning_levels
+        if declared is not None or self.provider != "openai":
+            return tuple(declared or ())
+        return DEEPSEEK_LEVELS if urlsplit(self.base_url).hostname == "api.deepseek.com" else ()
+
+    def configured_reasoning(self) -> str | None:
+        """The level the configured wire options request; None is the provider default."""
+        options = self.wire_options
+        if options.thinking == "disabled":
+            return "off"
+        return options.reasoning_effort
+
+    def effective_reasoning(self) -> str | None:
+        return self.reasoning if self.reasoning is not None else self.configured_reasoning()
+
+    def select_reasoning(self, level: str | None) -> None:
+        """Select a declared level, or None to return to the configured options."""
+        if level is not None and level not in self.reasoning_levels():
+            raise ValueError(f"reasoning level {level!r} is not offered by this route")
+        self.reasoning = level
+
+    def _reasoning_messages(self, payload: Json) -> None:
+        """Run on the final messages. With thinking off, no reasoning goes back. With
+        thinking on (also DeepSeek's default when the field is absent), every assistant
+        message of the current turn carries reasoning_content, empty if the model gave
+        none: DeepSeek rejects a tool-call follow-up without the field (HTTP 400)."""
+        if self.provider != "openai":
+            return
+        thinking = payload.get("thinking")
+        messages = payload.get("messages", [])
+        if thinking == {"type": "disabled"}:
+            for message in messages:
+                message.pop("reasoning_content", None)
+            return
+        if thinking != {"type": "enabled"} and "off" not in self.reasoning_levels():
+            return
+        last_user = max((index for index, item in enumerate(messages) if item.get("role") == "user"), default=-1)
+        for message in messages[last_user + 1:]:
+            if message.get("role") == "assistant":
+                message.setdefault("reasoning_content", "")
+
+    def _reasoning_fields(self, payload: Json) -> None:
+        """thinking / reasoning_effort for the OpenAI-compatible request."""
+        options = self.wire_options
+        if self.reasoning is None:
+            if options.thinking is not None:
+                payload["thinking"] = {"type": options.thinking}
+            if options.reasoning_effort is not None and options.thinking != "disabled":
+                payload["reasoning_effort"] = options.reasoning_effort
+            return
+        # "off" exists only where thinking is a toggle; a level then switches it on.
+        toggles = "off" in self.reasoning_levels()
+        if self.reasoning == "off":
+            payload["thinking"] = {"type": "disabled"}
+            return
+        if toggles:
+            payload["thinking"] = {"type": "enabled"}
+        payload["reasoning_effort"] = self.reasoning
 
     def propose(self, context: Json, tools: tuple[ToolSpec, ...]) -> Reply | AssistantTurn:
         return self.invoke(self.prepare(context, tools))
@@ -99,8 +167,7 @@ class APIProposer:
             }
             if self.wire_options.include_parallel_tool_calls:
                 payload["parallel_tool_calls"] = False
-            if self.wire_options.thinking is not None:
-                payload["thinking"] = {"type": self.wire_options.thinking}
+            self._reasoning_fields(payload)
         else:
             endpoint = "/messages"
             headers = {"content-type": "application/json", "anthropic-version": "2023-06-01"}
@@ -126,6 +193,7 @@ class APIProposer:
             if not tools:
                 for key in ("tools", "tool_choice", "parallel_tool_calls"):
                     payload.pop(key, None)
+        self._reasoning_messages(payload)
         prepare_stream(payload, self.provider)
         return ModelRequest(provider=self.provider, endpoint=self.base_url + endpoint,
                             body_json=canonical(payload), public_headers_json=canonical(headers),
@@ -152,8 +220,7 @@ class APIProposer:
             }
             if self.wire_options.include_parallel_tool_calls:
                 payload["parallel_tool_calls"] = True
-            if self.wire_options.thinking is not None:
-                payload["thinking"] = {"type": self.wire_options.thinking}
+            self._reasoning_fields(payload)
         else:
             endpoint = "/messages"
             headers["anthropic-version"] = "2023-06-01"
@@ -166,6 +233,7 @@ class APIProposer:
         if not tools:
             for key in ("tools", "tool_choice", "parallel_tool_calls"):
                 payload.pop(key, None)
+        self._reasoning_messages(payload)
         prepare_stream(payload, self.provider)
         return ModelRequest(provider=self.provider, endpoint=self.base_url + endpoint,
                             body_json=canonical(payload), public_headers_json=canonical(headers),

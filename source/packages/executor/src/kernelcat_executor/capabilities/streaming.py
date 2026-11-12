@@ -43,7 +43,7 @@ def _secret_prefix_suffix(text, secret):
 
 def request_stream(request, headers, *, provider, max_bytes, client=None, secret=""):
     callback = observer.get()
-    text, calls, blocks, usage = "", {}, {}, {}
+    text, reasoning, calls, blocks, usage = "", "", {}, {}, {}
     reason = None
     ended = False
 
@@ -64,7 +64,7 @@ def request_stream(request, headers, *, provider, max_bytes, client=None, secret
         emit("text_delta", delta, final)
 
     def consume(value):
-        nonlocal text, reason, ended
+        nonlocal text, reasoning, reason, ended
         if provider == "openai":
             usage.update(value.get("usage") or {})
             choices = value.get("choices", [])
@@ -74,9 +74,11 @@ def request_stream(request, headers, *, provider, max_bytes, client=None, secret
                 if choice.get("index", 0) != 0:
                     raise ValueError("unexpected streaming choice")
                 delta = choice.get("delta", {})
-                # Reasoning is presentation only; it is not part of the settled reply.
+                # Reasoning streams to the TUI and is kept in the settled reply: in
+                # thinking mode with tool calls the provider requires it back.
                 thinking = delta.get("reasoning_content") or ""
                 if thinking:
+                    reasoning += thinking
                     emit("thinking_delta", thinking)
                 piece = delta.get("content") or ""
                 text += piece
@@ -155,7 +157,10 @@ def request_stream(request, headers, *, provider, max_bytes, client=None, secret
         raise ToolFailure("provider streaming transport failure", details={
             "category": "timeout" if isinstance(error, httpx.TimeoutException) else "transport", "automatic_retry": False}) from None
     if provider == "openai":
-        return {"choices": [{"finish_reason": reason, "message": {"content": text, "tool_calls": [calls[k] for k in sorted(calls)]}}], "usage": usage}
+        message = {"content": text, "tool_calls": [calls[k] for k in sorted(calls)]}
+        if reasoning:
+            message["reasoning_content"] = reasoning
+        return {"choices": [{"finish_reason": reason, "message": message}], "usage": usage}
     content = []
     for key in sorted(blocks):
         block = blocks[key]

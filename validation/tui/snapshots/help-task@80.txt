@@ -8,7 +8,7 @@
   /agents                 子代理类型与运行记录
   /trace                  浏览器中查看实时轨迹
   /compact                压缩上下文
-  /model  /settings       模型路由与会话设置
+  /model  /effort         模型与推理档位
   /detach                 退出并允许 Goal 继续
   /quit                   退出并按策略暂停
 快捷键

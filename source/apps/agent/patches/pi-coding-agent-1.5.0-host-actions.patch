@@ -198,7 +198,19 @@
              if (this.session.isStreaming) {
                  this.restoreQueuedMessagesToEditor({ abort: true });
              }
-@@ -2593,6 +2631,27 @@
+@@ -2506,6 +2544,7 @@
+-        this.defaultEditor.onAction("app.thinking.cycle", () => this.cycleThinkingLevel());
+-        this.defaultEditor.onAction("app.model.cycleForward", () => this.cycleModel("forward"));
+-        this.defaultEditor.onAction("app.model.cycleBackward", () => this.cycleModel("backward"));
++        // KernelBridge: the host owns models and reasoning levels (its routes); these keys select them.
++        this.defaultEditor.onAction("app.thinking.cycle", () => this.options.hostActions ? void this.options.hostActions.key("thinking") : this.cycleThinkingLevel());
++        this.defaultEditor.onAction("app.model.cycleForward", () => this.options.hostActions ? void this.options.hostActions.key("model.forward") : this.cycleModel("forward"));
++        this.defaultEditor.onAction("app.model.cycleBackward", () => this.options.hostActions ? void this.options.hostActions.key("model.backward") : this.cycleModel("backward"));
+         // Global debug handler on TUI (works regardless of focus)
+         this.ui.onDebug = () => this.handleDebugCommand();
+-        this.defaultEditor.onAction("app.model.select", () => this.showModelSelector());
++        this.defaultEditor.onAction("app.model.select", () => this.options.hostActions ? void this.options.hostActions.key("model.select") : this.showModelSelector());
+@@ -2593,6 +2632,27 @@
      }
      setupEditorSubmitHandler() {
          this.defaultEditor.onSubmit = async (text) => {
@@ -226,10 +238,10 @@
              text = text.trim();
              if (!text)
                  return;
-@@ -2890,1 +2949,1 @@
+@@ -2890,1 +2950,1 @@
 -                    this.streamingComponent = new AssistantMessageComponent(undefined, this.hideThinkingBlock, this.getMarkdownThemeWithSettings(), this.hiddenThinkingLabel, this.outputPad, this.getMarkdownTransformers());
 +                    this.streamingComponent = withAssistantBullet(new AssistantMessageComponent(undefined, this.hideThinkingBlock, this.getMarkdownThemeWithSettings(), this.hiddenThinkingLabel, this.outputPad, this.getMarkdownTransformers()), this.options.hostActions);
-@@ -3239,7 +3298,8 @@
+@@ -3239,7 +3299,8 @@
              case "system":
                  break;
              case "user": {
@@ -239,10 +251,10 @@
                  if (textContent) {
                      if (this.chatContainer.children.length > 0) {
                          this.chatContainer.addChild(new Spacer(1));
-@@ -3256,1 +3316,1 @@
+@@ -3256,1 +3317,1 @@
 -                            const userComponent = new UserMessageComponent(skillBlock.userMessage, this.getMarkdownThemeWithSettings(), this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp);
 +                            const userComponent = withUserPrompt(new UserMessageComponent(skillBlock.userMessage, this.getMarkdownThemeWithSettings(), this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp), this.options.hostActions && textContent === originalText);
-@@ -3261,7 +3321,7 @@
+@@ -3261,7 +3322,7 @@
 -                        const userComponent = new UserMessageComponent(textContent, this.getMarkdownThemeWithSettings(), this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp);
 +                        const userComponent = withUserPrompt(new UserMessageComponent(textContent, this.getMarkdownThemeWithSettings(), this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp), this.options.hostActions && textContent === originalText);
                          this.chatContainer.addChild(userComponent);
@@ -252,10 +264,10 @@
                          this.editor.addToHistory?.(textContent);
                      }
                  }
-@@ -3271,1 +3331,1 @@
+@@ -3271,1 +3332,1 @@
 -                const assistantComponent = new AssistantMessageComponent(message, this.hideThinkingBlock, this.getMarkdownThemeWithSettings(), this.hiddenThinkingLabel, this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp);
 +                const assistantComponent = withAssistantBullet(new AssistantMessageComponent(message, this.hideThinkingBlock, this.getMarkdownThemeWithSettings(), this.hiddenThinkingLabel, this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp), this.options.hostActions);
-@@ -3500,6 +3560,7 @@
+@@ -3500,6 +3561,7 @@
          }
      }
      renderProjectTrustWarningIfNeeded() {
@@ -263,7 +275,7 @@
          if (this.settingsManager.isProjectTrusted() || !hasTrustRequiringProjectResources(this.sessionManager.getCwd())) {
              return;
          }
-@@ -3548,6 +3609,10 @@
+@@ -3548,6 +3610,10 @@
       */
      isShuttingDown = false;
      async shutdown(options) {
@@ -274,7 +286,7 @@
          if (this.isShuttingDown)
              return;
          this.isShuttingDown = true;
-@@ -3577,7 +3642,7 @@
+@@ -3577,7 +3643,7 @@
          await this.ui.terminal.drainInput(1000);
          this.stop();
          await this.runtimeHost.dispose();
@@ -283,13 +295,13 @@
          if (resumeCommand) {
              process.stdout.write(`${chalk.dim("To resume this session:")} ${resumeCommand}\n`);
          }
-@@ -3819,1 +3884,1 @@
+@@ -3819,1 +3885,1 @@
 -        this.showStatus(`Tool output: ${expanded ? "expanded" : "collapsed"}`);
 +        this.showStatus(this.options.hostActions ? `工具输出：${expanded ? "已展开" : "已折叠"}` : `Tool output: ${expanded ? "expanded" : "collapsed"}`);
-@@ -3834,1 +3899,1 @@
+@@ -3834,1 +3900,1 @@
 -        this.showStatus(`Thinking blocks: ${this.hideThinkingBlock ? "hidden" : "visible"}`);
 +        this.showStatus(this.options.hostActions ? `思考内容：${this.hideThinkingBlock ? "已隐藏" : "已显示"}` : `Thinking blocks: ${this.hideThinkingBlock ? "hidden" : "visible"}`);
-@@ -4792,6 +4857,7 @@
+@@ -4792,6 +4858,7 @@
                      // Update UI
                      this.chatContainer.clear();
                      this.renderInitialMessages();
@@ -297,7 +309,7 @@
                      if (result.editorText && !this.editor.getText().trim()) {
                          this.editor.setText(result.editorText);
                      }
-@@ -5896,6 +5962,7 @@
+@@ -5896,6 +5963,7 @@
          }
      }
      handleDebugCommand() {

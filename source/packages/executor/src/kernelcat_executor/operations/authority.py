@@ -86,7 +86,7 @@ class ExecutionRPC:
         self.route_index = 0
         self.failed: list[str] = []
         self.proposal_id = ""
-        self.text = ""
+        self.text, self.thinking = "", ""
         self.calls: tuple[Action, ...] = ()
         self.outcomes: list[Outcome] = []
         self.plan: Any = None
@@ -340,11 +340,11 @@ class ExecutionRPC:
             self.plan = (self.owner._batch_plan(turn, self.task, identity, state)
                          or self.owner._delegation_plan(turn, self.task, identity, state))
             self.calls = turn_actions(turn, self.task.id, identity, parallel=self.plan is not None)
-            self.text = turn.text
+            self.text, self.thinking = turn.text, turn.reasoning
         else:
             self.calls = (Action(id=f"{self.task.id}/step/{self.step}/call", task=self.task.id,
                 tool=proposal.data["tool"], arguments=proposal.data["arguments"], parents=(identity,)),)
-            self.text = ""
+            self.text, self.thinking = "", ""
         if not self.harness_tools and self.owner.role == "scout" and any(
                 a.tool not in self.allowed and not (
                     a.tool in self.harness_tools and native_name(a.tool, self.native_leaves))
@@ -353,7 +353,8 @@ class ExecutionRPC:
         self.outcomes = []
         self.prepared, self.active = False, True
         return {"proposal_id": identity, "text": self.text, "parallel": self._gateway_batch(),
-                "calls": [self.wire(a) for a in self.calls], "usage": proposal.data.get("usage", {})}
+                "calls": [self.wire(a) for a in self.calls], "usage": proposal.data.get("usage", {}),
+                **({"thinking": self.thinking} if self.thinking else {})}
 
     def _provider_failed(self, identity: str, policy: Policy) -> Json:
         self.failed.append(identity)

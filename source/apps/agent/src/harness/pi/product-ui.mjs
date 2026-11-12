@@ -2,6 +2,7 @@ import { CURSOR_MARKER, renderFakeCursor, truncateToWidth, visibleWidth, wrapTex
 import { CustomEditor } from '@earendil-works/pi-coding-agent';
 import { homedir } from 'node:os';
 import { DETERMINISTIC, clock, childMetrics, delegateTitle, reasonLabel } from './tool-render.mjs';
+import { levelLabel } from './model-picker.mjs';
 
 const STATUSES = { active: '进行中', paused: '已暂停', awaiting_user: '等待输入', completed: '已完成',
   budget_limit: '预算耗尽', failed: '失败', cleared: '已清除' };
@@ -90,7 +91,7 @@ export function statePresentation(state) {
   // elides the path's middle at the real terminal width (fitFeedback).
   return [goal ? `目标：${goal.objective}` : '尚未设置 Goal。输入 /goal 目标内容 开始持续执行。',
     `状态：${goal ? STATUSES[goal.status] ?? goal.status : '普通会话'}`,
-    ...(state.cwd ? [`目录：${shortPath(state.cwd)}`, `模型：${state.model}`] : []),
+    ...(state.cwd ? [`目录：${shortPath(state.cwd)}`, `模型：${state.model}${state.reasoning?.levels?.length ? ` · 思考 ${levelLabel(state.reasoning.level)}` : ''}`] : []),
     ...(state.workspace_mode !== 'project' ? [`任务版本 ${state.task_version} · Trial ${state.trials?.length || 0}`] : []),
     ...(goal && state.goal_usage ? [`已用时 ${goalElapsed(goal, state.goal_usage)} · 模型调用 ${state.goal_usage.model_turns} · tokens ${state.goal_usage.tokens}${goal.token_budget == null ? '' : '/' + goal.token_budget}`,
       ...(state.goal_usage.usage_unknown_calls ? [`${state.goal_usage.usage_unknown_calls} 次调用未报告 token 用量`] : [])] : []),
@@ -218,11 +219,15 @@ export function installProductUI(context, getState, { demo = false } = {}) {
       const activity = goal ? `Goal ${STATUSES[goal.status] ?? goal.status}` : busy ? '执行中' : '等待输入';
       const usage = context.getContextUsage?.();
       const percent = usage?.percent ?? (usage?.tokens != null && usage?.contextWindow ? usage.tokens / usage.contextWindow * 100 : null);
-      const left = state.workspace_mode === 'project'
-        ? `${color(busy || children ? 'accent' : 'success', '●')} ${color('text', state.model ?? '未配置模型')} ${color('dim', '·')} ${color('muted', activity)}`
-        : `${color('accent', '●')} ${color('muted', `${goal ? `Goal ${STATUSES[goal.status] ?? goal.status}` : 'Session'} · task v${state.task_version} · Trial ${state.trials?.length || 0}`)}`;
+      // Like Codex's status line, the reasoning level follows the model; it is the
+      // first thing to go when the row is narrow.
+      const effort = state.reasoning?.levels?.length ? ` ${color('dim', '·')} ${color('muted', `思考 ${levelLabel(state.reasoning.level)}`)}` : '';
+      const lefts = state.workspace_mode === 'project'
+        ? [effort, ''].map(part => `${color(busy || children ? 'accent' : 'success', '●')} ${color('text', state.model ?? '未配置模型')}${part} ${color('dim', '·')} ${color('muted', activity)}`)
+        : [effort, ''].map(part => `${color('accent', '●')} ${color('muted', `${goal ? `Goal ${STATUSES[goal.status] ?? goal.status}` : 'Session'} · task v${state.task_version} · Trial ${state.trials?.length || 0}`)}${part}`);
       const remaining = Math.max(0, Math.round(100 - percent));
       const rights = percent == null ? [''] : [`上下文剩余 ${remaining}%`, `剩余 ${remaining}%`].map(text => color(percent >= 80 ? 'warning' : 'dim', text));
+      const left = lefts.find(text => visibleWidth(text) + visibleWidth(rights.at(-1)) + 2 <= width) ?? lefts.at(-1);
       const detach = goal || state.workspace_mode !== 'project' ? `退出${goal?.on_detach === 'continue' ? '继续' : '暂停'} · ` : '';
       return [
         fitRight(left, rights, width),

@@ -120,6 +120,20 @@ def main():
         send('/goal clear')
         assert state()['goal']['status'] == 'cleared'
 
+        # /model: the picker opens on the current route; → twice selects 高 (off → low → high).
+        assert state()['reasoning'] == {'level': None, 'levels': ['off', 'low', 'high', 'max']}
+        os.write(master, b'/model\r')
+        until(lambda: '选择模型和推理档位' in text() and '思考 ‹ 默认 ›' in text())
+        save('model-picker-screen')
+        os.write(master, b'\x1b[C'); until(lambda: '思考 ‹ 关 ›' in text())
+        os.write(master, b'\x1b[C'); until(lambda: '思考 ‹ 低 ›' in text())
+        os.write(master, b'\x1b[C'); until(lambda: '思考 ‹ 高 ›' in text())
+        os.write(master, b'\r')
+        until(lambda: recorded('/model'))
+        assert state()['reasoning']['level'] == 'high', state()['reasoning']
+        until(lambda: '已切换' in text() and '思考 高' in text())
+        model_requests = len(Provider.requests)
+
         os.write(master, b'\x1b[1;5H')
         until(lambda: '回到最新消息' in text())
         save('history-screen')
@@ -136,6 +150,10 @@ def main():
         until(lambda: '回到最新消息' in text())
         send('从历史位置提交中文输入')
         until(lambda: '从历史位置提交中文输入' in text() and '回到最新消息' not in text())
+        # The selected level reaches the provider on the next model call.
+        assert len(Provider.requests) > model_requests
+        assert Provider.requests[-1].get('thinking') == {'type': 'enabled'}, Provider.requests[-1].get('thinking')
+        assert Provider.requests[-1].get('reasoning_effort') == 'high'
         save('submitted-screen')
 
         # D12 keeps the detach policy at a wide width; a long branch can take
@@ -173,7 +191,7 @@ def main():
         assert child.returncode == 0
         (output / 'scenario.json').write_text(json.dumps({'status': 'passed', 'final': final,
             'checks': ['startup_tail', 'editor_hint', 'go_tab_completion', 'codex_goal_lifecycle', 'visible_rejection',
-                'latest_command', 'submit_from_history', 'narrow_goal_path', 'narrow_footer', 'no_synthetic_final_answer']}, indent=2))
+                'latest_command', 'model_picker_reasoning_level', 'submit_from_history', 'narrow_goal_path', 'narrow_footer', 'no_synthetic_final_answer']}, indent=2))
         print(json.dumps({'status': 'passed', 'spent': final['budget']['spent']}))
     finally:
         (output / 'pty-transcript.txt').write_bytes(transcript)

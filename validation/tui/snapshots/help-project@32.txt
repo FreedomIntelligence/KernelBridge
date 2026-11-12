@@ -4,7 +4,8 @@
   /resume  恢复历史会话
   /agents  子代理类型与运行记录
   /trace  浏览器中查看实时轨迹
-  /model  切换模型
+  /model  /effort
+    模型与推理档位
   /compact  压缩上下文
   /goal 目标内容
     持续执行直到完成

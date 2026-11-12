@@ -4,12 +4,12 @@ from __future__ import annotations
 import json
 from typing import Literal, cast
 
-from kernelcat_executor.contracts.messages import AssistantTurn, TextContent, ToolCall
+from kernelcat_executor.contracts.messages import AssistantTurn, TextContent, ThinkingContent, ToolCall
 from kernelcat_executor.contracts.models import Json, ToolFailure, canonical
 
 
 def parse_turn(provider: Literal["openai", "anthropic"], data: Json, usage: Json) -> AssistantTurn:
-    blocks: list[TextContent | ToolCall] = []
+    blocks: list[TextContent | ToolCall | ThinkingContent] = []
     if provider == "openai":
         choices = data["choices"]
         if not isinstance(choices, list) or len(choices) != 1:
@@ -20,6 +20,9 @@ def parse_turn(provider: Literal["openai", "anthropic"], data: Json, usage: Json
             raise ToolFailure("provider output was truncated or filtered",
                               details={"usage": usage, "category": "incomplete_output"})
         message = choice["message"]
+        reasoning = message.get("reasoning_content")
+        if isinstance(reasoning, str) and reasoning:
+            blocks.append(ThinkingContent(thinking=reasoning))
         text = message.get("content")
         if text is not None:
             if not isinstance(text, str):
@@ -104,6 +107,8 @@ def conversation(provider: Literal["openai", "anthropic"], context: Json) -> lis
             aliases[call.id] = alias
         if provider == "openai":
             assistant: Json = {"role": "assistant", "content": turn.text or None}
+            if turn.reasoning:
+                assistant["reasoning_content"] = turn.reasoning
             if turn.tool_calls:
                 assistant["tool_calls"] = [{"id": aliases[c.id], "type": "function",
                     "function": {"name": c.name, "arguments": canonical(c.arguments)}}
@@ -115,6 +120,8 @@ def conversation(provider: Literal["openai", "anthropic"], context: Json) -> lis
         else:
             content: list[Json] = []
             for block in turn.content:
+                if isinstance(block, ThinkingContent):
+                    continue
                 if isinstance(block, TextContent):
                     content.append({"type": "text", "text": block.text})
                 else:
@@ -128,7 +135,17 @@ def conversation(provider: Literal["openai", "anthropic"], context: Json) -> lis
                 } for r in results]})
     emit_inputs(None)
     # Detach nested dictionaries returned by caller-supplied projections.
-    return cast(list[Json], json.loads(canonical(messages)))
+    return cast(list[Json], json.loads(canonical(current_turn_reasoning(messages))))
+
+
+def current_turn_reasoning(messages: list[Json]) -> list[Json]:
+    """Keep reasoning_content only after the last user message: thinking mode needs it
+    back within the turn's tool loop; earlier turns' reasoning only costs tokens."""
+    last_user = max((index for index, item in enumerate(messages) if item.get("role") == "user"), default=-1)
+    for index, item in enumerate(messages):
+        if index < last_user and item.get("role") == "assistant":
+            item.pop("reasoning_content", None)
+    return messages
 
 
 def harness_conversation(provider: Literal["openai", "anthropic"],
@@ -144,6 +161,9 @@ def harness_conversation(provider: Literal["openai", "anthropic"],
         elif provider == "openai" and role == "assistant":
             assistant: Json = {"role": "assistant", "content": "".join(
                 block["text"] for block in blocks if block["type"] == "text") or None}
+            reasoning = "".join(block["thinking"] for block in blocks if block["type"] == "thinking")
+            if reasoning:
+                assistant["reasoning_content"] = reasoning
             calls = [block for block in blocks if block["type"] == "toolCall"]
             if calls:
                 assistant["tool_calls"] = [{"id": call["id"], "type": "function", "function": {
@@ -154,10 +174,10 @@ def harness_conversation(provider: Literal["openai", "anthropic"],
             encoded.append({"role": role, "content": [
                 {"type": "tool_use", "id": block["id"], "name": block["name"],
                  "input": block["arguments"]} if block["type"] == "toolCall" else block
-                for block in blocks]})
+                for block in blocks if block["type"] != "thinking"]})
         else:
             encoded.append({"role": role, "content": content})
-    return cast(list[Json], json.loads(canonical(encoded)))
+    return cast(list[Json], json.loads(canonical(current_turn_reasoning(encoded))))
 
 
 def _harness_result(provider: Literal["openai", "anthropic"], message: Json,

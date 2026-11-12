@@ -130,12 +130,14 @@ export class RpcClient {
 export function assistant(reply, model={api:'openai-completions',provider:'kernelcat',id:'controlled'}, timestamp=Date.now(), toolName='kernelcat_effect') {
   if(!reply || typeof reply.text!=='string' || !Array.isArray(reply.calls)) throw new Error('Invalid host turn');
   const content=[];
+  // Provider reasoning first, as Pi renders it; the host sends it back within the turn.
+  if(typeof reply.thinking==='string' && reply.thinking) content.push({type:'thinking',thinking:reply.thinking});
   if(reply.text) content.push({type:'text',text:reply.text});
   for(const call of reply.calls) {
     if(!call||typeof call.id!=='string'||typeof call.name!=='string'||!call.arguments||typeof call.arguments!=='object') throw new Error('Invalid host call');
     content.push({type:'toolCall',id:call.id,name:toolName ?? call.name,arguments:toolName === null ? call.arguments : call});
   }
-  if(!content.length) content.push({type:'text',text:'Host stopped this invocation.'});
+  if(!content.some(block => block.type !== 'thinking')) content.push({type:'text',text:'Host stopped this invocation.'});
   const usage = reply.usage ?? {};
   const count = (...names) => {
     for (const name of names) if (Number.isSafeInteger(usage[name]) && usage[name] >= 0) return usage[name];

@@ -5,7 +5,7 @@ import json
 def review_verdict(outcome):
     if outcome.get("status") != "completed":
         raise ValueError("Goal reviewer did not return a completed model receipt")
-    blocks = outcome.get("data", {}).get("content", [])
+    blocks = [block for block in outcome.get("data", {}).get("content", []) if block.get("type") != "thinking"]
     if not blocks or any(block.get("type") != "text" for block in blocks):
         raise ValueError("Goal reviewer must return text without tools")
     value = json.loads("\n".join(block["text"] for block in blocks))

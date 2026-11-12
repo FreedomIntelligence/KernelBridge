@@ -69,7 +69,7 @@ test('/help stays a table at 48 columns and never starts a description at column
   }
   // At 40 columns the project table tightens its column instead of stacking.
   const tight = feedback(commandHelp('project'), 40);
-  assert.ok(tight.includes('  /resume         恢复历史会话'), tight.join('\n'));
+  assert.ok(tight.includes('  /resume          恢复历史会话'), tight.join('\n'));
   assert.ok(feedback(commandHelp('project'), 40, 24).length <= 17, 'fits the height left in a 24-row terminal');
 });
 

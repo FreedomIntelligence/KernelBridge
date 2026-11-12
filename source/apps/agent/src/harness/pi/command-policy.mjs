@@ -1,7 +1,7 @@
 import { visibleWidth } from '@earendil-works/pi-tui';
 
 /** One catalogue drives both the command gate and native editor completion. */
-export const COMMAND_POLICY_VERSION = 'kernelbridge.commands/v3';
+export const COMMAND_POLICY_VERSION = 'kernelbridge.commands/v4';
 export const PRODUCT_COMMANDS = Object.freeze([
   ['goal', '设置持续目标；不带参数查看目标', '[目标内容 | pause | resume | clear]'],
   ['help', '查看可用命令与快捷键'],
@@ -15,8 +15,9 @@ export const PRODUCT_COMMANDS = Object.freeze([
   ['fork', '从历史消息创建分支', '[entry]'],
   ['clone', '复制当前上下文到新分支'],
   ['tree', '浏览对话树并选择分支'],
-  ['model', '查看或切换允许的模型路由', '[route]'],
-  ['thinking', '查看或切换允许的推理等级', '[level]'],
+  ['model', '选择模型和推理档位', '[模型] [档位]'],
+  ['effort', '设置推理档位；不带参数打开选择器', '[off | low | high | max | auto]'],
+  ['thinking', '同 /effort', '[档位]'],
   ['scoped-models', '查看允许的模型路由'],
   ['settings', '查看会话设置'],
   ['trust', '查看已冻结的任务指令'],
@@ -58,7 +59,7 @@ const HELP_ROWS = {
     ['/resume', '恢复历史会话'],
     ['/agents', '子代理类型与运行记录'],
     ['/trace', '浏览器中查看实时轨迹'],
-    ['/model', '切换模型'],
+    ['/model  /effort', '模型与推理档位'],
     ['/compact', '压缩上下文'],
     ['/goal 目标内容', '持续执行直到完成'],
     ['/goal pause | resume | clear', '暂停、恢复、清除目标'],
@@ -74,7 +75,7 @@ const HELP_ROWS = {
     ['/agents', '子代理类型与运行记录'],
     ['/trace', '浏览器中查看实时轨迹'],
     ['/compact', '压缩上下文'],
-    ['/model  /settings', '模型路由与会话设置'],
+    ['/model  /effort', '模型与推理档位'],
     ['/detach', '退出并允许 Goal 继续'],
     ['/quit', '退出并按策略暂停'],
   ],

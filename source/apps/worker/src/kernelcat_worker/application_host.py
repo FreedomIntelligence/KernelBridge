@@ -28,6 +28,7 @@ import uuid
 from jsonschema import Draft202012Validator
 
 from kernelcat_executor.contracts.models import Conflict, Task, canonical
+from kernelcat_executor.contracts.providers import REASONING_ORDER
 from kernelcat_executor.state.application import ApplicationJournal, ModelAdmissionStopped
 from kernelcat_worker.bindings import build
 from kernelcat_worker.configuration import load_config
@@ -195,6 +196,7 @@ class ApplicationHost:
                 "config_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest()})
             # Crashed host leases are revoked only after holding the original OS lock.
             state = self.journal.state()
+            self.restore_reasoning(state)
             if state["lease"]:
                 self.journal.command("release", {**state["lease"], "reason": "host_recovery"})
             self.ready.set_result(True)
@@ -532,7 +534,7 @@ class ApplicationHost:
             route, context, (), (), harness=harness)
         if outcome.status != "completed":
             raise Conflict("compaction model did not complete; original reservation retained")
-        blocks = outcome.data.get("content", [])
+        blocks = [block for block in outcome.data.get("content", []) if block.get("type") != "thinking"]
         if any(block.get("type") != "text" for block in blocks):
             raise Conflict("compaction returned an unexpected tool call")
         text = "\n".join(block["text"] for block in blocks)
@@ -570,6 +572,10 @@ class ApplicationHost:
         state["cwd"] = self.owner.workspace_policy["root"]
         route = Policy.model_validate_json(canonical(execution["policy"])).routes[0]
         state["model"] = self.config.providers[route].model
+        state["route"] = route
+        proposer = next(iter(self.route_proposers(route)), None)
+        state["reasoning"] = {"level": proposer.effective_reasoning(), "levels": list(proposer.reasoning_levels())} \
+            if proposer is not None and proposer.reasoning_levels() else None
         state["budget"] = {key: execution.get(key) for key in ("limit", "spent", "reserved", "resources")}
         state["pending_effect_ids"] = [key for key, item in execution["actions"].items() if not item.get("terminal")]
         state["model_turns"] = sum(1 for item in execution["actions"].values() if item["action"]["tool"] == "__propose__")
@@ -858,34 +864,96 @@ class ApplicationHost:
             self.owner.replay.checkpoint(selected["native_checkpoint"])
         return {"path": str(path), "checkpoint": selected}
 
+    def route_proposers(self, route):
+        """The parent and child transports of one route (the same choice applies to both)."""
+        return [item for item in (getattr(self.owner, "proposers", {}).get(route), getattr(self.owner, "child_proposers", {}).get(route))
+                if item is not None and hasattr(item, "select_reasoning")]
+
+    def models(self):
+        """Routes, their models and reasoning levels, for /model and the footer."""
+        current = self.owner.gateway.store.policy().routes[0]
+        result = []
+        for route in self.config.policy.routes:
+            proposer = next(iter(self.route_proposers(route)), None)
+            result.append({"route": route, "model": self.config.providers[route].model,
+                "levels": list(proposer.reasoning_levels()) if proposer else [],
+                "level": proposer.effective_reasoning() if proposer else None,
+                "configured": proposer.configured_reasoning() if proposer else None,
+                "current": route == current})
+        return {"current": current, "allowed_routes": list(self.config.policy.routes), "routes": result}
+
+    def apply_reasoning(self, route, level):
+        """Select a level ("auto" returns to the configured options) on both transports."""
+        proposers = self.route_proposers(route)
+        if not proposers:
+            raise Conflict("this route has no selectable reasoning levels")
+        value = None if level == "auto" else level
+        for proposer in proposers:
+            try:
+                proposer.select_reasoning(value)
+            except ValueError as error:
+                raise Conflict(str(error)) from None
+
+    def restore_reasoning(self, state):
+        """Re-apply the latest recorded choice per route after a restart."""
+        latest = {}
+        for item in state["configurations"]:
+            if item.get("kind") == "reasoning" and item.get("route") in self.config.policy.routes:
+                latest[item["route"]] = item.get("value")
+        for route, level in latest.items():
+            try:
+                self.apply_reasoning(route, level)
+            except Conflict:
+                pass  # a level the edited configuration no longer offers falls back to it
+
     def configure(self, connection, params):
+        """/model [ROUTE] [LEVEL], /effort LEVEL|auto|up|down (and /thinking, its alias).
+
+        Each change is recorded in the Journal before the next model request is
+        prepared; requests carry the resulting thinking/reasoning_effort fields
+        verbatim, so replay never depends on the current selection."""
         state = self.status()
         kind, value = params.get("kind"), params.get("value")
         if kind == "model":
             allowed = list(self.config.policy.routes)
-            if value is None:
-                return {"allowed_routes": allowed, "current": self.owner.gateway.store.policy().routes[0]}
-            if value not in allowed:
+            reasoning = params.get("reasoning")
+            if value is None and reasoning is None:
+                return self.models()
+            route = value or self.owner.gateway.store.policy().routes[0]
+            if route not in allowed:
                 raise Conflict("model route is outside the frozen profile")
             if state["pending_effect_ids"]:
                 raise Conflict("change model configuration at a settled boundary")
-            from kernelcat_executor.contracts.models import digest
-            policy = self.owner.gateway.store.policy()
-            selected = policy.model_copy(update={"routes": (value, *(route for route in allowed if route != value)), "revision": policy.revision + 1})
-            self.owner.gateway.store.install(digest(policy), selected, {"initiator": "user", "kind": "model"})
-        elif kind == "thinking":
-            configured = {name: item.wire_options.model_dump(mode="json") for name, item in self.config.providers.items()}
+            if reasoning is not None:
+                self.apply_reasoning(route, reasoning)
+            if value is not None and value != self.owner.gateway.store.policy().routes[0]:
+                from kernelcat_executor.contracts.models import digest
+                policy = self.owner.gateway.store.policy()
+                selected = policy.model_copy(update={"routes": (value, *(item for item in allowed if item != value)), "revision": policy.revision + 1})
+                self.owner.gateway.store.install(digest(policy), selected, {"initiator": "user", "kind": "model"})
             if value is not None:
-                routes = [name for name in self.config.policy.routes if value in {configured[name].get("thinking"), configured[name].get("reasoning_effort")}]
-                if not routes:
-                    raise Conflict("thinking level has no allowed route in the frozen profile")
-                self.configure(connection, {"kind": "model", "value": routes[0]})
-                self.journal.command("configuration", {**connection.worker, "kind": "thinking", "value": value, "route": routes[0]})
-            return {"providers": configured}
-        else:
-            raise Conflict("unknown configuration kind")
-        self.journal.command("configuration", {**connection.worker, "kind": kind, "value": value})
-        return {"kind": kind, "value": value}
+                self.journal.command("configuration", {**connection.worker, "kind": "model", "value": value})
+            if reasoning is not None:
+                self.journal.command("configuration", {**connection.worker, "kind": "reasoning", "route": route, "value": reasoning})
+            return {**self.models(), "kind": kind, "value": value, "reasoning": reasoning}
+        if kind in {"reasoning", "thinking"}:
+            route = self.owner.gateway.store.policy().routes[0]
+            if value is None:
+                return self.models()
+            proposers = self.route_proposers(route)
+            levels = [item for item in REASONING_ORDER if proposers and item in proposers[0].reasoning_levels()]
+            if value in {"up", "down"}:
+                if not levels:
+                    raise Conflict("this route has no selectable reasoning levels")
+                current = self.route_proposers(route)[0].effective_reasoning()
+                index = levels.index(current) if current in levels else (len(levels) - 1 if value == "down" else -1)
+                value = levels[max(0, min(len(levels) - 1, index + (1 if value == "up" else -1)))]
+            if state["pending_effect_ids"]:
+                raise Conflict("change model configuration at a settled boundary")
+            self.apply_reasoning(route, value)
+            self.journal.command("configuration", {**connection.worker, "kind": "reasoning", "route": route, "value": value})
+            return {**self.models(), "kind": "reasoning", "value": value}
+        raise Conflict("unknown configuration kind")
 
     def submit_effect(self, connection, params):
         """Queue one effect; the executor (or a child-model thread) settles the future."""

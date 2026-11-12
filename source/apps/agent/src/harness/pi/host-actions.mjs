@@ -6,6 +6,7 @@ import { workspaceTools } from './workspace-tools.mjs';
 import { continuationLabel, goalSummary, statePresentation, installProductUI, showProductFeedback, workingMessage } from './product-ui.mjs';
 import { DETERMINISTIC, updateSubagentProgress, explorationBoundary, seedExplorationGroups } from './tool-render.mjs';
 import { agentsPanel, BUILTIN_AGENTS } from './agents-panel.mjs';
+import { modelChanged, modelPicker, modelSummary, orderedLevels, parseLevel } from './model-picker.mjs';
 import { COMMAND_POLICY_VERSION, PRODUCT_COMMANDS, PRODUCT_COMMAND_NAMES, parseGoalCommand, commandHelp } from './command-policy.mjs';
 import { sessions } from '../../application/host.mjs';
 import { sessionPicker } from '../../application/session-picker.mjs';
@@ -624,17 +625,39 @@ export function createHostActions(control, effects, { observer = control } = {})
         return { action: 'handled', message: `已冻结 ${governed.manifest.resources.length} 份任务指令。/reload 只重新加载这组资源。` };
       }
       if (command === '/scoped-models') {
-        const result = await control.call('configure', { kind: 'model' });
-        return { action: 'handled', message: `当前模型路由：${result.current}\n允许的路由：${result.allowed_routes.join('、')}` };
+        return { action: 'handled', message: modelSummary(await control.call('configure', { kind: 'model' })) };
       }
-      if (command === '/model' || command === '/thinking') {
-        const result = await control.call('configure', { kind: command.slice(1), value: arguments_[0] });
-        if (command === '/model') {
-          const selected = arguments_[0] ? await control.call('configure', { kind: 'model' }) : result;
-          return { action: 'handled', message: `当前模型路由：${selected.current}\n允许的路由：${selected.allowed_routes.join('、')}` };
+      if (command === '/model' || command === '/thinking' || command === '/effort') {
+        const levelCommand = command !== '/model';
+        const info = await control.call('configure', { kind: 'model' });
+        const busy = () => governed.session.isStreaming || Object.values(state?.inputs ?? {}).some(item => item.kind !== 'control' && item.status === 'applied');
+        const apply = async params => {
+          if (busy()) return { action: 'reject', message: '当前回合还在执行；等它结束（或按 esc 中断）后再切换模型或推理档位。' };
+          const result = await control.call('configure', params);
+          await refresh();
+          return { action: 'handled', message: modelChanged(result) };
+        };
+        if (!arguments_.length) {
+          if (!interactive || !context?.ui.custom) return { action: 'handled', message: modelSummary(info) };
+          const choice = await context.ui.custom((tui, _theme, _keybindings, done) =>
+            modelPicker(info, done, () => tui.requestRender(), { focusLevel: levelCommand }));
+          if (!choice) return { action: 'handled' };
+          if (choice.route === undefined && choice.level === undefined) return { action: 'handled', message: modelSummary(info) };
+          return apply({ kind: 'model', ...(choice.route ? { value: choice.route } : {}), ...(choice.level ? { reasoning: choice.level } : {}) });
         }
-        return { action: 'handled', message: arguments_[0] ? `推理等级：${arguments_[0]}` : Object.entries(result.providers)
-          .map(([name, options]) => `${name}：${options.thinking ?? options.reasoning_effort ?? '默认'}`).join('\n') };
+        const current = info.routes.find(item => item.current);
+        if (levelCommand) {
+          if (['status', '状态'].includes(arguments_[0])) return { action: 'handled', message: modelSummary(info) };
+          const level = parseLevel(arguments_[0], current);
+          if (level.error) return { action: 'reject', message: level.error };
+          return apply({ kind: 'reasoning', value: level.value });
+        }
+        // /model ROUTE [LEVEL]; the model name works in place of the route.
+        const target = info.routes.find(item => item.route === arguments_[0] || item.model === arguments_[0]);
+        if (!target) return { action: 'reject', message: `没有这个模型：${arguments_[0]}。可选：${info.routes.map(item => `${item.route}（${item.model}）`).join('、')}` };
+        const level = arguments_[1] === undefined ? undefined : parseLevel(arguments_[1], target);
+        if (level?.error) return { action: 'reject', message: level.error };
+        return apply({ kind: 'model', value: target.route, ...(level ? { reasoning: level.value } : {}) });
       }
       if (command === '/reload') {
         await governed.runtime.services.resourceLoader.reload();
@@ -732,6 +755,27 @@ export function createHostActions(control, effects, { observer = control } = {})
         return { action: 'continue' };
       }
       return { action: 'reject', message: `Unknown or unadapted command: ${command}` };
+    },
+    /** Pi's reserved model/thinking keys, redirected by the host-actions patch:
+        shift+tab cycles the reasoning level, ctrl+p / shift+ctrl+p cycle routes, ctrl+l opens /model. */
+    async key(name) {
+      let command;
+      const info = state?.reasoning;
+      if (name === 'thinking') {
+        const levels = orderedLevels(info?.levels);
+        if (!levels.length) return showProductFeedback(context, '当前模型没有可选的推理档位。');
+        command = `/effort ${levels[(levels.indexOf(info.level) + 1) % levels.length]}`;
+      } else if (name === 'model.forward' || name === 'model.backward') {
+        const routes = (await control.call('configure', { kind: 'model' })).allowed_routes;
+        if (routes.length < 2) return showProductFeedback(context, '只配置了一个模型。');
+        const index = routes.indexOf(state?.route);
+        command = `/model ${routes[(index + (name === 'model.forward' ? 1 : routes.length - 1)) % routes.length]}`;
+      } else if (name === 'model.select') command = '/model';
+      if (!command) return;
+      try {
+        const decision = await actions.submit(command, { streaming: governed.session.isStreaming, compacting: governed.session.isCompacting });
+        if (decision?.message) showProductFeedback(context, decision.message, decision.action === 'reject');
+      } catch (error) { showProductFeedback(context, String(error), true); }
     },
     interrupt: async () => { userInterrupted = true; await stop(); },
     resumeCommand: () => `kernelagent tui --attach ${control.applicationSessionId}`,

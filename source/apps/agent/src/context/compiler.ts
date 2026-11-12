@@ -30,7 +30,7 @@ function wholeExchange(value: unknown): void {
   }
   const content = value.assistant.content;
   if (!Array.isArray(content) || content.some((block) => !isRecord(block) ||
-      (block.type !== "text" && block.type !== "toolCall"))) {
+      (block.type !== "text" && block.type !== "toolCall" && block.type !== "thinking"))) {
     throw new Error("Context source exchange has invalid assistant content");
   }
   const calls = content.filter((block) => isRecord(block) && block.type === "toolCall");

@@ -15,6 +15,9 @@ function content(value: Message["content"]): string | JsonObject[] {
     if (block.type === "toolCall") {
       return { type: "toolCall", id: block.id, name: block.name, arguments: block.arguments };
     }
+    // Provider reasoning: the host returns it to the provider within the same turn
+    // (thinking mode with tool calls requires it) and drops it for earlier turns.
+    if (block.type === "thinking") return { type: "thinking", thinking: block.thinking };
     throw new Error(`The controlled text-only Pi transport cannot send ${block.type} content`);
   });
 }

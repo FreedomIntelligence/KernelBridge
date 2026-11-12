@@ -223,7 +223,7 @@ class DelegatedEffects:
             self.control.checkpoint(self.task.id, self.step, identity, identity,
                                     {"status": "finished", "advisory": True})
         return {"text": turn.text, "calls": [self.wire(a) for a in self.calls],
-                "receipt": identity, "usage": turn.usage}
+                "receipt": identity, "usage": turn.usage, **({"thinking": turn.reasoning} if turn.reasoning else {})}
 
     @staticmethod
     def wire(action: Action) -> Json:

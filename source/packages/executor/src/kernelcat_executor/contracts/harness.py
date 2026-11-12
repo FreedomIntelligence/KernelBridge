@@ -106,6 +106,10 @@ def _text_blocks(content: object, *, calls: bool) -> list[Json]:
                 raise ValueError("unsupported Pi text block metadata")
         elif calls and block.get("type") == "toolCall":
             _tool_call_block(block)
+        elif calls and block.get("type") == "thinking":
+            # Provider reasoning on an assistant message; returned within the same turn.
+            if set(block) != {"type", "thinking"} or not isinstance(block["thinking"], str):
+                raise ValueError("unsupported Pi thinking block metadata")
         else:
             raise ValueError("unsupported Pi content block")
     return content

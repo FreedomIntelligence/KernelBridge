@@ -256,12 +256,14 @@ class StreamingTests(unittest.TestCase):
         with self.assertRaises(ToolFailure): self.request([{"choices": [{"delta": {"content": text}}]} for text in ["secret", "-credential"]], secret="secret-credential")
         with self.assertRaises(ToolFailure): self.request([{"choices": [{"delta": {"content": text}}]} for text in ["ab s", "ecr", "et-credential tail"]], secret="secret-credential")
 
-    def test_reasoning_streams_as_thinking_without_entering_the_reply(self):
-        chunks = [{"choices": [{"delta": {"reasoning_content": "先检查输入"}}]}, {"choices": [{"delta": {"content": "结论"}}]},
-                  {"choices": [{"delta": {}, "finish_reason": "stop"}]}]
+    def test_reasoning_streams_as_thinking_and_is_kept_apart_from_the_text(self):
+        chunks = [{"choices": [{"delta": {"reasoning_content": "先检查"}}]}, {"choices": [{"delta": {"reasoning_content": "输入"}}]},
+                  {"choices": [{"delta": {"content": "结论"}}]}, {"choices": [{"delta": {}, "finish_reason": "stop"}]}]
         result, deltas = self.request(chunks)
-        self.assertEqual([(d["type"], d["delta"]) for d in deltas], [("thinking_delta", "先检查输入"), ("text_delta", "结论")])
+        self.assertEqual([(d["type"], d["delta"]) for d in deltas], [("thinking_delta", "先检查"), ("thinking_delta", "输入"), ("text_delta", "结论")])
         self.assertEqual(result["choices"][0]["message"]["content"], "结论")
+        # Thinking mode with tool calls needs the reasoning back on the next request.
+        self.assertEqual(result["choices"][0]["message"]["reasoning_content"], "先检查输入")
 
     def test_stream_holds_only_a_possible_credential_prefix(self):
         secret = "sk-0123456789abcdefghijklmnopqrstuvw"

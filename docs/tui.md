@@ -66,7 +66,7 @@ The original `createSession({manifest})`, `runTask`, and external LoopX APIs rem
 | `/resume PATH`, `/import PATH` in isolated task mode | Resume a retained original native session with its matching source checkpoint; no new Trial |
 | `/subagents`, `/agents` | List available agent types and this session's runs; Enter opens a report, `s` stops a running child |
 | `/trace` | Open this session's live trajectory (Lattice Trace) in the browser; see [trace.md](trace.md) |
-| `/model ROUTE`, `/thinking LEVEL`, `/scoped-models` | Select only frozen profile routes; thinking requires a matching route |
+| `/model [ROUTE] [LEVEL]`, `/effort [LEVEL\|auto]` (`/thinking` is the same), `/scoped-models` | Choose a frozen profile route and its reasoning level (see below) |
 | `/settings`, `/trust`, `/reload` | Inspect or reload the frozen resource set |
 | `/export`, `/copy`, `/name`, `/session`, `/changelog`, `/hotkeys` | Native presentation; exports go under the run's `exports/` |
 | `/login`, `/logout` | Show the host credential configuration path |
@@ -119,7 +119,15 @@ When automatic forks are disabled, repeated tool failures or multiple compaction
 
 Tool calls render like other coding CLIs: a status header `⏺ Tool(main argument)` (grey while running, green on success, red on failure) and a one-line summary under `⎿`: lines read, lines written, `+a −b` with a short diff for edits, match/file counts for searches, and for shell commands the live tail while running, then duration and exit code. Test/build commands and failures keep the output tail; other commands keep the head. Errors show project-relative paths. Consecutive reads, searches and listings collapse into one `浏览` row. Ctrl+O shows every call and its full output; receipt-backed tools show readable fields instead of JSON.
 
-Assistant text streams as it arrives; only a suffix that could still form a credential is held back. Reasoning deltas (`reasoning_content`) display as a collapsible thinking block while streaming and are not part of the settled reply.
+Assistant text streams as it arrives; only a suffix that could still form a credential is held back. Reasoning deltas (`reasoning_content`) display as a thinking block while streaming and stay in the transcript after the turn.
+
+### Model and reasoning level
+
+`/model` opens a picker in the style of Claude Code's `/model` and Codex's model and effort choice: ↑↓ choose one of the frozen profile's routes (model name and route), ←→ choose that route's reasoning level, Enter applies both, Esc cancels. `/effort` opens the same picker for the current route's level; `/effort high`, `/effort 高`, `/effort auto` (back to the configured default) and `/model ds-pro max` work without it. Shift+Tab cycles the level and Ctrl+L opens `/model`; these are Pi's own thinking and model keys, redirected to the host. The footer shows the level after the model (`deepseek-flash · 思考 高`), and `/goal` shows it on the 模型 line. A change applies from the next model call, is refused while a turn runs, applies to the parent, subagents and the Goal reviewer alike, and is recorded in the Journal so a restarted host restores it.
+
+Levels are `off` (thinking disabled), `minimal`, `low`, `medium`, `high`, `xhigh` and `max`; a route offers only some of them. A provider's `wire_options.reasoning_levels` declares them; without it, DeepSeek's own endpoint (`api.deepseek.com`) offers its documented `off`, `low`, `high`, `max`, other endpoints offer none, and an empty list turns selection off. `off` sends `thinking: {"type": "disabled"}`; another level sends `thinking: {"type": "enabled"}` (where `off` exists, so thinking is a toggle) and `reasoning_effort`. Configured `thinking` / `reasoning_effort` remain the default.
+
+In thinking mode DeepSeek requires each assistant message of the current turn to carry `reasoning_content` back (HTTP 400 on the first tool-call follow-up otherwise, even when the model gave no reasoning). The host keeps the reasoning in the settled reply, sends it back within the current user turn (empty when there was none), drops it for earlier turns, and sends none with thinking off. Anthropic routes do not use these fields. Compaction and the Goal reviewer ignore reasoning; it is never evidence.
 
 `--tui-mode regular` renders inline, keeping output in the terminal's own scrollback like Claude Code; `--tui-mode fullscreen` uses Pi's alternate screen with in-app scrolling (`Ctrl+End` returns to the latest message). `KERNELBRIDGE_TUI_MODE` sets the same choice. `KERNELBRIDGE_UI_DETERMINISTIC=1` freezes the spinner and the UI's own clocks (elapsed time shows `—`) so screens can be compared byte for byte; durations reported by the host are still shown as reported.
 
