@@ -100,7 +100,7 @@ print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['s
         self.freeze(); self.diagnostics(); self.fixture_driver('check_bad', 'check'); self.fixture_driver('launch', 'launch')
         handle = self.call('pipeline_run', stage='E', driver='launch')['result']['result']['handle']
         result = self.call('pipeline_run', stage='F', driver='check_bad')
-        reports = result['result']['diagnostics']['reports']
+        reports = result['diagnostics']['reports']
         self.assertEqual([row['status'] for row in reports], ['completed', 'completed'])
         self.assertEqual((self.root / 'diagnostic-count.txt').read_text(), 'ir\nprofiler\n')
         for row in reports:
@@ -117,8 +117,8 @@ print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['s
         self.call('pipeline_run', stage='F', driver='check_ok')
         self.call('pipeline_pair', driver='positive')
         self.assertFalse((self.root / 'diagnostic-count.txt').exists())
-        first = self.call('pipeline_pair', driver='equal')['result']['diagnostics']['reports']
-        second = self.call('pipeline_pair', driver='equal')['result']['diagnostics']['reports']
+        first = self.call('pipeline_pair', driver='equal')['diagnostics']['reports']
+        second = self.call('pipeline_pair', driver='equal')['diagnostics']['reports']
         self.assertTrue(all(row['reused'] for row in second))
         self.assertEqual([row['receipt'] for row in first], [row['receipt'] for row in second])
         self.assertEqual(len((self.root / 'diagnostic-count.txt').read_text().splitlines()), 2)
@@ -130,13 +130,13 @@ print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['s
     def test_required_actual_cpu_diagnostics_and_artifact_tamper_gate(self):
         self.freeze()
         self.config['diagnostics'] = {'required': True, 'scope': 'local_cpu_diagnostic', 'drivers': {'ir': 'ir', 'profiler': 'profiler'}}
-        result = self.check()['result']['diagnostics']['reports']
+        result = self.check()['diagnostics']['reports']
         self.assertEqual([r['status'] for r in result], ['completed', 'completed'])
         self.assertTrue(self.call('pipeline_promote')['result']['bootstrap'])
         ir = Path(result[0]['receipt']).parent / 'kernel-O2.ll'
         self.assertTrue(ir.exists()); ir.write_text('tampered')
         self.call('pipeline_promote', failed=True)
-        repeated = self.check()['result']['diagnostics']['reports']
+        repeated = self.check()['diagnostics']['reports']
         self.assertEqual(repeated[0]['status'], 'failed')
         self.assertTrue(repeated[0]['reused'])
 
@@ -145,7 +145,7 @@ print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['s
         for mode, scope, expected in [('ok', 'npu_diagnostic', 'failed'), ('empty', 'protocol_fixture', 'failed'),
                                       ('unavailable', 'protocol_fixture', 'unavailable')]:
             self.diagnostics(mode=mode, required=True, scope=scope)
-            reports = self.call('pipeline_run', stage='F', driver='check_ok')['result']['diagnostics']['reports']
+            reports = self.call('pipeline_run', stage='F', driver='check_ok')['diagnostics']['reports']
             self.assertTrue(all(row['status'] == expected for row in reports), reports)
             self.assertTrue(Pipeline(self.config).state['check']['passed'])
             self.call('pipeline_promote', failed=True)
@@ -153,7 +153,7 @@ print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['s
     def test_missing_driver_is_unavailable_and_policy_validated(self):
         self.freeze(); self.fixture_driver('check_ok', 'check')
         self.config['diagnostics'] = {'required': True, 'scope': 'npu_diagnostic'}
-        reports = self.call('pipeline_run', stage='F', driver='check_ok')['result']['diagnostics']['reports']
+        reports = self.call('pipeline_run', stage='F', driver='check_ok')['diagnostics']['reports']
         self.assertEqual([row['status'] for row in reports], ['unavailable', 'unavailable'])
         self.call('pipeline_promote', failed=True)
         for policy in ({'required': True}, {'scope': 'npu_diagnostic', 'required': 'true'},
@@ -162,11 +162,12 @@ print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['s
 
     def test_timeout_diagnostic_retains_original_intent_and_never_relaunches(self):
         self.freeze(); self.fixture_driver('check_ok', 'check'); self.diagnostics(mode='timeout', required=True)
-        first = self.call('pipeline_run', stage='F', driver='check_ok')['result']['diagnostics']['reports']
-        self.assertEqual([row['status'] for row in first], ['unknown', 'unknown'])
-        second = self.call('pipeline_run', stage='F', driver='check_ok')['result']['diagnostics']['reports']
-        self.assertTrue(all(row['status'] == 'unknown' and row['reused'] for row in second))
-        self.assertEqual(len((self.root / 'diagnostic-count.txt').read_text().splitlines()), 2)
+        first = self.call('pipeline_run', stage='F', driver='check_ok')['diagnostics']['reports']
+        self.assertEqual([row['status'] for row in first], ['unknown', 'blocked'])
+        second = self.call('pipeline_run', stage='F', driver='check_ok', failed=True)['diagnostics']['reports']
+        self.assertEqual([row['status'] for row in second], ['unknown', 'blocked'])
+        self.assertTrue(second[0]['reused'])
+        self.assertEqual(len((self.root / 'diagnostic-count.txt').read_text().splitlines()), 1)
         self.call('pipeline_promote', failed=True)
 
     def test_uncommitted_diagnostic_intent_blocks_implicit_retry(self):
@@ -175,16 +176,16 @@ print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['s
         key = pipeline.diagnostic_key('ir', 'diag_ir', pipeline.current())
         folder = Path(self.config['state']) / ('e' * 64) / 'diagnostic-ir'; folder.mkdir(parents=True)
         (folder / 'diagnostic-intent.json').write_text(json.dumps({'key': key, 'kind': 'ir'}))
-        reports = self.call('pipeline_run', stage='F', driver='check_ok')['result']['diagnostics']['reports']
-        self.assertEqual(reports[0]['status'], 'unknown')
-        self.assertEqual((self.root / 'diagnostic-count.txt').read_text(), 'profiler\n')
+        reports = self.call('pipeline_run', stage='F', driver='check_ok', failed=True)['diagnostics']['reports']
+        self.assertEqual([row['status'] for row in reports], ['unknown', 'blocked'])
+        self.assertFalse((self.root / 'diagnostic-count.txt').exists())
 
     def test_unresolved_check_timeout_blocks_diagnostic_device_execution(self):
         self.freeze(); self.diagnostics(); path = self.root / 'slowcheck.py'; path.write_text('import time; time.sleep(2)')
         self.config['drivers']['slowcheck'] = {'kind': 'check', 'argv': [sys.executable, '-B', str(path)],
             'files': {str(path): hashlib.sha256(path.read_bytes()).hexdigest()}, 'timeout': .1}
-        result = self.call('pipeline_run', stage='F', driver='slowcheck', failed=True)['result']
-        self.assertEqual(result['evaluation_outcome'], 'unknown')
+        result = self.call('pipeline_run', stage='F', driver='slowcheck', failed=True)
+        self.assertEqual(result['result']['evaluation_outcome'], 'unknown')
         self.assertTrue(all(row['status'] == 'blocked' for row in result['diagnostics']['reports']))
         self.assertFalse((self.root / 'diagnostic-count.txt').exists())
 
@@ -265,6 +266,7 @@ print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['s
         self.baseline(); self.check(); self.call('pipeline_pair', driver='equal', failed=True)
 
     def test_legacy_nanosecond_state_status_collect_and_workflow_are_lossless(self):
+        self.config['evaluation_enabled'] = False  # Explicit legacy workflow remains supported.
         self.freeze()
         raw = json.loads((ROOT / 'validation/fixtures/npu-job-handle.json').read_text())['handle']
         path = self.root / 'handle-driver.py'

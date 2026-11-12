@@ -28,6 +28,8 @@ DeepSeek 官方配置见 [DeepSeek 示例](examples/codegen/deepseek.example.jso
 `/resume` 可选择原会话，`/name 名称` 便于检索；`/fork` 分支对话，保留工作文件与原账本。
 `/agents` 列出可用子代理类型和本会话的运行记录。模型会把相互独立的调查、复核、测试或局部改动分给子代理并发执行（默认最多同时 6 个，多出的排队）；`background` 子代理在后台运行，完成后自动通知并让主对话继续。内置 `kernel-scout`、`kernel-reviewer`（只读）、`kernel-tester`（可运行命令）、`kernel-worker`（在独立 Git worktree 分支中修改）；也可用 `.kernelbridge/agents/*.md` 自定义，格式与 Claude Code 子代理一致。与 Claude Code、Codex 一样，默认不限制单个子代理的步数、读取次数或时长，见 [TUI 文档](docs/tui.md)。
 
+`/trace` 在浏览器中打开本会话的实时轨迹（模型调用、工具调用、子代理泳道、上下文增长、压缩与改动），随会话持续更新；也可用 `./kernelagent trace [ID]` 单独打开，见 [轨迹文档](docs/trace.md)。
+
 界面默认使用主屏渲染（输出留在终端自己的回滚区）；`--tui-mode fullscreen` 切换为全屏。工具调用显示为状态行加一行摘要，Ctrl+O 查看完整输出。
 
 算子开发可显式开启 [A–J pipeline 与共享 infra](docs/operator-workflow.md)。

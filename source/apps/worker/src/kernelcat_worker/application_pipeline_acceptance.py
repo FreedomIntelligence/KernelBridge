@@ -32,6 +32,63 @@ def original_result(original, folder):
     return result.get('data') if result.get('status') == 'completed' else None
 
 
+def original_check_result(original, path, expected_hash, actions, contexts):
+    """Resolve F from its admitted action, including a manifest-bound composite.
+
+    A composite's internal phases are not separate Journal admissions. Its real
+    outer admission must own the F descriptor and the unchanged driver receipt.
+    """
+    action = original['action']
+    folder = path.parent.parent
+    if action['tool'] == 'pipeline_run':
+        if action['arguments'].get('stage') != 'F':
+            return None
+        return original_result(original, folder)
+    if action['tool'] != 'pipeline_evaluate':
+        return None
+    outer = folder.parent / hashlib.sha256(action['id'].encode()).hexdigest()
+    result = original_result(original, outer)
+    if not isinstance(result, dict):
+        return None
+    stages = result.get('stages', [])
+    checks = [row for row in stages if isinstance(row, dict) and row.get('stage') == 'F']
+    if len(checks) != 1:
+        return None
+    check = checks[0]
+    internal_id = check.get('action_id')
+    origin_id = check.get('origin_action_id', action['id'])
+    if origin_id != action['id']:
+        # A completed internal F can survive a crash before its outer reply.
+        # Recover only that directly named owner, under the same admitted source
+        # and evaluator; never re-execute an unknown check to get a new identity.
+        prior = actions.get(origin_id, {})
+        context = contexts.get(action['id'], {})
+        prior_context = contexts.get(origin_id, {})
+        if (check.get('reused') is not True or not isinstance(origin_id, str)
+                or result.get('resume_run') != hashlib.sha256(origin_id.encode()).hexdigest()
+                or action['arguments'].get('resume_run') != result['resume_run']
+                or prior.get('action', {}).get('tool') != 'pipeline_evaluate'
+                or prior.get('action', {}).get('task') != action['task']
+                or any(prior_context.get(key) != context.get(key) for key in
+                       ('task_version', 'evaluator_sha256', 'source_sha256'))):
+            return None
+    if (check.get('tool') != 'pipeline_run' or check.get('status') != 'completed'
+            or not isinstance(internal_id, str)
+            or not internal_id.startswith(origin_id + '/phase/')
+            or check.get('run') != hashlib.sha256(internal_id.encode()).hexdigest()
+            or folder.name != check['run'] or path != folder / 'driver/receipt.json'):
+        return None
+    receipt = check.get('receipt', {})
+    if receipt.get('path') != str(path) or receipt.get('sha256') != expected_hash:
+        return None
+    manifest_bytes = read_regular(folder / 'manifest.json', 4 * 1024 * 1024)
+    if hashlib.sha256(manifest_bytes).hexdigest() != check.get('manifest_sha256'):
+        return None
+    if json.loads(manifest_bytes).get('driver/receipt.json') != expected_hash:
+        return None
+    return result.get('check_receipt')
+
+
 def promoted_receipt(host, state, declared, identity, action, actions, contexts):
     evidence = action.get('outcome', {}).get('data', {}).get('promotion_evidence')
     if not isinstance(evidence, dict) or evidence.get('promotion_action_id') != identity:
@@ -51,19 +108,17 @@ def promoted_receipt(host, state, declared, identity, action, actions, contexts)
             or check.get('binding') != evidence['binding'] or pair.get('binding') != evidence['binding']):
         return None
     originals = []
-    for record, tool in ((check, 'pipeline_run'), (pair, 'pipeline_pair')):
+    for record, tools in ((check, {'pipeline_run', 'pipeline_evaluate'}), (pair, {'pipeline_pair'})):
         original_id = record.get('action_id')
         original = actions.get(original_id, {})
         original_context = contexts.get(original_id, {})
         if (not original.get('terminal') or original.get('outcome', {}).get('status') != 'completed'
-                or original.get('action', {}).get('tool') != tool or original.get('action', {}).get('task') != host.task.id
+                or original.get('action', {}).get('tool') not in tools or original.get('action', {}).get('task') != host.task.id
                 or original_context.get('task_version') != state['task_version']
                 or original_context.get('evaluator_sha256') != host.evaluator['sha256']
                 or original_context.get('source_sha256') != context['source_sha256']):
             return None
         originals.append(original)
-    if originals[0]['action']['arguments'].get('stage') != 'F':
-        return None
     paths = [check['receipt'], *pair.get('receipts', [])]
     if len(paths) != 5 or set(evidence.get('receipts', {})) != set(paths):
         return None
@@ -74,7 +129,7 @@ def promoted_receipt(host, state, declared, identity, action, actions, contexts)
             return None
         raw.append(json.loads(content))
     # Do not accept a copied external report as an original tool result.
-    if (original_result(originals[0], Path(paths[0]).parent.parent) != raw[0]
+    if (original_check_result(originals[0], Path(paths[0]), evidence['receipts'][paths[0]], actions, contexts) != raw[0]
             or original_result(originals[1], Path(paths[1]).parent.parent) != pair):
         return None
     full = raw[0]['result']

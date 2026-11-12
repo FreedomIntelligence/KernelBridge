@@ -65,6 +65,7 @@ The original `createSession({manifest})`, `runTask`, and external LoopX APIs rem
 | `/resume [ID_OR_TITLE]`, `/resume --all` | Project session picker or direct resume of the original host/history; no tool replay |
 | `/resume PATH`, `/import PATH` in isolated task mode | Resume a retained original native session with its matching source checkpoint; no new Trial |
 | `/subagents`, `/agents` | List available agent types and this session's runs; Enter opens a report, `s` stops a running child |
+| `/trace` | Open this session's live trajectory (Lattice Trace) in the browser; see [trace.md](trace.md) |
 | `/model ROUTE`, `/thinking LEVEL`, `/scoped-models` | Select only frozen profile routes; thinking requires a matching route |
 | `/settings`, `/trust`, `/reload` | Inspect or reload the frozen resource set |
 | `/export`, `/copy`, `/name`, `/session`, `/changelog`, `/hotkeys` | Native presentation; exports go under the run's `exports/` |
@@ -118,11 +119,19 @@ When automatic forks are disabled, repeated tool failures or multiple compaction
 
 Tool calls render like other coding CLIs: a status header `⏺ Tool(main argument)` (grey while running, green on success, red on failure) and a one-line summary under `⎿`: lines read, lines written, `+a −b` with a short diff for edits, match/file counts for searches, and for shell commands the live tail while running, then duration and exit code. Test/build commands and failures keep the output tail; other commands keep the head. Errors show project-relative paths. Consecutive reads, searches and listings collapse into one `浏览` row. Ctrl+O shows every call and its full output; receipt-backed tools show readable fields instead of JSON.
 
-Assistant text streams as it arrives; only a suffix that could still form a credential is held back. Reasoning deltas (`reasoning_content`) display as a collapsible thinking block while streaming and are not part of the settled reply. The working row shows elapsed time and `Esc 中断`.
+Assistant text streams as it arrives; only a suffix that could still form a credential is held back. Reasoning deltas (`reasoning_content`) display as a collapsible thinking block while streaming and are not part of the settled reply.
 
 `--tui-mode regular` renders inline, keeping output in the terminal's own scrollback like Claude Code; `--tui-mode fullscreen` uses Pi's alternate screen with in-app scrolling (`Ctrl+End` returns to the latest message). `KERNELBRIDGE_TUI_MODE` sets the same choice.
 
 Operator tools and no-Torch self iteration are documented in [operator-workflow.md](operator-workflow.md).
+
+## Layout and theme
+
+The interface follows the Claude Code / Codex layout. A welcome box shows the product, quick commands and the working directory. User messages are prefixed with `>` and assistant text with `⏺`; there are no background blocks, and one blank line separates transcript rows. Tool rows use status marks as described above. While the agent works, the row above the editor shows an animated `✻` mark and the current step: thinking, running a command, reading files, or waiting for N subagents. It also shows elapsed time and `esc 中断`.
+
+The footer has two lines. The first shows the model and state, plus Codex-style remaining context (`上下文剩余 X%`). The last shows the directory with branch and `/help`; when the path is too long its middle is elided so the directory's own name and the branch stay readable. Running subagents and budgets appear only when relevant, and zero-valued reserved and pending counters are not shown. The bundled themes `kernelbridge-dark` and `kernelbridge-light` follow the terminal's appearance (`source/apps/agent/themes/`); `/settings` can select another installed theme.
+
+`/help` prints one two-column table for both modes, listing the commands available in that mode followed by the keys. It fits a 24-row, 48-column terminal without clipping. Host feedback is marked `⏺` for notices and `✗` for errors, so product messages do not read as model output.
 
 ## Goal policy and evidence
 

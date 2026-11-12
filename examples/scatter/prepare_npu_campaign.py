@@ -39,6 +39,11 @@ def scatter_contract(mode, device):
 
 def prepare(args):
     supplied = json.loads(args.profile.read_text()) if args.profile else {}
+    diagnostic_switches = supplied.get('diagnostics', {})
+    if (not isinstance(diagnostic_switches, dict)
+            or set(diagnostic_switches) - {'on_failure', 'on_regression', 'required'}
+            or any(type(value) is not bool for value in diagnostic_switches.values())):
+        raise ValueError('diagnostics accepts only boolean on_failure, on_regression and required switches')
     mode = supplied.get('mode', args.mode)
     if not mode: raise ValueError('NPU profile or --mode must select the declared task')
     device = supplied.get('device', args.device)
@@ -105,14 +110,14 @@ def prepare(args):
                     'argv': [str(args.python.absolute()), '-B', str(HERE / 'npu_pipeline_driver.py'), str(config_path), operation],
                     'files': [str(path) for path in pins], 'timeout': 1800 if operation in ('launch', 'collect') else 180}
                     for operation, name in names.items()},
-        'diagnostics': {'on_failure': False, 'on_regression': False, 'required': False,
+        'diagnostics': {'on_failure': True, 'on_regression': True, 'required': False, **diagnostic_switches,
                         'drivers': {'ir': names['ir'], 'profiler': names['profiler']}, 'scope': 'npu_diagnostic'}}
     save(root / 'workflow-profile.json', profile)
     spec = importlib.util.spec_from_file_location('npu_workflow_prepare', HERE.parent / 'operator_pipeline/prepare.py')
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
     tools = module.prepare(profile, root / 'pipeline-tools', args.python)
     for tool in tools:
-        if tool['name'] == 'pipeline_freeze': tool['capture_paths'] = ['candidate.py']
+        if tool['name'] in {'pipeline_freeze', 'pipeline_evaluate'}: tool['capture_paths'] = ['candidate.py']
         if tool['name'] == 'pipeline_pair':
             tool['description'] = 'G: project original E job ABBA samples into four original arm receipts; no new measurement. Inspect full-case speedups. J exposes original source-bound diagnostics for investigating failures and revising hypotheses.'
         elif tool['name'] == 'pipeline_run':

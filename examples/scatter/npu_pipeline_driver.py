@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 from pathlib import Path
+import re
 import sys
 
 from npu_trial import attempt_records, attempt_number, invoke_remote, save, transport, trial, same_handle, wire_handle, wire_summary
@@ -75,6 +76,79 @@ def original(config, request):
     return folder, result, summary, evidence
 
 
+def terminal_feedback(folder, request, result, evidence):
+    """Project already verified terminal evidence; never execute or repair work."""
+    if result.get('status') not in {'completed', 'failed'}:
+        raise ValueError('Original evaluation has no terminal result; collect its existing handle')
+    output = Path(request['output']) / 'evaluation'; output.mkdir(parents=True, exist_ok=True)
+    observation = json.loads((folder / 'observation.json').read_text())
+    original_bytes = (json.dumps(observation['result'], indent=2, allow_nan=False) + '\n').encode()
+    if hashlib.sha256(original_bytes).hexdigest() != evidence['remote_result_sha256']:
+        raise ValueError('Original evaluation changed before projection')
+    action_id = request.get('action_id')
+    run = hashlib.sha256(action_id.encode()).hexdigest() if isinstance(action_id, str) and action_id else None
+    artifacts = {}
+
+    def retain(name, data):
+        path = output / name; path.write_bytes(data)
+        relative = 'evaluation/' + name
+        item = {'path': relative, 'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data)}
+        if run:
+            item['read'] = {'tool': 'pipeline_read', 'arguments': {'run': run, 'path': 'driver/' + relative}}
+        artifacts[name] = item
+
+    retain('original-result.json', original_bytes)
+    # CPU-fallback qualification may differ from the raw original. Retain both.
+    retain('qualified-result.json', (json.dumps(result, indent=2, allow_nan=False) + '\n').encode())
+    texts = []
+    for field in ('message', 'traceback'):
+        text = result.get(field)
+        if not isinstance(text, str) or not text: continue
+        retain(field + '.txt', text.encode())
+        texts.append((field, text))
+
+    def first_matching_line(pattern, flags=0):
+        for field, text in texts:
+            lines = text.splitlines()
+            for number, line in enumerate(lines, 1):
+                if re.search(pattern, line, flags):
+                    context = []
+                    if number > 1 and re.search(r':\d+(?::\d+)?:\s*$', lines[number - 2]):
+                        previous = lines[number - 2].encode()
+                        context.append({'text': previous[:1024].decode('utf-8', errors='ignore'),
+                                        'line': number - 1, 'artifact': field + '.txt',
+                                        'truncated': len(previous) > 1024})
+                    return {'text': line[:2048], 'line': number, 'artifact': field + '.txt',
+                            'truncated': len(line) > 2048, 'context_before': context,
+                            'read': artifacts[field + '.txt'].get('read')}
+        return None
+
+    # A C++ symbol such as c10::Error::Error is a stack frame, not a diagnostic.
+    # Search both retained texts before falling back to a runtime exception.
+    first = first_matching_line(r'\b(?:fatal )?error\s*:(?!:)|static assertion failed', re.IGNORECASE)
+    if first is None:
+        first = first_matching_line(r'CMake Error')
+    runtime_error = None if first else first_matching_line(r'^\s*(?:[\w.]+\.)?\w+(?:Error|Exception)\s*:(?!:)')
+    diagnostics = result.get('diagnostics') or {}
+    reports = []
+    for kind in ('ir', 'profiler'):
+        found = [row for row in diagnostics.get('reports', []) if row.get('kind') == kind]
+        row = found[0] if len(found) == 1 else {}
+        reports.append({'kind': kind, 'status': row.get('status', 'unavailable'),
+            'available': row.get('status') == 'completed' and bool(row.get('artifacts')),
+            'artifact_count': len(row.get('artifacts') or {}),
+            'reason': str(row.get('reason') or ('Original job has no unique diagnostic report' if not row else ''))[:1024]})
+    return {'status': result['status'], 'correct': result.get('correct'),
+        'case_count': len(result.get('cases') or []), 'geomean_speedup': result.get('geomean_speedup'),
+        'error_type': str(result.get('error') or '')[:256], 'first_compiler_diagnostic': first,
+        'first_runtime_error': runtime_error,
+        'error_excerpt': None if first else (runtime_error['text'] if runtime_error else str(result.get('message') or '')[:2048]),
+        'diagnostics': {'required': diagnostics.get('required'), 'satisfied': diagnostics.get('satisfied'), 'reports': reports},
+        'artifacts': artifacts, 'native_candidate_sha256': evidence['native_candidate_sha256'],
+        'remote_result_sha256': evidence['remote_result_sha256'],
+        'qualification': 'Original terminal evaluation feedback only; success still requires original F/G/H receipts.'}
+
+
 READ_ARTIFACT = r'''import base64,hashlib,json,sys
 from pathlib import Path
 root=Path(sys.argv[1]).resolve(); path=(root/sys.argv[2]).resolve()
@@ -129,6 +203,12 @@ def pairing_record(request, result, evidence, environment):
 
 
 def execute(config, operation, request):
+    if 'wait_seconds' in request:
+        remaining = request['wait_seconds']
+        if type(remaining) not in (int, float) or not 0 <= remaining <= 1800:
+            raise ValueError('Bounded native wait must be between 0 and 1800 seconds')
+        config = dict(config, wait_seconds=min(config.get('wait_seconds', 900), remaining),
+                      poll_seconds=min(config.get('poll_seconds', 5), max(0.05, remaining)))
     verify(request['source'])
     verify_contract(config, request)
     if operation == 'launch':
@@ -154,7 +234,8 @@ def execute(config, operation, request):
             if outcome['status'] != 'completed': raise RuntimeError('Original NPU job is still unresolved')
     folder, result, summary, evidence = original(config, request)
     if operation in ('launch', 'collect'):
-        return {'status': 'completed', 'handle': summary['original_handle'], 'job_status': result['status'],
+        return {'status': 'completed', 'phase': 'complete', 'handle': summary['original_handle'], 'job_status': result['status'],
+                'evaluation': terminal_feedback(folder, request, result, evidence),
                 'execution': 'E executed the complete native job once; F/G/J only project this original receipt', **evidence,
                 'read_only_projection': operation == 'collect'}
     cases = result.get('cases', [])

@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { assistant } from '../../clients/protocol.mjs';
 import { serialRpc } from '../../clients/serial-rpc.ts';
 import { RunController } from '../../run/controller.mjs';
@@ -18,6 +19,9 @@ import { randomUUID, createHash } from 'node:crypto';
 import { directRenderers, explorationBoundary } from './tool-render.mjs';
 import { DELEGATION_PROMPT } from './delegation-prompt.mjs';
 import { OPERATOR_WORKFLOW_PROMPT } from './operator-workflow-prompt.mjs';
+
+// Product themes (light/dark follow the terminal): no background blocks, warm accent, quiet borders.
+const THEMES = ['kernelbridge-dark', 'kernelbridge-light'].map(name => fileURLToPath(new URL(`../../../themes/${name}.json`, import.meta.url)));
 
 const SYSTEM = 'You are a kernel engineering agent. Use Pi file tools to inspect and implement the candidate. Use the configured evaluation, knowledge, and receipt tools for domain work. Treat task references as read-only. Only original evaluation receipts establish correctness or performance. After an error, inspect the returned evidence and revise the candidate.';
 
@@ -64,9 +68,11 @@ async function runtimeServices(options, dependencies, provider, factories, repla
     allowModelNetwork: false, refreshOnCreate: false });
   modelRuntime.registerProvider('kernelcat', provider);
   const settingsManager = sdk.SettingsManager.inMemory({ compaction: { enabled: replayOnCompaction || semanticCompaction },
-    retry: { enabled: false, maxRetries: 0 }, quietStartup: options.project ? 'header' : true }, { projectTrusted: false });
+    retry: { enabled: false, maxRetries: 0 }, quietStartup: options.project ? 'header' : true,
+    theme: 'kernelbridge-light/kernelbridge-dark' }, { projectTrusted: false });
   const resourceLoader = new sdk.DefaultResourceLoader({ ...options, settingsManager,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+    additionalThemePaths: THEMES,
     ...(replay?.history ? workspaceHistoryResources(replay.history, settingsManager) : {}),
     agentsFilesOverride: () => structuredClone(frozenInstructions),
     extensionFactories: factories, appendSystemPrompt: [options.project

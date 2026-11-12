@@ -1,5 +1,74 @@
 # Harness 20 model-turn optimization log
 
+## Interpretation of the recorded experiments
+
+The completed clean trials used KernelBridge around Pi 1.5.0 with the `ds`
+route and the configured model `deepseek-flash`. An `openai` provider adapter
+describes the API protocol, not the model vendor. These are not GPT-in-Codex
+trials. Comparisons with earlier Codex work change the model, framework, prior
+context and call allowance together and cannot establish their separate effects.
+
+The ceiling is 20 model admissions shared by parent, child, compaction and
+review, not 20 source-edit/device-experiment iterations. Model reasoning and
+candidate generation, the generic agent runtime, our domain tools, and CANN
+compilation/profiling have different responsibilities. Improvements in prompts,
+source, logs and knowledge resources are not evidence of model-weight updates.
+
+For Cube, candidate freeze at call 17 and launch at call 18 show late model
+preparation; collection at call 19 without the concrete compiler error and F
+feedback after call 20 show an additional feedback-delivery cost. Both must be
+measured separately. Missing captures before a runnable kernel exists do not
+measure the model's ability to interpret available IR or profiler evidence.
+
+## Harness feedback repair after main synchronization
+
+The working branch incorporates `main` at `9d98de8`, including its TUI and trace
+changes. This user-requested functional repair bundles several mechanisms; it
+is not a single-variable optimization experiment and has no new device speedup
+claim. Original clean trials and their frozen profiles remain unchanged.
+
+- `pipeline_evaluate` composes D/E/F under one admitted tool action. Internal
+  phases retain their own immutable intents, result manifests and original
+  handles. Bounded pending calls resume the same identity; committed checks are
+  reused when source bytes are unchanged, including a zero-wait cache read.
+  An interrupted F or diagnostic blocks new effects through both the composed
+  and legacy tools. Recovery of an orphan completed F also validates its original
+  Journal admission and source/evaluator context before host acceptance.
+- Native terminal feedback now includes the first original compiler diagnostic,
+  its original location and hash-bound read links during E. Generic check errors
+  retain a bounded excerpt and the full original F receipt. Large projections
+  keep actionable feedback; paging reports encoding, size, hash and EOF without
+  replacing split UTF-8 characters. Diagnostics are a sibling envelope, leaving
+  original F/G result bytes unchanged for strict acceptance.
+- Active Goals expose an observed, protected Journal call-count snapshot before
+  model input is committed. Its remaining count includes the current request;
+  concurrent admissions may consume it. Parent, child, compaction, review and
+  failed requests share the original counter. Completed/inactive Goals do not
+  impose stale progress on ordinary codegen. Missing caps stay absent. Failed
+  provider usage retained in `failure_details` is counted by the original ledger.
+- Newly prepared NPU profiles capture candidate source through both freeze and
+  evaluate, and project original diagnostics on F failure or G regression by
+  default. Explicit boolean switches can opt out or require diagnostics. These
+  projections do not rerun device profiling; unavailable captures remain
+  unavailable. The oracle, cases, eager source, measurement and noise gates are
+  unchanged. Existing sealed profiles require a new preparation to gain the tool.
+
+Functional validation includes actual local child-process interruption during
+E and F, original-handle recovery with dispatch count unchanged, unchanged-source
+reuse, complete F/G/H-to-host acceptance with protocol fixtures, tamper rejection,
+and offline replay of the original Max/Cube compiler failures. These are runtime
+and evidence-contract checks, not real NPU qualification. The local TUI checks
+cover parallel/background children, normal codegen, compact/new, interruption,
+Goal opt-in, provider failure recovery, resume and trace CLI/SSE. This repair's
+codegen smoke uses three ordinary turns; the earlier long-run evidence is separate.
+Browser rendering was not exercised in this run because Playwright was absent.
+
+Qualification logs and hashes are indexed in
+`.validation/harness-feedback-qualification.json`; the initial failed API
+assertions and corrected reruns remain alongside it. Reaching correct native
+execution and a measured above-noise improvement still requires fresh NPU trials
+after transport and original deployment identity are recovered.
+
 ## Goal and accounting
 
 The active goal supersedes the earlier request for 20 externally coordinated

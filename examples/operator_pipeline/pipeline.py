@@ -3,6 +3,7 @@
 The enclosing executor Journal owns effect admission and budgets. This local
 receipt chain only projects operator state, never authorizes model execution.
 """
+import base64
 import fcntl
 import copy
 import hashlib
@@ -123,6 +124,32 @@ class Pipeline:
                 for path in sorted(self.root.glob('*/launch-intent.json'))
                 if not any(item.get('launch_run') == path.parent.name for item in self.state['handles'])]
 
+    def pending_effects(self):
+        pending = []
+        for pattern in ('*/driver/effect-intent.json', '*/arm-*/effect-intent.json', '*/diagnostic-*/driver/effect-intent.json'):
+            for path in self.root.glob(pattern):
+                if not (path.parent / 'receipt.json').is_file():
+                    pending.append(dict(json.loads(path.read_text()), intent=str(path), status='unknown'))
+        return pending
+
+    def pending_phases(self):
+        committed = {row['run'] for row in self.state['receipts']}
+        pending = []
+        for path in self.root.glob('*/phase-*-intent.json'):
+            intent = json.loads(path.read_text())
+            if intent['stage'] in {'F', 'G', 'J'} and intent['run'] not in committed:
+                pending.append(dict(intent, status='unknown', intent=str(path)))
+        return pending
+
+    def pending_diagnostics(self):
+        settled = {item['key']: item for item in self.state.get('diagnostic_runs', [])}
+        pending = {key: item for key, item in settled.items() if item.get('status') == 'unknown'}
+        for path in self.root.glob('*/diagnostic-*/diagnostic-intent.json'):
+            intent = json.loads(path.read_text())
+            if intent['key'] not in settled:
+                pending[intent['key']] = dict(intent, status='unknown', intent=str(path), run=path.parent.parent.name)
+        return list(pending.values())
+
     def matching_handle(self):
         # Changing only the performance comparator does not change a completed
         # source/contract execution. Keep observing its original job identity.
@@ -134,14 +161,28 @@ class Pipeline:
     def driver(self, name, source, folder, role, handle=None, *, contract=None, binding=None, recovery=None, trigger=None):
         driver = self.config['drivers'].get(name)
         if not driver: raise ValueError('Driver is not configured: ' + name)
+        if driver['kind'] != 'collect':
+            unresolved = [item for item in self.pending_phases() if item['action_id'] != getattr(self, 'action_id', None)]
+            unresolved.extend(self.pending_effects())
+            own_intent = str(folder.parent / 'diagnostic-intent.json')
+            for item in self.pending_diagnostics():
+                if (item.get('intent') == own_intent and item.get('driver') == name
+                        and item.get('source') == source['sha256'] and item.get('trigger') == trigger
+                        and (trigger or {}).get('run') == hashlib.sha256(self.action_id.encode()).hexdigest()):
+                    continue  # Only this newly created diagnostic intent may enter.
+                unresolved.append(item)
+            if unresolved: raise ValueError('Original phase/diagnostic execution is unresolved; inspect its intent before new device work')
         self.verify(source)
         contract = self.state['contract'] if contract is None else contract
         self.verify(contract['oracle']['files'])
         for path, expected in driver['files'].items():
             if sha(path) != expected: raise ValueError('Configured driver changed')
+        remaining = getattr(self, 'execution_deadline', float('inf')) - time.monotonic()
+        if remaining <= 0: raise ValueError('Bounded evaluation deadline reached before dispatch')
         folder.mkdir()
         request = {'action_id': getattr(self, 'action_id', None), 'source': source, 'role': role, 'contract': contract, 'handle': handle,
                    'binding': self.binding() if binding is None else binding, 'output': str(folder)}
+        if math.isfinite(remaining): request['wait_seconds'] = max(0, remaining - 2)
         if recovery is not None: request['recovery'] = recovery
         if trigger is not None: request['trigger'] = trigger
         save(folder / 'request.json', request)
@@ -152,13 +193,16 @@ class Pipeline:
             # even before the ordinary receipt chain can commit the result.
             save(folder.parent / 'launch-intent.json', {'driver': name, 'driver_files': driver['files'],
                 'source': source, 'contract': contract, 'binding': request['binding'], 'output': str(folder)})
+        if driver['kind'] in {'check', 'measure', 'diagnostic', 'calibrate'}:
+            save(folder / 'effect-intent.json', {'action_id': self.action_id, 'driver': name, 'kind': driver['kind'],
+                'source_sha256': source['sha256'], 'role': role, 'output': str(folder)})
         # No shell interpolation, credentials or implicit gateway. Explicit drivers
         # receive one JSON request and return one JSON result on stdout.
         started = time.time_ns()
         with (folder / 'stdout.log').open('wb') as stdout, (folder / 'stderr.log').open('wb') as stderr:
             result = subprocess.run(driver['argv'], input=encoded(request), stdout=stdout, stderr=stderr,
                 cwd=source['root'], env={'PATH': os.environ.get('PATH', '/usr/bin:/bin'), 'PYTHONDONTWRITEBYTECODE': '1'},
-                timeout=driver.get('timeout', 600), check=False)
+                timeout=min(driver.get('timeout', 600), max(0.001, getattr(self, 'execution_deadline', float('inf')) - time.monotonic())), check=False)
         self.verify(source)
         if result.returncode: raise ValueError('Driver failed; inspect original logs')
         raw = (folder / 'stdout.log').read_bytes()
@@ -233,8 +277,10 @@ class Pipeline:
             if cached:
                 reports.append(dict(cached, trigger=trigger))
                 continue
-            if result.get('evaluation_outcome') == 'unknown':
-                reports.append({'kind': kind, 'status': 'blocked', 'reason': 'Original evaluation is unresolved', 'trigger': trigger})
+            unresolved = self.pending_effects() + self.pending_diagnostics() + [
+                item for item in self.pending_phases() if item['action_id'] != getattr(self, 'action_id', None)]
+            if result.get('evaluation_outcome') == 'unknown' or unresolved:
+                reports.append({'kind': kind, 'status': 'blocked', 'reason': 'Original evaluation or diagnostic is unresolved', 'trigger': trigger})
                 continue
             folder = output / ('diagnostic-' + kind); folder.mkdir()
             report = {'key': key, 'kind': kind, 'driver': name, 'source': source['sha256'],
@@ -294,7 +340,10 @@ class Pipeline:
         next_actions = []
         pending = self.pending_launches()
         last = s.get('last_attempt', {})
-        if pending:
+        unresolved = self.pending_phases() + self.pending_effects() + self.pending_diagnostics()
+        if unresolved:
+            next_actions = [step(last.get('stage'), None, {}, 'Original phase or diagnostic execution is unresolved; inspect its retained intent and logs before new device work.', status='blocked', unresolved=unresolved)]
+        elif pending:
             next_actions = [run('E', 'collect', 'Recover this original uncertain launch; never launch a replacement.',
                                 recover_run=pending[0]['run'])]
         elif last.get('evaluation_outcome') == 'unknown':
@@ -311,7 +360,9 @@ class Pipeline:
             next_actions = [step('C', 'pipeline_plan', {'stage': 'C'}, 'Record a falsifiable structural hypothesis grounded in task, SDK, hardware or diagnostic evidence.',
                                  required_arguments=['record'])]
         elif s['stage'] == 'C' or not s['candidate']:
-            next_actions = [step('D', 'pipeline_freeze', {}, 'Implement the hypothesis, then freeze exact source files, configuration and origin.',
+            next_actions = [step('D', 'pipeline_evaluate' if self.config.get('evaluation_enabled') else 'pipeline_freeze', {},
+                                 'Implement the hypothesis, then evaluate exact source files once through D/E/F; read its original feedback before changing source.'
+                                 if self.config.get('evaluation_enabled') else 'Implement the hypothesis, then freeze exact source files, configuration and origin.',
                                  required_arguments=['files', 'origin'])]
         else:
             try:
@@ -320,17 +371,25 @@ class Pipeline:
                 return {'next_actions': [step(s['stage'], None, {}, str(error), status='blocked')],
                         'stop_condition': 'Repair source identity before any new execution.'}
             check = s.get('check')
+            terminal = self.matching_handle()
             diagnostics = s.get('diagnostics') or {}
             trigger = diagnostics.get('trigger') or {}
             if trigger.get('binding') == binding and any(report.get('status') == 'unknown' for report in diagnostics.get('reports', [])):
                 next_actions = [step('J', None, {}, 'Original diagnostic is unresolved; recover its existing evidence before further device work.', status='blocked')]
+            elif terminal and terminal.get('collected') and terminal.get('job_status') == 'failed':
+                next_actions = [step('C', 'pipeline_plan', {'stage': 'C'},
+                                     'The original job is terminal and failed. Read its retained evaluation evidence and revise the hypothesis; do not recollect or relaunch it.',
+                                     required_arguments=['record'], evaluation=terminal.get('evaluation'),
+                                     original_receipt=terminal['collected'])]
             elif s['stage'] == 'J' or (check and not check['passed']) or (s.get('pair') and (s['pair']['speedup'] <= 1 or s['pair'].get('qualification', {}).get('qualified') is False)) or (
                     last.get('status') == 'failed' and last.get('stage') in {'F', 'G'} and last.get('source') == s['candidate']['sha256']):
                 next_actions = [step('C', 'pipeline_plan', {'stage': 'C'}, 'Read the returned IR/profiler/trace artifacts and failed or regressing cases, then revise the hypothesis.',
                                      required_arguments=['record'], diagnostic_reports=diagnostics.get('reports', []))]
             elif not check or check['binding'] != binding:
                 handle = self.matching_handle()
-                if kinds.get('launch') and handle is None:
+                if self.config.get('evaluation_enabled'):
+                    next_actions = [step('F', 'pipeline_evaluate', {}, 'Evaluate the current frozen source through the original E job and F receipt; unchanged source reuses existing effects. Follow returned continuation for bounded recovery.')]
+                elif kinds.get('launch') and handle is None:
                     next_actions = [run('E', 'launch', 'Launch this frozen source once and retain its original handle/PID/logs.')]
                 elif handle and not handle.get('collected'):
                     next_actions = [run('E', 'collect', 'Observe the original job; do not upload or launch again.', handle=handle['handle'])]
@@ -451,14 +510,22 @@ class Pipeline:
                           and sorted(data.get('case_ids', [])) == sorted(case['id'] for case in s['contract']['suite'])
                           and data.get('oracle_sha256') == s['contract']['oracle']['files']['sha256'])
                 s['check'] = {'binding': self.binding(), 'passed': passed, 'receipt': str(output / 'driver/receipt.json'),
-                              'action_id': getattr(self, 'action_id', None),
+                              'action_id': getattr(self, 'acceptance_action_id', self.action_id),
                               'scope': data.get('scope', 'unspecified')}
                 s['pair'] = None
-            if stage == 'E' and driver['kind'] == 'collect' and collection:
-                # A collector explicitly reports terminal completion; an ack is not completion.
-                if data.get('status') in {'completed', 'succeeded'} or data.get('phase') == 'complete':
-                    retained = next((row for row in s['handles'] if same_handle(row['handle'], data.get('handle', collection.get('handle')))), None)
-                    if retained is not None: retained['collected'] = str(output / 'driver/receipt.json')
+            terminal_phase = data.get('phase') == 'complete'
+            legacy_collected = (driver['kind'] == 'collect' and collection and data.get('phase') is None
+                                and data.get('status') in {'completed', 'succeeded'})
+            if stage == 'E' and (terminal_phase or legacy_collected):
+                # Launch acknowledgements are not terminal jobs. Legacy collectors
+                # already declare completion through their terminal status.
+                if (data.get('job_status') in (None, 'completed', 'succeeded', 'failed', 'cancelled')
+                        and data.get('status') in (None, 'completed', 'succeeded', 'failed', 'cancelled')):
+                    original_handle = data.get('handle', (collection or {}).get('handle'))
+                    retained = next((row for row in s['handles'] if same_handle(row['handle'], original_handle)), None)
+                    if retained is not None:
+                        retained.update(collected=str(output / 'driver/receipt.json'), job_status=data.get('job_status'))
+                        if isinstance(data.get('evaluation'), dict): retained['evaluation'] = data['evaluation']
             if stage == 'I': s['calibration'] = {'binding': self.binding(), 'receipt': str(output / 'driver/receipt.json')}
             if stage == 'J': s['diagnostics'] = {'receipt': str(output / 'driver/receipt.json'), 'source': source['sha256']}
             s['stage'] = stage
@@ -525,8 +592,13 @@ class Pipeline:
             return record
         raise ValueError('Unknown pipeline tool')
 
-    def apply(self, action):
+    def apply(self, action, *, acceptance_action_id=None, execution_deadline=float('inf')):
+        if action['tool'] == 'pipeline_evaluate':
+            from evaluation import evaluate
+            return evaluate(self, action)
         self.action_id = action['id']
+        self.acceptance_action_id = acceptance_action_id or action['id']
+        self.execution_deadline = execution_deadline
         identity = hashlib.sha256(action['id'].encode()).hexdigest()
         output = self.root / identity
         # No implicit rerun after a lost reply. The outer Journal recovers the
@@ -538,7 +610,10 @@ class Pipeline:
         except Exception as error:
             self.state = previous
             result = {'error': str(error)}; status = 'failed'
-            if isinstance(error, subprocess.TimeoutExpired):
+            if isinstance(error, subprocess.TimeoutExpired) or any(
+                    not (path.parent / 'receipt.json').is_file()
+                    for pattern in ('driver/effect-intent.json', 'arm-*/effect-intent.json', 'diagnostic-*/driver/effect-intent.json')
+                    for path in output.glob(pattern)):
                 result['evaluation_outcome'] = 'unknown'
             if (output / 'launch-intent.json').exists():
                 result.update(launch_outcome='unknown', recover_run=identity,
@@ -549,23 +624,49 @@ class Pipeline:
             # Preserve the original check/pair outcome even if diagnostic
             # scheduling itself cannot proceed (for example, changed source).
             diagnostics = {'status': 'blocked', 'reason': str(error), 'evaluation_run': identity}
-        if diagnostics is not None:
-            result = dict(result, diagnostics=diagnostics)
+        # Keep exact F/G acceptance evidence independent from diagnostic feedback.
         if action['tool'] in {'pipeline_run', 'pipeline_pair'}:
             self.state['last_attempt'] = {'run': identity, 'stage': action['arguments'].get('stage', 'G'),
                                           'status': status, 'evaluation_outcome': result.get('evaluation_outcome'),
                                           'source': (self.state['candidate'] or {}).get('sha256')}
-        save(output / 'result.json', {'status': status, 'data': result})
+        return self.finish(action, output, status, result, diagnostics)
+
+    def finish(self, action, output, status, result, diagnostics=None):
+        identity = output.name
+        save(output / 'result.json', {'status': status, 'data': result,
+            **({'diagnostics': diagnostics} if diagnostics is not None else {})})
         files = {str(p.relative_to(output)): sha(p) for p in output.rglob('*') if p.is_file() and not p.is_symlink()}
         save(output / 'manifest.json', files)
         self.state['receipts'].append({'run': identity, 'tool': action['tool'], 'status': status,
                                        'manifest_sha256': sha(output / 'manifest.json')})
-        save(self.root / ('event-%08d.json' % len(self.state['receipts'])), {'parent': self.chain, 'body': self.state, 'sha256': digest(self.state)})
+        event = self.root / ('event-%08d.json' % len(self.state['receipts']))
+        save(event, {'parent': self.chain, 'body': self.state, 'sha256': digest(self.state)})
+        self.chain = sha(event)
+        refs = {name: {'path': name, 'sha256': expected, 'size_bytes': (output / name).stat().st_size,
+                      'read': {'tool': 'pipeline_read', 'arguments': {'run': identity, 'path': name}}}
+                for name, expected in files.items()}
+        manifest_ref = {'path': 'manifest.json', 'sha256': sha(output / 'manifest.json'),
+                        'read': {'tool': 'pipeline_read', 'arguments': {'run': identity, 'path': 'manifest.json'}}}
+        selected = sorted(refs, key=lambda name: (name != 'result.json', name != 'driver/receipt.json', name))[:16]
+        summary = {key: result[key] for key in ('error', 'evaluation_outcome', 'launch_outcome', 'recover_run') if key in result}
+        if isinstance(summary.get('error'), str): summary['error'] = summary['error'][:2048]
+        if isinstance(result.get('result'), dict) and isinstance(result['result'].get('evaluation'), dict):
+            summary['evaluation'] = result['result']['evaluation']
+        evaluation_summary = None
+        if action['tool'] == 'pipeline_evaluate':
+            evaluation_summary = {key: result[key] for key in ('evaluation_status', 'source_sha256', 'source_changed',
+                'feedback', 'continuation', 'error', 'check_action_id', 'resume_run', 'unresolved_run', 'original_handle', 'recover_run') if key in result}
+            for key in ('unresolved_phases', 'unresolved_diagnostics'):
+                if key in result: evaluation_summary[key] = result[key][:4]
+            evaluation_summary['stages'] = [{key: stage.get(key) for key in ('stage', 'run', 'status')} for stage in result.get('stages', [])]
         return wire_handles({'status': status, 'data': {'run': identity, 'manifest_sha256': sha(output / 'manifest.json'),
-                                         'result': result if len(encoded(result)) < 16000 else 'Read result.json with pipeline_read',
-                                         **({'promotion_evidence': result['promotion_evidence']}
-                                            if action['tool'] == 'pipeline_promote' and status == 'completed' else {}),
-                                         'workflow': self.workflow()}})
+            'result': result if len(encoded(result)) < 16000 else 'Read result.json with pipeline_read',
+            'summary': summary, 'artifacts': {'manifest': manifest_ref, 'result': refs['result.json'],
+                'files': [refs[name] for name in selected], 'file_count': len(refs)},
+            **({'evaluation_summary': evaluation_summary} if evaluation_summary is not None else {}),
+            **({'promotion_evidence': result['promotion_evidence']}
+               if action['tool'] == 'pipeline_promote' and status == 'completed' else {}),
+            **({'diagnostics': diagnostics} if diagnostics is not None else {}), 'workflow': self.workflow()}})
 
 
 def main(config, action):
@@ -580,11 +681,30 @@ def main(config, action):
             folder = root / identity; manifest = folder / 'manifest.json'
             if sha(manifest) != record['manifest_sha256']: raise ValueError('Artifact manifest changed')
             files = json.loads(manifest.read_text()); name = args['path']; path = folder / name
-            if name not in files or path.resolve() != path or not path.is_relative_to(folder) or sha(path) != files[name]:
+            expected = record['manifest_sha256'] if name == 'manifest.json' else files.get(name)
+            if expected is None or path.resolve() != path or not path.is_relative_to(folder) or sha(path) != expected:
                 raise ValueError('Artifact missing or changed')
-            offset = args.get('offset', 0); limit = min(args.get('limit', 8192), 16384)
+            offset = args.get('offset', 0); limit = args.get('limit', 8192)
+            if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 16384:
+                raise ValueError('Read offset/limit must be bounded byte counts')
+            size = path.stat().st_size
+            if offset > size: raise ValueError('Read offset exceeds artifact size')
             with path.open('rb') as stream: stream.seek(offset); data = stream.read(limit)
-            return {'status': 'completed', 'data': {'text': data.decode(errors='replace'), 'next_offset': offset + len(data)}}
+            encoding = 'utf-8'
+            try:
+                text = data.decode('utf-8')
+            except UnicodeDecodeError as error:
+                # Never insert replacement characters into source-bound evidence.
+                # Prefer a shorter UTF-8 page; arbitrary/binary byte offsets use base64.
+                if error.reason == 'unexpected end of data' and error.start > 0:
+                    data = data[:error.start]; text = data.decode('utf-8')
+                else:
+                    encoding = 'base64'; text = base64.b64encode(data).decode('ascii')
+            end = offset + len(data)
+            return {'status': 'completed', 'data': {'text': text, 'encoding': encoding, 'offset': offset,
+                'next_offset': end, 'size_bytes': size, 'sha256': expected, 'eof': end == size,
+                'truncated': end < size, 'read': {'tool': 'pipeline_read', 'arguments': {'run': identity, 'path': name}},
+                'next_read': {'tool': 'pipeline_read', 'arguments': {'run': identity, 'path': name, 'offset': end, 'limit': limit}} if end < size else None}}
         return pipeline.apply(action)
 
 

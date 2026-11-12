@@ -3,7 +3,7 @@ import type { KnowledgeContextItem } from "./rsi.ts";
 import type { ContextCommit } from "./runtime.ts";
 import type { CreditBudget, ExecutionStamp } from "./runtime-control.ts";
 import type { TrialKnowledgeBinding } from "./objects.ts";
-export const SCHEMA_SHA256 = "a95a813ed00a1cb54e64722d73947aa931de8657e946bc40f32f5276540f5cc1";
+export const SCHEMA_SHA256 = "742370bf96c5bc2543695006dcdce2531acc0411c347a9950aed9319901077aa";
 export const SCHEMA = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kernelcat.local/contracts/execution/v1/context.schema.json",
@@ -184,6 +184,9 @@ export const SCHEMA = {
           "items": {
             "$ref": "https://kernelcat.local/contracts/execution/v1/rsi.schema.json#/$defs/KnowledgeContextItem"
           }
+        },
+        "goal_progress": {
+          "$ref": "#/$defs/GoalProgress"
         }
       },
       "required": [
@@ -215,6 +218,58 @@ export const SCHEMA = {
         "context"
       ],
       "additionalProperties": false
+    },
+    "GoalProgress": {
+      "type": "object",
+      "description": "Journal observation before this model request; remaining calls include this request and are shared with concurrent models. This is a projection, never admission authority.",
+      "properties": {
+        "goal_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "observed_seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_model_turns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "model_calls_admitted": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "remaining_calls_including_this_request": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "current_request_cost": {
+          "const": 1
+        },
+        "counting": {
+          "const": "all_model_calls_including_compact_child_review"
+        },
+        "concurrent_calls_may_consume_remaining": {
+          "const": true
+        }
+      },
+      "required": [
+        "goal_id",
+        "observed_seq",
+        "max_model_turns",
+        "model_calls_admitted",
+        "remaining_calls_including_this_request",
+        "current_request_cost",
+        "counting",
+        "concurrent_calls_may_consume_remaining"
+      ],
+      "additionalProperties": false
     }
   }
 } as const;
@@ -239,11 +294,23 @@ export interface ContextBudget {
   readonly reserved: number;
 }
 
+export interface GoalProgress {
+  readonly goal_id: string | null;
+  readonly observed_seq: number;
+  readonly max_model_turns: number;
+  readonly model_calls_admitted: number;
+  readonly remaining_calls_including_this_request: number;
+  readonly current_request_cost: 1;
+  readonly counting: "all_model_calls_including_compact_child_review";
+  readonly concurrent_calls_may_consume_remaining: true;
+}
+
 export interface ContextSource {
   readonly task: JsonObject;
   readonly skills: ReadonlyArray<JsonObject>;
   readonly policy: JsonObject;
   readonly budget: ContextBudget;
+  readonly goal_progress?: GoalProgress;
   readonly history: ReadonlyArray<JsonObject>;
   readonly projection: Projection;
   readonly turns?: ReadonlyArray<JsonObject>;

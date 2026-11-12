@@ -43,7 +43,7 @@ if [ "$DEVELOPMENT" -eq 0 ]; then
     SELECTED_PYTHON="$RUNTIME/venv/bin/python"
     SELECTED_EXPECTED="$RUNTIME/expected.json"
 fi
-if [ "${1:-}" = pursue ] || [ "${1:-}" = sessions ] || [ "${1:-}" = session ]; then
+if [ "${1:-}" = pursue ] || [ "${1:-}" = sessions ] || [ "${1:-}" = session ] || [ "${1:-}" = trace ]; then
     exec "$NODE" "$BUNDLE/source/apps/agent/src/main.ts" "$@"
 fi
 HAS_PYTHON=0

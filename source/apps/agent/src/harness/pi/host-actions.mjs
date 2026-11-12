@@ -6,12 +6,17 @@ import { workspaceTools } from './workspace-tools.mjs';
 import { goalSummary, statePresentation, installProductUI, showProductFeedback, workingMessage } from './product-ui.mjs';
 import { updateSubagentProgress, explorationBoundary, seedExplorationGroups } from './tool-render.mjs';
 import { agentsPanel, BUILTIN_AGENTS } from './agents-panel.mjs';
-import { COMMAND_POLICY_VERSION, PRODUCT_COMMANDS, PRODUCT_COMMAND_NAMES, parseGoalCommand, COMMAND_HELP } from './command-policy.mjs';
+import { COMMAND_POLICY_VERSION, PRODUCT_COMMANDS, PRODUCT_COMMAND_NAMES, parseGoalCommand, commandHelp } from './command-policy.mjs';
 import { sessions } from '../../application/host.mjs';
 import { sessionPicker } from '../../application/session-picker.mjs';
 import { projectInfo } from '../../application/project-info.mjs';
 
 export { COMMAND_POLICY_VERSION } from './command-policy.mjs';
+
+/** What the working row says while a tool runs (Claude Code shows the active step). */
+const TOOL_ACTIVITY = { bash: '运行命令', read: '读取文件', grep: '搜索代码', find: '查找文件', ls: '浏览目录',
+  edit: '修改文件', write: '写入文件', delegate: '委派子代理' };
+const SPINNER = ['·', '✢', '✳', '✶', '✻', '✽', '✻', '✶', '✳', '✢'];
 
 /** Transcript order of text and tool calls, for presentation grouping only. */
 function transcriptBlocks(entries) {
@@ -106,6 +111,8 @@ export function createHostActions(control, effects, { observer = control } = {})
       if (interactive) {
         installProductUI(context, () => state, { demo: process.env.KERNELBRIDGE_DEMO === '1' });
         context.ui.setHiddenThinkingLabel?.('思考中…');
+        const accent = text => context.ui.theme?.fg?.('accent', text) ?? text;
+        context.ui.setWorkingIndicator?.({ frames: SPINNER.map(accent), intervalMs: 120 });
       }
       if (governed && state.pending_transition) {
         const parent = state.pending_transition.parent;
@@ -166,18 +173,30 @@ export function createHostActions(control, effects, { observer = control } = {})
     });
     // The native loader row shows elapsed time and live children, like other
     // coding CLIs; it is presentation only and stops with the settled run.
-    let workingTimer;
-    const stopWorking = () => { clearInterval(workingTimer); workingTimer = undefined; context?.ui.setWorkingMessage?.(); };
+    let workingTimer, activity;
+    const stopWorking = () => { clearInterval(workingTimer); workingTimer = undefined; activity = undefined; context?.ui.setWorkingMessage?.(); };
+    const tick = started => context?.ui.setWorkingMessage?.(workingMessage(state, started, activity));
     pi.on('agent_start', () => {
       runGoalId = state?.goal?.goal_id ?? null;
       userInterrupted = false;
       if (!interactive || !context?.ui.setWorkingMessage) return;
       stopWorking();
       const started = Date.now();
-      const tick = () => context.ui.setWorkingMessage(workingMessage(state, started));
-      tick();
-      workingTimer = setInterval(tick, 1000);
+      activity = '思考中';
+      tick(started);
+      workingTimer = setInterval(() => tick(started), 1000);
       workingTimer.unref?.();
+      workingTimer.started = started;
+    });
+    pi.on('tool_execution_start', event => {
+      if (!workingTimer) return;
+      activity = TOOL_ACTIVITY[event.toolName] ?? `运行 ${event.toolName}`;
+      tick(workingTimer.started);
+    });
+    pi.on('tool_execution_end', () => {
+      if (!workingTimer) return;
+      activity = '思考中';
+      tick(workingTimer.started);
     });
     pi.on('agent_settled', async event => {
       stopWorking();
@@ -523,9 +542,20 @@ export function createHostActions(control, effects, { observer = control } = {})
       }
       if (DISABLED.has(command)) return { action: 'reject', message: `${command} is disabled by the host profile` };
       if (!actions.commands().some(item => '/' + item.name === command)) return { action: 'reject', message: `不可用的命令：${command}。输入 /help 查看支持的命令。` };
-      if (command === '/help' || command === '/hotkeys') return { action: 'handled', message: state.workspace_mode === 'project'
-        ? '输入任务后执行，完成后等待下一条输入。\n/new 或 /clear：新对话（保留文件）· /model：模型 · /compact：压缩上下文\n/resume：历史会话 · /goal 目标内容：持续执行\n/subagents 或 /agents：子代理与触发方式\nEsc：中断 · Ctrl+O：工具详情 · /quit 或 /exit：退出' : COMMAND_HELP };
+      if (command === '/help' || command === '/hotkeys') return { action: 'handled', message: commandHelp(state.workspace_mode) };
       if (command === '/latest') return { action: 'handled' };
+      if (command === '/trace') {
+        // The CLI process hosts the viewer; this worker has no Journal access of its own.
+        if (!process.send) return { action: 'handled', message: '在另一个终端运行 kernelagent trace 打开实时轨迹。' };
+        const reply = await new Promise(resolve => {
+          const timer = setTimeout(() => { process.off('message', listen); resolve({ error: '轨迹服务启动超时' }); }, 10000);
+          function listen(message) { if (message?.type !== 'trace_ready') return; clearTimeout(timer); process.off('message', listen); resolve(message); }
+          process.on('message', listen);
+          process.send({ type: 'open_trace' });
+        });
+        return { action: 'handled', message: reply.error ? `无法打开实时轨迹：${reply.error}`
+          : `实时轨迹${reply.opened ? '已在浏览器打开' : ''}：${reply.url}\n本会话运行期间持续更新；退出界面后服务停止。` };
+      }
       if (command === '/subagents' || command === '/agents') {
         const current = await refresh();
         if (current.subagent_config?.enabled === false) return { action: 'handled', message: '子代理未启用。' };

@@ -1,11 +1,14 @@
+import { visibleWidth } from '@earendil-works/pi-tui';
+
 /** One catalogue drives both the command gate and native editor completion. */
-export const COMMAND_POLICY_VERSION = 'kernelbridge.commands/v2';
+export const COMMAND_POLICY_VERSION = 'kernelbridge.commands/v3';
 export const PRODUCT_COMMANDS = Object.freeze([
   ['goal', '设置持续目标；不带参数查看目标', '[目标内容 | pause | resume | clear]'],
   ['help', '查看可用命令与快捷键'],
   ['latest', '回到最新消息'],
   ['subagents', '查看子代理、触发方式和执行结果'],
   ['agents', '查看可用子代理'],
+  ['trace', '在浏览器中打开实时轨迹（Lattice Trace）'],
   ['compact', '压缩上下文，保留约束与回执', '[压缩要求]'],
   ['context', '清理或重置上下文', 'clean | reset'],
   ['new', '保留源码，开始新 Trial'],
@@ -48,12 +51,46 @@ export function parseGoalCommand(text) {
   return { operation: 'set', objective };
 }
 
-export const COMMAND_HELP = [
-  '/goal 目标内容：持续执行目标；/goal：查看目标',
-  '/goal pause | resume | clear：暂停、恢复、清除',
-  '/latest：回到最新消息；/compact：压缩上下文',
-  '/context reset：新 Trial；/fork：分支；/tree：历史',
-  '/model：模型；/settings：设置；!命令：受控 bash',
-  '/quit：退出；/detach：退出并允许 Goal 继续',
-  'Esc：中断；Ctrl+O：展开工具详情；输入 / 查看全部可用命令',
-].join('\n');
+/** One help table for both modes; Claude Code and Codex show commands, not policy. */
+const HELP_ROWS = {
+  project: [
+    ['/new  /clear', '新对话，保留工作文件'],
+    ['/resume', '恢复历史会话'],
+    ['/agents', '子代理类型与运行记录'],
+    ['/trace', '浏览器中查看实时轨迹'],
+    ['/model', '切换模型'],
+    ['/compact', '压缩上下文'],
+    ['/goal 目标内容', '持续执行直到完成'],
+    ['/goal pause | resume | clear', '暂停、恢复、清除目标'],
+    ['/name 标题', '命名当前会话'],
+    ['/quit  /exit', '退出'],
+  ],
+  task: [
+    ['/goal 目标内容', '持续执行直到完成'],
+    ['/goal pause | resume | clear', '暂停、恢复、清除目标'],
+    ['/context reset  /new', '开始新 Trial'],
+    ['/fork  /tree', '分支对话或浏览历史'],
+    ['/resume  /import', '恢复带源码检查点的会话'],
+    ['/agents', '子代理类型与运行记录'],
+    ['/trace', '浏览器中查看实时轨迹'],
+    ['/compact', '压缩上下文'],
+    ['/model  /settings', '模型路由与会话设置'],
+    ['/detach', '退出并允许 Goal 继续'],
+    ['/quit', '退出并按策略暂停'],
+  ],
+};
+
+// Short lines so the block still fits a 24-row, 48-column terminal.
+const KEYS = ['esc 中断 · ctrl+o 展开工具输出 · ! 运行 shell', '!! 不进上下文 · 输入 / 查看全部可用命令'];
+
+/** Two aligned columns; CJK counts as two columns, and a wider command keeps its own line. */
+export function commandHelp(mode = 'project') {
+  const rows = HELP_ROWS[mode === 'project' ? 'project' : 'task'];
+  const column = Math.min(22, Math.max(...rows.map(([command]) => visibleWidth(command))));
+  const pad = (text, width) => text + ' '.repeat(Math.max(0, width - visibleWidth(text)));
+  return ['命令',
+    ...rows.flatMap(([command, text]) => visibleWidth(command) > column
+      ? ['  ' + command, pad('', column + 4) + text]
+      : ['  ' + pad(command, column + 2) + text]),
+    '快捷键', ...KEYS.map(line => '  ' + line)].join('\n');
+}

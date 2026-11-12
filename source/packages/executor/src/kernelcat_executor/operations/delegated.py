@@ -22,6 +22,7 @@ from kernelcat_executor.contracts.models import (
 from kernelcat_executor.operations.context import ContextOverflow, project
 from kernelcat_executor.operations.control import SessionControl
 from kernelcat_executor.operations.requests import propose
+from kernelcat_executor.state.goal_progress import model_call_progress
 
 READ_TOOLS = frozenset({"read_file", "list_files", "search_text", "load_skill", "read_receipt", "read_learned_skill",
                         "knowledge_search", "knowledge_show", "knowledge_source", "knowledge_read"})
@@ -152,7 +153,8 @@ class DelegatedEffects:
         if model is None:
             return self._stop("provider_unconfigured")
         identity = f"{self.task.id}/step/{self.step}/model/{route}"
-        context = project(self.task, policy, self.store.snapshot(), self.owner.skills)
+        context = project(self.task, policy, self.store.snapshot(), self.owner.skills,
+            goal_progress=model_call_progress(self.store))
         # Keep the last admitted model call for a useful, receipt-bound handoff.
         # Limits are ceilings, not a reason to silently lose already gathered evidence.
         # Without configured limits, the context bound plays the same role.

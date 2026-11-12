@@ -78,8 +78,12 @@ class NativeInterfaceTest(unittest.TestCase):
                     del actual_contract['oracle']['files']
                     self.assertEqual(actual_contract, expected_contract)
                     tools = json.loads((output / 'business-tools.json').read_text())
-                    self.assertEqual(len(tools), 10)
-                    self.assertEqual([t['name'] for t in tools if t.get('capture_paths')], ['pipeline_freeze'])
+                    self.assertEqual(len(tools), 11)
+                    self.assertEqual([t['name'] for t in tools if t.get('capture_paths')],
+                                     ['pipeline_freeze', 'pipeline_evaluate'])
+                    evaluate = next(t for t in tools if t['name'] == 'pipeline_evaluate')
+                    self.assertEqual(evaluate['capture_paths'], task['writable'])
+                    self.assertTrue(any(Path(pin['path']).name == 'evaluation.py' for pin in evaluate['files']))
                     if mode == 'matmul':
                         self.assertEqual(abi, cube_abi)
                     else:

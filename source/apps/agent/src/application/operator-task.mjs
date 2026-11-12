@@ -100,7 +100,7 @@ export async function prepareOperatorTask({ task, selected, output, agentRoot })
   seedFiles['resource-map.json'] = JSON.stringify({ schema_version: 'kernelbridge.operator-resources/v1', resources,
     usage: { native_read: 'Read non-null read_path relative to this workspace. These hash-identical reference copies are read-only. Null read_path means host_only_binary: use its binding_path through pipeline tools without a native text read.',
       pipeline_binding: 'Use binding_path only in pipeline_bind or pipeline_baseline; do not open host paths with native read/bash.',
-      driver: 'Configured driver IDs are pipeline_run/pipeline_pair parameters, not shell commands.',
+      driver: 'Configured driver IDs are pipeline_evaluate/pipeline_run/pipeline_pair parameters, not shell commands. When pipeline_evaluate is available, use it to freeze, launch or recover the original job, collect and check in one bounded call; pairing and promotion remain separate.',
       bash: 'Each bash call uses a fresh temporary snapshot. Use relative paths; do not retain or cd to a previous temporary directory.',
       candidate: 'Write only declared candidate paths; freeze workspace-relative source paths. No candidate implementation is provided.' } }, null, 2) + '\n';
   const generatedReadonly = [...copies.values(), 'resource-map.json'];

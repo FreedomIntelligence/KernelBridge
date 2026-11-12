@@ -1,26 +1,33 @@
 --- a/dist/modes/interactive/interactive-mode.js
 +++ b/dist/modes/interactive/interactive-mode.js
-@@ -234,6 +234,19 @@
+@@ -234,6 +234,26 @@
          .join("/");
      return provider.name === provider.id ? authTypes : `${provider.name} · ${authTypes}`;
  }
-+/** KernelBridge: "⏺ " before the first visible assistant line; continuation lines indent by two. */
-+function withAssistantBullet(component, enabled) {
++/** KernelBridge: a marker before the first visible line of a message; continuation lines indent by two (Claude Code layout).
++    Trimming drops the component's own blank padding so one blank line separates rows, as in Claude Code. */
++function withGutter(component, enabled, marker, trim = false) {
 +    if (!enabled)
 +        return component;
 +    const render = component.render.bind(component);
 +    const visible = (line) => line.replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "").trim().length > 0;
 +    component.render = (width) => {
-+        const lines = render(Math.max(1, width - 2));
++        let lines = render(Math.max(1, width - 2));
++        if (trim) {
++            while (lines.length && !visible(lines[0])) lines = lines.slice(1);
++            while (lines.length && !visible(lines[lines.length - 1])) lines = lines.slice(0, -1);
++        }
 +        const first = lines.findIndex(visible);
-+        return lines.map((line, index) => line.replace(/^((?:\x1b\][^\x07]*\x07)*)( ?)/, (_, osc, pad) => osc + pad + (index === first ? theme.fg("text", "⏺") + " " : "  ")));
++        return lines.map((line, index) => line.replace(/^((?:\x1b\][^\x07]*\x07)*)((?:\x1b\[[0-9;]*m)*)( ?)/, (_, osc, style, pad) => osc + pad + (index === first ? marker() + " " : "  ") + style));
 +    };
 +    return component;
 +}
++const withAssistantBullet = (component, enabled) => withGutter(component, enabled, () => theme.fg("text", "⏺"));
++const withUserPrompt = (component, enabled) => withGutter(component, enabled, () => theme.fg("dim", ">"), true);
  export class InteractiveMode {
      runtimeHost;
      renderer;
-@@ -270,8 +283,8 @@
+@@ -270,8 +290,8 @@
      workingMessage = undefined;
      workingVisible = true;
      workingIndicatorOptions = undefined;
@@ -31,7 +38,7 @@
      hiddenThinkingLabel = this.defaultHiddenThinkingLabel;
      lastSigintTime = 0;
      lastEscapeTime = 0;
-@@ -384,6 +397,7 @@
+@@ -384,6 +404,7 @@
              fullscreenWheelScrollLines: this.settingsManager.getFullscreenWheelScrollLines(),
          });
          this.ui = createInteractiveTuiReference(() => this.renderer);
@@ -39,7 +46,7 @@
          this.ui.setClearOnShrink(this.settingsManager.getClearOnShrink());
          this.headerContainer = new Container();
          this.loadedResourcesContainer = new Container();
-@@ -412,7 +426,7 @@
+@@ -412,7 +433,7 @@
          this.footer = new FooterComponent(this.session, this.footerDataProvider);
          this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
          this.footerContainer = new Container();
@@ -48,7 +55,7 @@
          // Load hide thinking block setting
          this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
          this.outputPad = this.settingsManager.getOutputPad();
-@@ -466,6 +480,9 @@
+@@ -466,6 +487,9 @@
          }));
      }
      createBaseAutocompleteProvider() {
@@ -58,7 +65,7 @@
          // Define commands for autocomplete
          const slashCommands = BUILTIN_SLASH_COMMANDS.map((command) => ({
              name: command.name,
-@@ -549,6 +566,7 @@
+@@ -549,6 +573,7 @@
          let provider = this.createBaseAutocompleteProvider();
          const triggerCharacters = [];
          for (const wrapProvider of this.autocompleteProviderWrappers) {
@@ -66,7 +73,7 @@
              provider = wrapProvider(provider);
              triggerCharacters.push(...(provider.triggerCharacters ?? []));
          }
-@@ -660,6 +678,7 @@
+@@ -660,6 +685,7 @@
              nextUi.restoreRenderState(this.mainScreenRenderState);
          }
          this.renderer = nextUi;
@@ -74,7 +81,7 @@
          this.options.tuiMode = mode;
          this.mountInteractiveTui(nextUi, components);
          nextUi.invalidate();
-@@ -735,45 +754,45 @@
+@@ -735,45 +761,45 @@
              // Built on demand so the header follows theme changes. The logo's first line carries the version,
              // its second line the first line of key hints. Terminals that cannot render the logo get a
              // "Pi vX" line instead, with the key hints below it.
@@ -148,7 +155,7 @@
              const header = new BuiltInHeader(() => `${withLogo(compactInstructions())}\n${compactOnboarding()}\n\n${onboarding()}`, () => `${withLogo(expandedInstructions())}\n\n${onboarding()}`, this.getStartupExpansionState(), 1, 0);
              if (showLogo)
                  header.onLogoClick = (column, row) => playPiLogo3d(this.renderer, column, row);
-@@ -807,6 +826,7 @@
+@@ -807,6 +833,7 @@
          await this.rebindCurrentSession();
          // Render initial messages AFTER showing loaded resources
          this.renderInitialMessages();
@@ -156,7 +163,7 @@
          // Set up theme file watcher
          onThemeChange(() => {
              this.ui.invalidate();
-@@ -882,7 +902,8 @@
+@@ -882,7 +909,8 @@
              }
          });
          // Show startup warnings
@@ -166,7 +173,7 @@
          for (const diagnostic of startupDiagnostics ?? []) {
              if (diagnostic.type === "error") {
                  this.showError(diagnostic.message);
-@@ -1602,6 +1623,7 @@
+@@ -1602,6 +1630,7 @@
                      }
                      this.chatContainer.clear();
                      this.renderInitialMessages();
@@ -174,7 +181,7 @@
                      if (result.editorText && !this.editor.getText().trim()) {
                          this.editor.setText(result.editorText);
                      }
-@@ -1765,7 +1787,7 @@
+@@ -1765,7 +1794,7 @@
          const cause = change.kind === "updated"
              ? `${APP_NAME} was updated to ${change.version} while this session was running (${VERSION})`
              : `The ${APP_NAME} installation this session runs from was removed or replaced`;
@@ -183,7 +190,7 @@
          const restart = resumeCommand
              ? `Restart with \`${resumeCommand}\` to continue this session.`
              : `Restart ${APP_NAME}.`;
-@@ -1781,6 +1803,7 @@
+@@ -1781,6 +1810,7 @@
          this.streamingMessage = undefined;
          this.pendingTools.clear();
          this.renderInitialMessages();
@@ -191,7 +198,7 @@
      }
      /**
       * Get a registered tool definition by name (for custom rendering).
-@@ -2054,7 +2077,7 @@
+@@ -2054,7 +2084,7 @@
          else {
              // Restore built-in footer
              this.customFooter = undefined;
@@ -200,7 +207,7 @@
          }
          this.ui.requestRender();
      }
-@@ -2367,6 +2390,11 @@
+@@ -2367,6 +2397,11 @@
       * Show a notification for extensions.
       */
      showExtensionNotify(message, type) {
@@ -212,7 +219,7 @@
          if (type === "error") {
              this.showError(message);
          }
-@@ -2468,6 +2496,9 @@
+@@ -2468,6 +2503,9 @@
          // Set up handlers on defaultEditor - they use this.editor for text access
          // so they work correctly regardless of which editor is active
          this.defaultEditor.onEscape = () => {
@@ -222,7 +229,7 @@
              if (this.session.isStreaming) {
                  this.restoreQueuedMessagesToEditor({ abort: true });
              }
-@@ -2593,6 +2624,27 @@
+@@ -2593,6 +2631,27 @@
      }
      setupEditorSubmitHandler() {
          this.defaultEditor.onSubmit = async (text) => {
@@ -250,7 +257,7 @@
              text = text.trim();
              if (!text)
                  return;
-@@ -2887,7 +2939,7 @@
+@@ -2887,7 +2946,7 @@
                      this.ui.requestRender();
                  }
                  else if (event.message.role === "assistant") {
@@ -259,7 +266,7 @@
                      this.streamingMessage = event.message;
                      this.chatContainer.addChild(this.streamingComponent);
                      this.streamingComponent.updateContent(this.streamingMessage, true);
-@@ -3239,7 +3291,8 @@
+@@ -3239,7 +3298,8 @@
              case "system":
                  break;
              case "user": {
@@ -269,8 +276,18 @@
                  if (textContent) {
                      if (this.chatContainer.children.length > 0) {
                          this.chatContainer.addChild(new Spacer(1));
-@@ -3261,14 +3314,14 @@
-                         const userComponent = new UserMessageComponent(textContent, this.getMarkdownThemeWithSettings(), this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp);
+@@ -3253,22 +3313,22 @@
+                         // Render user message separately if present
+                         if (skillBlock.userMessage) {
+                             this.chatContainer.addChild(new Spacer(1));
+-                            const userComponent = new UserMessageComponent(skillBlock.userMessage, this.getMarkdownThemeWithSettings(), this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp);
++                            const userComponent = withUserPrompt(new UserMessageComponent(skillBlock.userMessage, this.getMarkdownThemeWithSettings(), this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp), this.options.hostActions && textContent === originalText);
+                             this.chatContainer.addChild(userComponent);
+                         }
+                     }
+                     else {
+-                        const userComponent = new UserMessageComponent(textContent, this.getMarkdownThemeWithSettings(), this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp);
++                        const userComponent = withUserPrompt(new UserMessageComponent(textContent, this.getMarkdownThemeWithSettings(), this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp), this.options.hostActions && textContent === originalText);
                          this.chatContainer.addChild(userComponent);
                      }
 -                    if (options?.populateHistory) {
@@ -286,7 +303,7 @@
                  this.chatContainer.addChild(assistantComponent);
                  break;
              }
-@@ -3500,6 +3553,7 @@
+@@ -3500,6 +3560,7 @@
          }
      }
      renderProjectTrustWarningIfNeeded() {
@@ -294,7 +311,7 @@
          if (this.settingsManager.isProjectTrusted() || !hasTrustRequiringProjectResources(this.sessionManager.getCwd())) {
              return;
          }
-@@ -3548,6 +3602,10 @@
+@@ -3548,6 +3609,10 @@
       */
      isShuttingDown = false;
      async shutdown(options) {
@@ -305,7 +322,7 @@
          if (this.isShuttingDown)
              return;
          this.isShuttingDown = true;
-@@ -3577,7 +3635,7 @@
+@@ -3577,7 +3642,7 @@
          await this.ui.terminal.drainInput(1000);
          this.stop();
          await this.runtimeHost.dispose();
@@ -314,7 +331,7 @@
          if (resumeCommand) {
              process.stdout.write(`${chalk.dim("To resume this session:")} ${resumeCommand}\n`);
          }
-@@ -3816,7 +3874,7 @@
+@@ -3816,7 +3881,7 @@
                  }
              }
          }
@@ -323,7 +340,7 @@
      }
      /** Update rendered assistant messages without rebuilding live tool components. */
      updateThinkingBlockVisibility() {
-@@ -3831,7 +3889,7 @@
+@@ -3831,7 +3896,7 @@
          this.hideThinkingBlock = !this.hideThinkingBlock;
          this.settingsManager.setHideThinkingBlock(this.hideThinkingBlock);
          this.updateThinkingBlockVisibility();
@@ -332,7 +349,7 @@
      }
      async handleOpenExternalEditor() {
          const editorCmd = this.settingsManager.getExternalEditorCommand();
-@@ -4792,6 +4850,7 @@
+@@ -4792,6 +4857,7 @@
                      // Update UI
                      this.chatContainer.clear();
                      this.renderInitialMessages();
@@ -340,7 +357,7 @@
                      if (result.editorText && !this.editor.getText().trim()) {
                          this.editor.setText(result.editorText);
                      }
-@@ -5896,6 +5955,7 @@
+@@ -5896,6 +5962,7 @@
          }
      }
      handleDebugCommand() {
