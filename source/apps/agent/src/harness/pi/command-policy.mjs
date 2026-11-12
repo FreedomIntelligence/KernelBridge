@@ -1,11 +1,12 @@
 /** One catalogue drives both the command gate and native editor completion. */
-export const COMMAND_POLICY_VERSION = 'kernelbridge.commands/v2';
+export const COMMAND_POLICY_VERSION = 'kernelbridge.commands/v3';
 export const PRODUCT_COMMANDS = Object.freeze([
   ['goal', '设置持续目标；不带参数查看目标', '[目标内容 | pause | resume | clear]'],
   ['help', '查看可用命令与快捷键'],
   ['latest', '回到最新消息'],
   ['subagents', '查看子代理、触发方式和执行结果'],
   ['agents', '查看可用子代理'],
+  ['trace', '在浏览器中打开实时轨迹（Lattice Trace）'],
   ['compact', '压缩上下文，保留约束与回执', '[压缩要求]'],
   ['context', '清理或重置上下文', 'clean | reset'],
   ['new', '保留源码，开始新 Trial'],
@@ -53,7 +54,7 @@ export const COMMAND_HELP = [
   '/goal pause | resume | clear：暂停、恢复、清除',
   '/latest：回到最新消息；/compact：压缩上下文',
   '/context reset：新 Trial；/fork：分支；/tree：历史',
-  '/model：模型；/settings：设置；!命令：受控 bash',
+  '/model：模型；/settings：设置；/trace：浏览器实时轨迹；!命令：受控 bash',
   '/quit：退出；/detach：退出并允许 Goal 继续',
   'Esc：中断；Ctrl+O：展开工具详情；输入 / 查看全部可用命令',
 ].join('\n');

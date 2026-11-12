@@ -16,7 +16,7 @@ export { COMMAND_POLICY_VERSION } from './command-policy.mjs';
 const PROJECT_HELP = [
   '命令',
   ...[['/new  /clear', '新对话，保留工作文件'], ['/resume', '恢复历史会话'], ['/agents', '子代理类型与运行记录'],
-    ['/model', '切换模型'], ['/compact', '压缩上下文'], ['/goal 目标内容', '持续执行直到完成'], ['/name 标题', '命名当前会话'],
+    ['/model', '切换模型'], ['/trace', '浏览器中查看实时轨迹'], ['/compact', '压缩上下文'], ['/goal 目标内容', '持续执行直到完成'], ['/name 标题', '命名当前会话'],
     ['/quit  /exit', '退出']].map(([command, text]) => `  ${command.padEnd(16)}${text}`),
   '快捷键',
   '  esc 中断 · ctrl+o 展开工具输出 · ! 运行 shell · !! 运行 shell（不进上下文）',
@@ -493,6 +493,18 @@ export function createHostActions(control, effects) {
       if (command === '/help' || command === '/hotkeys') return { action: 'handled', message: state.workspace_mode === 'project'
         ? PROJECT_HELP : COMMAND_HELP };
       if (command === '/latest') return { action: 'handled' };
+      if (command === '/trace') {
+        // The CLI process hosts the viewer; this worker has no Journal access of its own.
+        if (!process.send) return { action: 'handled', message: '在另一个终端运行 kernelagent trace 打开实时轨迹。' };
+        const reply = await new Promise(resolve => {
+          const timer = setTimeout(() => { process.off('message', listen); resolve({ error: '轨迹服务启动超时' }); }, 10000);
+          function listen(message) { if (message?.type !== 'trace_ready') return; clearTimeout(timer); process.off('message', listen); resolve(message); }
+          process.on('message', listen);
+          process.send({ type: 'open_trace' });
+        });
+        return { action: 'handled', message: reply.error ? `无法打开实时轨迹：${reply.error}`
+          : `实时轨迹${reply.opened ? '已在浏览器打开' : ''}：${reply.url}\n本会话运行期间持续更新；退出界面后服务停止。` };
+      }
       if (command === '/subagents' || command === '/agents') {
         const current = await refresh();
         if (current.subagent_config?.enabled === false) return { action: 'handled', message: '子代理未启用。' };

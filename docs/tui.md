@@ -65,6 +65,7 @@ The original `createSession({manifest})`, `runTask`, and external LoopX APIs rem
 | `/resume [ID_OR_TITLE]`, `/resume --all` | Project session picker or direct resume of the original host/history; no tool replay |
 | `/resume PATH`, `/import PATH` in isolated task mode | Resume a retained original native session with its matching source checkpoint; no new Trial |
 | `/subagents`, `/agents` | List available agent types and this session's runs; Enter opens a report, `s` stops a running child |
+| `/trace` | Open this session's live trajectory (Lattice Trace) in the browser; see [trace.md](trace.md) |
 | `/model ROUTE`, `/thinking LEVEL`, `/scoped-models` | Select only frozen profile routes; thinking requires a matching route |
 | `/settings`, `/trust`, `/reload` | Inspect or reload the frozen resource set |
 | `/export`, `/copy`, `/name`, `/session`, `/changelog`, `/hotkeys` | Native presentation; exports go under the run's `exports/` |

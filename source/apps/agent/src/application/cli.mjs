@@ -4,6 +4,7 @@ import { dirname } from 'node:path';
 import { attachApplication, startApplication, prepareApplication, sessions } from './host.mjs';
 import { startCodegen, resumeCodegen } from './codegen.mjs';
 import { startScreen } from './start-screen.mjs';
+import { traceCommand, traceHost } from './trace.mjs';
 
 export const HELP = `KernelBridge
   kernelagent                              Open codegen in the current project; wait for input
@@ -24,6 +25,7 @@ Explicit task / experiment mode:
   kernelagent tui --task ABS --config ABS --output ABS --python ABS --expected-python-modules ABS
   kernelagent tui --attach APPLICATION_ID [--restart]
   kernelagent sessions
+  kernelagent trace [ID_OR_TITLE] [--all] [--port N] [--no-open]   Live trajectory viewer in the browser
   kernelagent session status APPLICATION_ID
   kernelagent session input APPLICATION_ID TEXT [--kind prompt|steer|follow_up] [--input-id ID]
   kernelagent session pause|resume|interrupt APPLICATION_ID
@@ -31,6 +33,7 @@ Explicit task / experiment mode:
 `;
 
 export async function applicationMain(args) {
+  if (args[0] === 'trace') return traceCommand(args.slice(1));
   if (args.includes('--help') || args.includes('-h')) { process.stdout.write(HELP); return 0; }
   if (args[0] === 'sessions') { process.stdout.write(JSON.stringify(await sessions(), null, 2) + '\n'); return 0; }
   if (args[0] === 'session') {
@@ -119,11 +122,17 @@ export async function applicationMain(args) {
         KERNELBRIDGE_TUI_MODE: options.tuiMode ?? process.env.KERNELBRIDGE_TUI_MODE,
       }).filter(([, value]) => value !== undefined)),
     });
-    child.on('message', message => { if (message?.type === 'resume_application' && typeof message.identity === 'string') resumeIdentity = message.identity; });
+    // /trace: this trusted process serves the viewer; the worker only receives the URL.
+    const trace = traceHost(client.directory);
+    child.on('message', message => {
+      if (message?.type === 'resume_application' && typeof message.identity === 'string') resumeIdentity = message.identity;
+      if (message?.type === 'open_trace') trace.open().then(reply => reply, error => ({ error: error.message }))
+        .then(reply => { if (child.connected) child.send({ type: 'trace_ready', ...reply }); });
+    });
     const code = await new Promise((accept, reject) => {
       child.once('error', reject);
       child.once('exit', code => accept(code ?? 1));
-    });
+    }).finally(() => trace.close());
     if (!resumeIdentity || code !== 0) return code;
     client.close();
     process.stdout.write('\n正在恢复会话…\n');
