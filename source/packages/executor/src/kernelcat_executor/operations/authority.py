@@ -36,6 +36,7 @@ from kernelcat_executor.contracts.models import (
     Outcome,
     Policy,
     Task,
+    ToolFailure,
     canonical,
     same_json_value,
     digest,
@@ -230,7 +231,7 @@ class ExecutionRPC:
             prepared["context_source"] = validate_context_source(self.context_source)
         return prepared
 
-    def _submitted_context(self, params: Json, policy: Policy) -> ContextBudget:
+    def _submitted_context(self, params: Json, policy: Policy) -> ContextBudget | None:
         if "harness" in params:
             native = validate_harness_request(params)
             checked_value = {"route": native["route"], "context": native["context"]}
@@ -255,10 +256,15 @@ class ExecutionRPC:
                 raise Conflict("managed parent model requires ContextCommit")
             self.context_admission = ContextAdmission(checked["commit"],
                 validate_context_source(self.context_source), checked["context"],
-                dict(self.harness) if self.harness is not None else submitted)
+                dict(self.harness) if self.harness is not None else submitted,
+                concurrent_budget=getattr(self.owner, "concurrent_delegation", False))
         elif "commit" in checked:
             raise Conflict("legacy session cannot adopt a managed ContextCommit")
-        return checked["context"]["budget"]
+        # The selected prompt retains its genuine observed budget. Background
+        # children may spend/reserve between that observation and this atomic
+        # admission, so the live ledger (not that old observation) authorizes
+        # spending. Policy, source and selected input checks above stay strict.
+        return None if getattr(self.owner, "concurrent_delegation", False) else checked["context"]["budget"]
 
     def model(self, params: Json) -> Json:
         expected = {"route", "context"} if self.owner.external_context else {"route"}
@@ -411,7 +417,7 @@ class ExecutionRPC:
         return {"action_id": action.id, "outcome": outcome.model_dump(mode="json")}
 
     def batch(self, params: Json) -> Json:
-        if (not self.active or not self._gateway_batch() or self.outcomes
+        if (not self.active or not self._gateway_batch() or self.outcomes or self.children
                 or params != {"proposal_id": self.proposal_id}):
             raise Conflict("no sealed parallel batch")
         result = self.owner._parallel_dispatch(self.calls, self.step, self.plan)
@@ -565,12 +571,18 @@ class ExecutionRPC:
             settings = remote.settings
             prior_children = sum(a.tool == "delegate" for a in self.calls[:index])
             total = sum(item["action"]["tool"] == "delegate" for item in self.store.snapshot()["actions"].values())
-            live = sum(1 for run in self.children.values() if run.effects is not None)
+            live = sum(not run.closed for run in (*self.children.values(), *self.background.values()))
             denial = (("count_limit", "Configured subagent count reached")
                       if settings.get("max_per_turn") is not None and prior_children >= settings["max_per_turn"]
                       or settings.get("max_total") is not None and total >= settings["max_total"] else
                       ("concurrency_limit", "Configured concurrent subagent limit reached; retry after a child finishes")
                       if settings.get("max_concurrent") is not None and live >= settings["max_concurrent"] else None)
+            if remote.agents.get(action.arguments["agent"], {}).get("tools") == "test" and action.arguments.get("background"):
+                denial = ("background_requires_isolation", "Test agents use the shared project and must run in the foreground. "
+                          "Omit background or use a worktree worker for isolated background commands.")
+            if any(item["action"]["task"] == self.task.id and item["action"]["tool"] != "delegate"
+                   and not item.get("terminal") for item in self.store.snapshot()["actions"].values()):
+                denial = ("foreground_busy", "Settle the parent project operation before starting a child.")
             started = remote.arm(action.id, denial)
             run = ChildRun(action, index)
 
@@ -589,13 +601,22 @@ class ExecutionRPC:
             if self.owner._cancelled():
                 self._abandon(action.id)
                 raise CallCancelled()
-        run.effects = DelegatedEffects(self.owner, action, self.proposal_id)
+        try:
+            run.effects = DelegatedEffects(self.owner, action, self.proposal_id)
+        except (ToolFailure, FileNotFoundError) as error:
+            # Setup has not dispatched a child effect. Its rejection is known,
+            # unlike a provider/tool whose original receipt is still pending.
+            self.remote.resolve(action.id, Outcome(status="failed", data={
+                "reason": "child_setup_failed", "error": str(error)[:400], "unexecuted": True}))
+            outcome = self._collect_plugin(action.id)
+            return {"cached": True, "outcome": outcome.model_dump(mode="json")}
         # Background needs a host that announces results and runs children
         # concurrently; elsewhere the same call simply runs in the foreground.
         if (action.arguments.get("background") is True and settings.get("background", True)
                 and getattr(self.owner, "concurrent_delegation", False)):
             started_outcome = Outcome(data={"background": True, "agent_id": action.id, "agent": action.arguments["agent"],
-                "status": "running", "advisory": True, "promoted": False})
+                "status": "running", "advisory": True, "promoted": False,
+                **({"worktree": run.effects.worktree.descriptor()} if run.effects.worktree else {})})
             self.remote.resolve(action.id, started_outcome)
             collected = self._collect_plugin(action.id, background=True)
             return {"permit": action.id, "agent": action.arguments["agent"], "task": action.arguments["task"],
@@ -637,13 +658,14 @@ class ExecutionRPC:
                 or not isinstance(params["text"], str) or len(params["text"].encode()) > 65536):
             raise Conflict("invalid child settlement")
         child = self._child(params)
-        outcome = self._child_outcome(child, params)
-        if params["permit"] in self.background:
-            self._finish_background(params["permit"], outcome)
-            return {"outcome": outcome.model_dump(mode="json")}
-        self.remote.resolve(params["permit"], outcome)
-        settled = self._collect_plugin(params["permit"])
-        return {"outcome": settled.model_dump(mode="json")}
+        with child.operation_lock:
+            outcome = self._child_outcome(child, params)
+            if params["permit"] in self.background:
+                self._finish_background(params["permit"], outcome)
+                return {"outcome": outcome.model_dump(mode="json")}
+            self.remote.resolve(params["permit"], outcome)
+            settled = self._collect_plugin(params["permit"])
+            return {"outcome": settled.model_dump(mode="json")}
 
     def _child_outcome(self, child: DelegatedEffects, params: Json) -> Outcome:
         # Child model/read RPCs and settlement share the child's ordered lane.
@@ -655,6 +677,9 @@ class ExecutionRPC:
                 raise InDoubt(f"unresolved child action {item['action']['id']}")
         if params["status"] == "cancelled":
             child.failure = "cancelled"
+        if params["status"] == "completed" and (
+                child.summary is None or params["text"] != child.summary or child.failure is not None):
+            raise Conflict("child output differs from its authoritative model receipt")
         changes = {}
         if child.worktree is not None:
             label = child.action.arguments.get("description") or child.action.arguments["task"][:60]
@@ -663,8 +688,6 @@ class ExecutionRPC:
             except Exception as error:  # the branch keeps whatever was written
                 changes = {"worktree": {"changed": None, "error": str(error)[:400]}}
         if params["status"] == "completed":
-            if child.summary is None or params["text"] != child.summary or child.failure is not None:
-                raise Conflict("child output differs from its authoritative model receipt")
             outcome = Outcome(data={"summary": child.summary, "model_receipt": child.receipt,
                 "plugin": "pi-subagents@0.87.0", "advisory": True, "promoted": False,
                 "agent": child.action.arguments["agent"], "completion_reason": child.completion_reason,
@@ -680,13 +703,16 @@ class ExecutionRPC:
     def _finish_background(self, identity: str, outcome: Outcome) -> None:
         """Record a background child's own result and let the host announce it."""
         with self.child_lock:
-            run = self.background.pop(identity, None)
+            run = self.background.get(identity)
             if run is None or run.closed:
                 return
+            recorded = self.gateway.internal(Action(id=identity + "/background", task=run.action.task,
+                tool="__background_result__", arguments={"agent_id": identity}, parents=(identity,)), 0,
+                lambda: outcome)
+            # Keep the live permit if persistence failed; recovery uses this
+            # exact action id and replays the notification after a crash.
             run.closed = True
-        recorded = self.gateway.internal(Action(id=identity + "/background", task=run.action.task,
-            tool="__background_result__", arguments={"agent_id": identity}, parents=(identity,)), 0,
-            lambda: outcome)
+            self.background.pop(identity, None)
         hook = getattr(self.owner, "background_settled", None)
         if hook is not None:
             hook(run.action, recorded)
@@ -732,22 +758,31 @@ class ExecutionRPC:
             self.children.pop(identity, None)
 
     def close(self) -> None:
+        # Signal first, before waiting on any individual child. Commands kill
+        # their process group; in-flight providers retain their real receipts.
+        with self.child_lock:
+            runs = list(self.children.values()) + list(self.background.values())
+        for run in runs:
+            if run.effects is not None:
+                run.effects.cancel("worker_exited")
         for invocation in self.native_invocations.values():
             invocation.close()
         for identity in list(self.children):
             self._abandon(identity, "Pi worker interrupted")
-        # A background child cannot outlive its Pi worker. Record that it was
-        # interrupted (never a success) so the next session reports it.
-        for identity in list(self.background):
-            run = self.background[identity]
+        for identity, run in list(self.background.items()):
             child = run.effects
+            if child is None or not child.operation_lock.acquire(timeout=2):
+                continue  # Original in-flight effects remain fenced on recovery.
             try:
-                self._finish_background(identity, Outcome(status="failed", data={
-                    "error": "background subagent interrupted", "reason": "worker_exited",
-                    "agent": run.action.arguments["agent"], "advisory": True,
-                    "steps": (child.step + 1) if child else 0, "tool_calls": child.tool_count if child else 0}))
-            except Exception:
+                child.failure = "worker_exited"
+                outcome = self._child_outcome(child, {"status": "failed", "text": ""})
+                self._finish_background(identity, outcome)
+            except InDoubt:
+                # Never commit/clean a worktree or fabricate an interruption
+                # receipt while a model/tool's actual outcome is unknown.
                 pass
+            finally:
+                child.operation_lock.release()
 
     def handle(self, method: str, params: Json) -> Json:
         if method in {"prepare_turn", "complete"} and params:

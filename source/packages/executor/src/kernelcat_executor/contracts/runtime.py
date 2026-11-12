@@ -93,6 +93,8 @@ class ContextAdmission:
     source: ContextSource
     context: ContextSource
     actual_input: Json
+    # Trusted host capability, never accepted from a model/client request.
+    concurrent_budget: bool = False
 
 
 def require(actual: object, expected: object, label: str) -> None:

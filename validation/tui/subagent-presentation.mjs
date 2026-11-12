@@ -20,7 +20,10 @@ test('footer shows one live child line and nothing once children settle', () => 
     { agent: 'kernel-reviewer', status: 'completed', steps: 3, tool_calls: 4, task: 'done' },
   ] };
   installProductUI(ui, () => state);
+  // The footer carries persistent status; the working row above the editor is
+  // what says the turn is waiting on children, so the two do not repeat.
   assert(footer.render(48).some(line => line.includes('子代理 1 个运行中')));
+  assert(!footer.render(48).some(line => line.includes('等待 1 个子代理完成')));
   state.subagents[0].status = 'completed';
   assert(!footer.render(48).some(line => line.includes('子代理')));
   assert.match(workingMessage({ subagents: [{ status: 'running' }, { status: 'running' }] }, Date.now() - 65000), /等待 2 个子代理完成… \(1m05s · esc 中断\)/);
@@ -33,7 +36,7 @@ test('delegate row shows title, live progress, completion metrics and an explici
     latest_tool: 'search_text', latest_detail: 'def build' }]);
   const running = screen(renderCall(args, theme, context({ isPartial: true })));
   assert.match(running, /⏺ kernel-scout\(梳理开发流程\)/);
-  assert.match(running, /⎿  搜索 def build · 读取 3 · 模型 2 · 1\.5k tokens/);
+  assert.match(running, /⎿  搜索 def build · 工具 3 次 · 模型 2 · 1\.5k tokens/);
   assert(!running.includes('\x1b') && !running.includes('inspect'));
   const fallback = screen(renderCall({ agent: 'kernel-reviewer', task: '梳理验证流程：'.repeat(20) }, theme, context({ isPartial: true })));
   assert.equal(fallback.split('\n').filter(line => line.includes('⏺')).length, 1);
@@ -42,12 +45,12 @@ test('delegate row shows title, live progress, completion metrics and an explici
     agent: 'kernel-reviewer', partial: true, completion_reason: 'step_limit', steps: 6, tool_calls: 5,
     summary: 'Known evidence; **unresolved** question remains.' } } } };
   const collapsed = screen(renderResult(result, { expanded: false }, theme, context({ durationMs: 42000 })));
-  assert.match(collapsed, /部分结果（模型调用上限） · 读取 5 · 模型 6 · 1\.5k tokens · 42s/);
+  assert.match(collapsed, /部分结果（模型调用上限） · 工具 5 次 · 模型 6 · 1\.5k tokens · 42s/);
   assert.doesNotMatch(collapsed, /unresolved/);
   const expanded = screen(renderResult(result, { expanded: true }, theme, context({ durationMs: 42000 })));
   assert.match(expanded, /unresolved question remains/);
   assert.doesNotMatch(expanded, /"outcome"|\{"/);
-  assert.match(subagentStatus({ agent: 'kernel-scout', description: '梳理', status: 'failed', reason: 'timeout', steps: 1, tool_calls: 0 }), /kernel-scout · 失败：超时 · 读取 0 · 模型 1 · 梳理/);
+  assert.match(subagentStatus({ agent: 'kernel-scout', description: '梳理', status: 'failed', reason: 'timeout', steps: 1, tool_calls: 0 }), /kernel-scout · 失败：超时 · 工具 0 次 · 模型 1 · 梳理/);
 });
 
 test('native tools render a status header and one-line summaries', () => {

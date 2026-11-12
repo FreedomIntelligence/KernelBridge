@@ -192,10 +192,54 @@ class SubagentTests(unittest.TestCase):
         agents = {agent['name']: agent for agent in discover(project, home, project_mode=True)}
         self.assertEqual(agents['docs-writer']['description'], 'project version')
         self.assertEqual((agents['docs-writer']['tools'], agents['docs-writer']['source'], agents['docs-writer']['model']), ('test', 'project', 'primary'))
-        self.assertIn('kernel-worker', agents); self.assertNotIn('bad', agents)
+        self.assertNotIn('kernel-worker', agents); self.assertNotIn('bad', agents)
+        import subprocess
+        subprocess.run(['git', 'init', '-q', str(project)], check=True)
+        self.assertNotIn('kernel-worker', {a['name'] for a in discover(project, home, project_mode=True)})
+        subprocess.run(['git', '-C', str(project), '-c', 'user.name=fixture', '-c', 'user.email=fixture@local',
+                        'commit', '--allow-empty', '-qm', 'base'], check=True)
+        self.assertIn('kernel-worker', {a['name'] for a in discover(project, home, project_mode=True)})
         isolated = {agent['name'] for agent in discover(project, home, project_mode=False)}
         self.assertNotIn('kernel-worker', isolated); self.assertNotIn('docs-writer', isolated)
         self.assertEqual([tools_class(v) for v in ('Read, Edit', 'Bash', 'Read, Grep', 'write')], ['write', 'test', 'read', 'write'])
+
+    def test_project_agent_file_runs_through_sealed_gateway_and_real_pi_child(self):
+        from kernelcat_worker.subagent_definitions import discover
+        from kernelcat_executor.contracts.models import canonical
+        directory = self.workspace.root / '.kernelbridge/agents'
+        directory.mkdir(parents=True)
+        definition = directory / 'contract-reader.md'
+        definition.write_text('---\nname: contract-reader\ndescription: Inspect the original contract.\n'
+                              'tools: Read, Grep\nmodel: primary\n---\nPROJECT_AGENT_FROZEN_INSTRUCTION\n')
+        settings = SubagentConfig().model_dump(exclude={'enabled'})
+        settings['agents'] = discover(self.workspace.root, self.base / 'agent-home', project_mode=True)
+        effect = SubagentEffect(settings)
+        session, provider, replay = self.session([('delegate', {'agent': 'contract-reader',
+            'description': 'Read project contract', 'task': 'Read reference/spec.txt and report its evidence.'})], extra_tools=[effect])
+        sealed = next(spec for spec in session.gateway.specifications() if spec.name == 'delegate')
+        self.assertIn('contract-reader', sealed.parameters['properties']['agent']['enum'])
+        frozen_schema = canonical(sealed)
+        # Definitions are frozen before Gateway sealing; editing disk cannot
+        # silently widen an admitted child's tools or replace its instructions.
+        definition.write_text('---\nname: contract-reader\ndescription: Changed on disk.\n'
+                              'tools: Bash, Write\n---\nUNADMITTED_REPLACEMENT\n')
+        child = Child([('read_file', {'path': 'reference/spec.txt'})])
+        session.child_proposers = {'primary': child}
+        result = session.run(self.task)
+        replay._boundary()
+        self.assertEqual(result['status'], 'finished')
+        delegates = [row for row in self.store.snapshot()['actions'].values() if row['action']['tool'] == 'delegate']
+        self.assertEqual(len(delegates), 1)
+        self.assertEqual(delegates[0]['outcome']['status'], 'completed')
+        self.assertEqual(delegates[0]['outcome']['data']['agent'], 'contract-reader')
+        self.assertEqual(child.count, 2)
+        self.assertTrue(all('PROJECT_AGENT_FROZEN_INSTRUCTION' in context['instruction'] for context in child.contexts))
+        self.assertTrue(all('UNADMITTED_REPLACEMENT' not in str(context) for context in child.contexts))
+        self.assertTrue(all('read_file' in names and not names & {'write_file', 'run_command', 'delegate'} for names in child.tools))
+        advertised = [tool for harness in provider.harnesses for tool in harness['tools'] if tool['name'] == 'delegate']
+        self.assertTrue(advertised)
+        self.assertTrue(all('contract-reader' in tool['parameters']['properties']['agent']['enum'] for tool in advertised))
+        self.assertEqual(canonical(next(spec for spec in session.gateway.specifications() if spec.name == 'delegate')), frozen_schema)
 
     def test_forged_write_never_changes_workspace(self):
         result, rows, _, _ = self.run_child([('write_file', {'path': 'solution.py', 'text': 'bad'})])

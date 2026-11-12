@@ -39,7 +39,7 @@ const DISABLED = new Set(['/share', '/bug', '/debug']);
 const DISPLAY = new Set(['/copy', '/name', '/session', '/changelog', '/hotkeys']);
 
 /** All typed text crosses this gate before Pi's command/stream/compaction branches. */
-export function createHostActions(control, effects) {
+export function createHostActions(control, effects, { observer = control } = {}) {
   const inputs = new InputQueue(control);
   let governed, context, state, activeInput;
   let applying = [];
@@ -53,6 +53,9 @@ export function createHostActions(control, effects) {
   let advancing = false;
   let delivered = new Set();
   let treeFork = false;
+  let observationFallback;
+  let observationTimer;
+  let disposed = false;
   const policyInputs = new Set();
   let consecutiveErrors = 0;
   let compactions = 0;
@@ -74,8 +77,12 @@ export function createHostActions(control, effects) {
       governed.session.setActiveToolsByName(tools);
     }
   };
+  const acceptState = next => {
+    if (!state || !Number.isSafeInteger(state.cursor) || !Number.isSafeInteger(next.cursor) || next.cursor >= state.cursor) state = next;
+    return state;
+  };
   const refresh = async () => {
-    state = await control.state();
+    acceptState(await control.state());
     if (state.goal_review && state.goal_review.action_id !== shownReview) {
       shownReview = state.goal_review.action_id;
       showProductFeedback(context, `Goal 复核：${state.goal_review.status} · ${state.goal_review.summary}`);
@@ -378,9 +385,36 @@ export function createHostActions(control, effects) {
     await governed.prompt(receipt.text, { source: 'rpc', ...(governed.session.isStreaming ? { streamingBehavior } : {}) });
   }
 
-  const unsubscribe = control.subscribe(event => {
+  const failControl = error => {
+    if (governed) { governed.controller.fail(new Error(error)); void governed.session.abort(); }
+  };
+  const recoverObservations = () => {
+    if (disposed || observationFallback) return;
+    clearTimeout(observationTimer);
+    // Observation loss cannot restart execution. Read the original queue over
+    // the independent control channel and deliver only its retained identities;
+    // delivered protects a receipt already handed to Pi from a second delivery.
+    observationFallback = (async () => {
+      await refresh();
+      if (disposed) return;
+      updateSubagentProgress(state.subagents);
+      for (const receipt of Object.values(state.inputs ?? {})) {
+        if (receipt.initiator === 'agent' && receipt.status === 'queued') await deliver(receipt);
+      }
+    })().catch(error => { if (!disposed) report(error); }).finally(() => {
+      observationFallback = undefined;
+      if (!disposed && !control.closed) {
+        observationTimer = setTimeout(recoverObservations, 1000);
+        observationTimer.unref?.();
+      }
+    });
+  };
+  const unsubscribeControl = observer === control ? () => {} : control.subscribe(event => {
+    if (event.type === 'disconnected') failControl(event.error);
+  });
+  const unsubscribe = observer.subscribe(event => {
     if (event.type === 'state') {
-      state = event.state;
+      acceptState(event.state);
       updateSubagentProgress(state.subagents);
       syncTools();
       context?.ui.setStatus('kernelbridge', goalSummary(state));
@@ -396,7 +430,11 @@ export function createHostActions(control, effects) {
     } else if (event.type === 'takeover') {
       exiting = true;
     } else if (event.type === 'disconnected') {
-      if (governed) { governed.controller.fail(new Error(event.error)); void governed.session.abort(); }
+      if (observer === control) failControl(event.error);
+      else {
+        showProductFeedback(context, '实时输出连接已断开，原任务仍在执行；完成后会显示完整结果。', true);
+        recoverObservations();
+      }
     }
   });
 
@@ -433,7 +471,7 @@ export function createHostActions(control, effects) {
     async bind(value, options = {}) {
       governed = value;
       interactive = options.interactive === true;
-      await control.observe();
+      await observer.observe();
       const patch = JSON.parse(await readFile(new URL('../../../patches/pi-coding-agent-1.5.0-host-actions.json', import.meta.url), 'utf8'));
       await control.call('configuration', { operation: 'runtime_manifest', ...governed.manifest,
         command_policy_version: COMMAND_POLICY_VERSION, patch_sha256: patch.patch_sha256 });
@@ -474,7 +512,14 @@ export function createHostActions(control, effects) {
       if (!text.startsWith('/')) {
         if (text.startsWith('!') && !text.replace(/^!!?/, '').trim()) return { action: 'handled' };
         const normalized = text.startsWith('!') ? (text.startsWith('!!') ? '!!' : '!') + text.replace(/^!!?/, '').trim() : text;
-        const receipt = await inputs.accept(normalized, status.streaming || status.compacting ? 'steer' : 'prompt');
+        // Pi clears isStreaming before it awaits agent_settled extensions. The
+        // host may still be settling the previous input at this boundary;
+        // accept the next request as a follow-up and let Pi's native input
+        // queue deliver it after the previous prompt finishes.
+        const settling = runningInputs.size || applying.length || persistedInputs.length
+          || Object.values(state?.inputs ?? {}).some(item => item.kind !== 'control' && item.status === 'applied');
+        const kind = status.streaming || status.compacting ? 'steer' : settling ? 'follow_up' : 'prompt';
+        const receipt = await inputs.accept(normalized, kind);
         if (receipt.status !== 'queued') return { action: 'handled', message: 'Original input was already applied' };
         // Native submission owns this delivery before agent_settled/next can
         // observe the durable queued receipt. Restart recovery still owns any
@@ -506,7 +551,8 @@ export function createHostActions(control, effects) {
           return { action: 'handled', message: [...types.map(type => `${type.name} · ${type.description}`),
             ...(current.subagents ?? []).map(child => `${child.agent} · ${child.status} · ${child.summary || child.task}`)].join('\n') };
         }
-        const choice = await context.ui.custom((tui, _theme, _keybindings, done) => agentsPanel(current.subagents ?? [], types, done,
+        const choice = await context.ui.custom((tui, _theme, _keybindings, done) => agentsPanel(() => state.subagents ?? [],
+          () => state.subagent_types?.length ? state.subagent_types : BUILTIN_AGENTS, done,
           () => tui.requestRender(), () => tui.terminal.rows));
         if (choice?.stop) {
           await effects.call('application_stop_child', { agent_id: choice.stop });
@@ -671,7 +717,7 @@ export function createHostActions(control, effects) {
       await inputDelivery;
       while (await advance()) await inputDelivery;
     },
-    dispose() { unsubscribe(); },
+    dispose() { disposed = true; clearTimeout(observationTimer); unsubscribe(); unsubscribeControl(); },
   };
   const routeSubmit = actions.submit;
   actions.submit = async (raw, status, acceptedCommand) => {

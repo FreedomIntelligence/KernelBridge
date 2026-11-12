@@ -16,6 +16,7 @@ import subprocess
 import sys
 import time
 import zipfile
+from diagnostic_policy import diagnostic_reason, verify_record
 
 
 def encoded(value):
@@ -35,9 +36,32 @@ def save(path, value):
         stream.write(encoded(value) + b'\n'); stream.flush(); os.fsync(stream.fileno())
 
 
+def diagnostic_policy(config):
+    policy = config.get('diagnostics')
+    if policy is None:
+        return None
+    if not isinstance(policy, dict) or set(policy) - {'on_failure', 'on_regression', 'required', 'drivers', 'scope'}:
+        raise ValueError('Invalid diagnostics policy')
+    for name in ('on_failure', 'on_regression', 'required'):
+        if name in policy and type(policy[name]) is not bool:
+            raise ValueError('Diagnostics switches must be boolean')
+    drivers = policy.get('drivers', {})
+    if not isinstance(drivers, dict) or set(drivers) - {'ir', 'profiler'}:
+        raise ValueError('Diagnostics drivers must map ir/profiler to configured names')
+    for name in drivers.values():
+        if not isinstance(name, str) or config.get('drivers', {}).get(name, {}).get('kind') != 'diagnostic':
+            raise ValueError('Diagnostics requires configured diagnostic drivers')
+    scope = policy.get('scope')
+    if not isinstance(scope, str) or not scope.strip():
+        raise ValueError('Diagnostics requires an explicit evidence scope, e.g. npu_diagnostic or local_cpu_diagnostic')
+    return {'on_failure': policy.get('on_failure', True), 'on_regression': policy.get('on_regression', True),
+            'required': policy.get('required', False), 'drivers': drivers, 'scope': scope}
+
+
 class Pipeline:
     def __init__(self, config):
         self.config = config
+        self.diagnostic_policy = diagnostic_policy(config)
         self.root = Path(config['state']).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.state = {'revision': 0, 'stage': None, 'contract': None, 'baseline': None, 'incumbent': None,
@@ -66,7 +90,10 @@ class Pipeline:
             relative = Path(name)
             if relative.is_absolute() or '..' in relative.parts or name in ('', '.'):
                 raise ValueError('Invalid frozen relative path')
-            data = self.path(value).read_bytes()
+            try:
+                data = self.path(value).read_bytes()
+            except FileNotFoundError as error:
+                raise ValueError('Missing source for ' + name + ': files must map relative filenames to existing source file paths, not file contents or hashes') from error
             target = folder / relative; target.parent.mkdir(parents=True, exist_ok=True)
             with target.open('xb') as stream: stream.write(data)
             manifest[name] = hashlib.sha256(data).hexdigest()
@@ -95,7 +122,15 @@ class Pipeline:
                 for path in sorted(self.root.glob('*/launch-intent.json'))
                 if not any(item.get('launch_run') == path.parent.name for item in self.state['handles'])]
 
-    def driver(self, name, source, folder, role, handle=None, *, contract=None, binding=None, recovery=None):
+    def matching_handle(self):
+        # Changing only the performance comparator does not change a completed
+        # source/contract execution. Keep observing its original job identity.
+        binding = self.binding()
+        return next((row for row in reversed(self.state['handles'])
+                     if row['source']['sha256'] == binding['source']
+                     and row['binding']['contract'] == binding['contract']), None)
+
+    def driver(self, name, source, folder, role, handle=None, *, contract=None, binding=None, recovery=None, trigger=None):
         driver = self.config['drivers'].get(name)
         if not driver: raise ValueError('Driver is not configured: ' + name)
         self.verify(source)
@@ -107,6 +142,7 @@ class Pipeline:
         request = {'source': source, 'role': role, 'contract': contract, 'handle': handle,
                    'binding': self.binding() if binding is None else binding, 'output': str(folder)}
         if recovery is not None: request['recovery'] = recovery
+        if trigger is not None: request['trigger'] = trigger
         save(folder / 'request.json', request)
         if driver['kind'] == 'launch':
             if self.pending_launches():
@@ -133,15 +169,205 @@ class Pipeline:
         save(folder / 'receipt.json', receipt)
         return receipt
 
+    def diagnostic_key(self, kind, name, source):
+        return digest({'binding': self.binding(), 'kind': kind, 'scope': self.diagnostic_policy['scope'],
+                       'driver': name, 'configuration': self.config['drivers'].get(name), 'source': source['sha256']})
+
+    def verify_diagnostic_artifacts(self, folder, data, source, kind):
+        verify_record(folder, data, source['sha256'], self.diagnostic_policy['scope'], kind)
+
+    def diagnostic_cached(self, key):
+        for item in reversed(self.state.get('diagnostic_runs', [])):
+            if item['key'] != key:
+                continue
+            cached = copy.deepcopy(item)
+            if item['status'] == 'completed':
+                try:
+                    receipt = Path(item['receipt'])
+                    if sha(receipt) != item['receipt_sha256']:
+                        raise ValueError('Diagnostic receipt changed')
+                    self.verify_diagnostic_artifacts(receipt.parent, json.loads(receipt.read_text())['result'],
+                                                     self.current(), item['kind'])
+                except (OSError, ValueError) as error:
+                    cached.update(status='failed', error=str(error))
+            cached['reused'] = True
+            return cached
+        # A killed adapter may not have committed a workflow event. Recover its
+        # existing intent rather than launch another device profiler implicitly.
+        for path in self.root.glob('*/diagnostic-*/diagnostic-intent.json'):
+            intent = json.loads(path.read_text())
+            if intent['key'] == key:
+                return dict(intent, status='unknown', reused=True, intent=str(path),
+                            error='Original diagnostic did not settle; inspect its logs/handle before any retry')
+        return None
+
+    def diagnostics_after(self, action, output, status, result):
+        policy = self.diagnostic_policy
+        tool, args = action['tool'], action['arguments']
+        if not policy or not (tool == 'pipeline_pair' or tool == 'pipeline_run' and args.get('stage') == 'F'):
+            return None
+        if not self.state['candidate']:
+            return None
+        failed = status != 'completed' or (tool == 'pipeline_run' and not (self.state.get('check') or {}).get('passed'))
+        regression = tool == 'pipeline_pair' and status == 'completed' and (
+            result.get('speedup', 1) <= 1 and 'speedup' in result or bool(result.get('regressions')))
+        reason = diagnostic_reason(policy, failed=failed, regression=regression)
+        if reason is None:
+            return None
+        source = self.current()
+        handle = (result.get('result') or {}).get('handle') if isinstance(result, dict) else None
+        if not handle:
+            original = self.matching_handle()
+            handle = original['handle'] if original else None
+        trigger = {'run': output.name, 'tool': tool, 'stage': 'F' if tool == 'pipeline_run' else 'G',
+                   'reason': reason, 'binding': self.binding(), 'handle': handle}
+        reports = []
+        for kind in ('ir', 'profiler'):
+            name = policy['drivers'].get(kind)
+            if not name:
+                reports.append({'kind': kind, 'status': 'unavailable', 'reason': 'No diagnostic driver configured', 'trigger': trigger})
+                continue
+            key = self.diagnostic_key(kind, name, source)
+            cached = self.diagnostic_cached(key)
+            if cached:
+                reports.append(dict(cached, trigger=trigger))
+                continue
+            if result.get('evaluation_outcome') == 'unknown':
+                reports.append({'kind': kind, 'status': 'blocked', 'reason': 'Original evaluation is unresolved', 'trigger': trigger})
+                continue
+            folder = output / ('diagnostic-' + kind); folder.mkdir()
+            report = {'key': key, 'kind': kind, 'driver': name, 'source': source['sha256'],
+                      'scope': policy['scope'], 'trigger': trigger, 'reused': False}
+            save(folder / 'diagnostic-intent.json', report)
+            try:
+                receipt = self.driver(name, source, folder / 'driver', 'J', handle, trigger=trigger)
+                data = receipt['result']
+                report.update(receipt=str(folder / 'driver/receipt.json'), receipt_sha256=sha(folder / 'driver/receipt.json'))
+                if data.get('status') in {'unavailable', 'unknown', 'failed'}:
+                    report.update(status=data['status'], reason=data.get('reason', 'Diagnostic did not complete'))
+                else:
+                    if data.get('status', 'completed') != 'completed':
+                        raise ValueError('Invalid diagnostic completion status')
+                    self.verify_diagnostic_artifacts(folder / 'driver', data, source, kind)
+                    report['status'] = 'completed'
+            except subprocess.TimeoutExpired as error:
+                report.update(status='unknown', error=str(error), recovery='Inspect the original diagnostic logs/handle; no automatic retry')
+            except Exception as error:
+                report.update(status='failed', error=str(error))
+            save(folder / 'diagnostic-result.json', report)
+            self.state.setdefault('diagnostic_runs', []).append(report)
+            reports.append(report)
+        self.state['diagnostics'] = {'trigger': trigger, 'reports': reports,
+            'next_step': 'Read diagnostic artifacts and use pipeline_plan stage C to revise the hypothesis; diagnostic evidence is not acceptance.'}
+        return self.state['diagnostics']
+
+    def required_diagnostics_passed(self):
+        policy = self.diagnostic_policy
+        if not policy or not policy['required']:
+            return
+        for kind in ('ir', 'profiler'):
+            name = policy['drivers'].get(kind)
+            cached = self.diagnostic_cached(self.diagnostic_key(kind, name, self.current())) if name else None
+            if not cached or cached['status'] != 'completed':
+                raise ValueError('Required source-bound ' + kind + ' diagnostic is missing or incomplete')
+
     def check_passed(self):
         check = self.state['check']
         if not check or check['binding'] != self.binding() or not check['passed']:
             raise ValueError('Current source needs a complete passing correctness receipt')
 
+    def workflow(self):
+        """Bounded executable advice for the model; never dispatch from a status read."""
+        s = self.state
+        kinds = {}
+        for name, driver in self.config['drivers'].items():
+            kinds.setdefault(driver['kind'], []).append(name)
+        def step(stage, tool, arguments, reason, **extra):
+            return {'stage': stage, 'tool': tool, 'arguments': arguments, 'reason': reason, **extra}
+        def run(stage, kind, reason, **arguments):
+            names = kinds.get(kind, [])
+            if not names:
+                return step(stage, None, {}, 'No configured ' + kind + ' driver; ' + reason, status='unavailable')
+            return step(stage, 'pipeline_run', dict(stage=stage, driver=names[0], **arguments), reason,
+                        alternatives=names)
+        next_actions = []
+        pending = self.pending_launches()
+        last = s.get('last_attempt', {})
+        if pending:
+            next_actions = [run('E', 'collect', 'Recover this original uncertain launch; never launch a replacement.',
+                                recover_run=pending[0]['run'])]
+        elif last.get('evaluation_outcome') == 'unknown':
+            next_actions = [step(last.get('stage'), None, {}, 'Original execution is unresolved; inspect its original logs and handle before continuing.',
+                                 status='blocked', run=last['run'])]
+        elif not s['contract']:
+            next_actions = [step('A', 'pipeline_bind', {}, 'Bind the task, pinned independent oracle, complete suite and measurement contract.',
+                                 required_arguments=['contract'])]
+        elif not s.get('B') or (s.get('archive') and s['stage'] == 'I'
+                and s['archive']['binding']['source'] == (s['candidate'] or {}).get('sha256')):
+            next_actions = [step('B', 'pipeline_plan', {'stage': 'B'}, 'Record workload families and per-case gaps; use archived successes/failures in the next iteration.',
+                                 required_arguments=['record'])]
+        elif s['stage'] == 'B' or not s.get('C'):
+            next_actions = [step('C', 'pipeline_plan', {'stage': 'C'}, 'Record a falsifiable structural hypothesis grounded in task, SDK, hardware or diagnostic evidence.',
+                                 required_arguments=['record'])]
+        elif s['stage'] == 'C' or not s['candidate']:
+            next_actions = [step('D', 'pipeline_freeze', {}, 'Implement the hypothesis, then freeze exact source files, configuration and origin.',
+                                 required_arguments=['files', 'origin'])]
+        else:
+            try:
+                binding = self.binding()
+            except (OSError, ValueError) as error:
+                return {'next_actions': [step(s['stage'], None, {}, str(error), status='blocked')],
+                        'stop_condition': 'Repair source identity before any new execution.'}
+            check = s.get('check')
+            diagnostics = s.get('diagnostics') or {}
+            trigger = diagnostics.get('trigger') or {}
+            if trigger.get('binding') == binding and any(report.get('status') == 'unknown' for report in diagnostics.get('reports', [])):
+                next_actions = [step('J', None, {}, 'Original diagnostic is unresolved; recover its existing evidence before further device work.', status='blocked')]
+            elif s['stage'] == 'J' or (check and not check['passed']) or (s.get('pair') and s['pair']['speedup'] <= 1) or (
+                    last.get('status') == 'failed' and last.get('stage') in {'F', 'G'} and last.get('source') == s['candidate']['sha256']):
+                next_actions = [step('C', 'pipeline_plan', {'stage': 'C'}, 'Read the returned IR/profiler/trace artifacts and failed or regressing cases, then revise the hypothesis.',
+                                     required_arguments=['record'], diagnostic_reports=diagnostics.get('reports', []))]
+            elif not check or check['binding'] != binding:
+                handle = self.matching_handle()
+                if kinds.get('launch') and handle is None:
+                    next_actions = [run('E', 'launch', 'Launch this frozen source once and retain its original handle/PID/logs.')]
+                elif handle and not handle.get('collected'):
+                    next_actions = [run('E', 'collect', 'Observe the original job; do not upload or launch again.', handle=handle['handle'])]
+                else:
+                    next_actions = [run('F', 'check', 'Run build, directed semantics and the declared complete suite. Only the receipt scope establishes official/device qualification.',
+                                        **({'handle': handle['handle']} if handle else {}))]
+            elif s['baseline'] and not s.get('pair'):
+                names = kinds.get('measure', [])
+                next_actions = [step('G', 'pipeline_pair' if names else None, {'driver': names[0]} if names else {},
+                                     'Run full same-environment ABBA and inspect overall, family and case regressions.' if names else 'No configured measurement driver; performance comparison is unavailable.',
+                                     status='ready' if names else 'unavailable', alternatives=names)]
+            elif s['incumbent'] != s['candidate']:
+                try:
+                    self.required_diagnostics_passed()
+                except (OSError, ValueError) as error:
+                    next_actions = [step('J', None, {}, str(error), status='blocked',
+                                         diagnostic_reports=diagnostics.get('reports', []))]
+                else:
+                    next_actions = [step('H', 'pipeline_promote', {}, 'Promote only complete correct source and a positive full pair. Without baseline, this establishes the first incumbent, not a speedup.')]
+            elif kinds.get('calibrate') and (s.get('calibration') or {}).get('binding') != binding:
+                next_actions = [run('I', 'calibrate', 'Calibrate the accepted source using the configured driver; report its actual scope and receipt.')]
+            else:
+                next_actions = [step('I', 'pipeline_archive', {}, 'Archive accepted source bytes and evidence hashes; retain successful mechanisms and failure conditions. This does not publish or submit.',
+                                     required_arguments=['knowledge'])]
+        return {'next_actions': next_actions, 'autonomy': 'Model chooses and invokes tools within the explicit user task; status never dispatches work.',
+                'calibration': 'configured' if kinds.get('calibrate') else 'unavailable: no calibration driver configured',
+                'baseline': 'selected' if s['baseline'] else 'absent: establish a correct incumbent, then explicitly select it for self-iteration',
+                'self_iteration': {'tool': 'pipeline_baseline', 'arguments': {'selection': 'incumbent'},
+                                   'when': 'Before the next user-authorized optimization iteration; this invalidates prior comparisons.'}
+                                  if s['incumbent'] and not s['baseline'] else None,
+                'stop_condition': 'Respect the user-requested scope/rounds; do not loop indefinitely or claim missing official acceptance.'}
+
     def execute(self, tool, args, output):
         s = self.state
         if tool == 'pipeline_status':
             return dict(s, drivers={key: value['kind'] for key, value in self.config['drivers'].items()},
+                        workflow=self.workflow(),
+                        diagnostic_policy=self.diagnostic_policy,
                         pending_launches=self.pending_launches(),
                         transitions='A→B→C→D→E→F→G→H→I→B; F/G→J→C', device_acceptance='only as declared by original driver receipts')
         if tool == 'pipeline_bind':
@@ -159,7 +385,7 @@ class Pipeline:
             contract = dict(contract, oracle=dict(oracle, files=frozen_oracle))
             s.update(contract=contract, baseline=None, candidate=None, check=None, pair=None, incumbent=None,
                      revision=s['revision'] + 1, stage='A')
-            for key in ('B', 'C', 'diagnostics'): s.pop(key, None)
+            for key in ('B', 'C', 'diagnostics', 'archive', 'calibration', 'last_attempt'): s.pop(key, None)
             return {'contract_sha256': digest(contract), 'baseline': None, 'oracle': frozen_oracle['sha256']}
         if not s['contract']: raise ValueError('Call pipeline_bind first')
         if tool == 'pipeline_plan':
@@ -223,6 +449,12 @@ class Pipeline:
                 s['check'] = {'binding': self.binding(), 'passed': passed, 'receipt': str(output / 'driver/receipt.json'),
                               'scope': data.get('scope', 'unspecified')}
                 s['pair'] = None
+            if stage == 'E' and driver['kind'] == 'collect' and collection:
+                # A collector explicitly reports terminal completion; an ack is not completion.
+                if data.get('status') in {'completed', 'succeeded'} or data.get('phase') == 'complete':
+                    retained = next((row for row in s['handles'] if row['handle'] == data.get('handle', collection.get('handle'))), None)
+                    if retained is not None: retained['collected'] = str(output / 'driver/receipt.json')
+            if stage == 'I': s['calibration'] = {'binding': self.binding(), 'receipt': str(output / 'driver/receipt.json')}
             if stage == 'J': s['diagnostics'] = {'receipt': str(output / 'driver/receipt.json'), 'source': source['sha256']}
             s['stage'] = stage
             return receipt
@@ -263,6 +495,7 @@ class Pipeline:
             s['stage'] = 'G'; return s['pair']
         if tool == 'pipeline_promote':
             self.check_passed(); pair = s['pair']
+            self.required_diagnostics_passed()
             if s['baseline'] and (not pair or pair['binding'] != self.binding() or pair['speedup'] <= 1):
                 raise ValueError('Promotion requires a positive complete paired result against the selected baseline')
             s.update(incumbent=source, stage='H')
@@ -276,7 +509,9 @@ class Pipeline:
                 for name in sorted(source['files']): bundle.write(Path(source['root']) / name, name)
             record = {'source': source, 'archive_sha256': sha(archive), 'binding': self.binding(), 'check': s['check'],
                       'pair': s['pair'], 'knowledge': args['knowledge'], 'published': False}
-            save(output / 'release.json', record); s['stage'] = 'I'; return record
+            save(output / 'release.json', record); s['stage'] = 'I'
+            s['archive'] = {'binding': self.binding(), 'receipt': str(output / 'release.json')}
+            return record
         raise ValueError('Unknown pipeline tool')
 
     def apply(self, action):
@@ -291,16 +526,31 @@ class Pipeline:
         except Exception as error:
             self.state = previous
             result = {'error': str(error)}; status = 'failed'
+            if isinstance(error, subprocess.TimeoutExpired):
+                result['evaluation_outcome'] = 'unknown'
             if (output / 'launch-intent.json').exists():
                 result.update(launch_outcome='unknown', recover_run=identity,
                               recovery='Use a collect driver to recover this original launch; never redispatch')
+        try:
+            diagnostics = self.diagnostics_after(action, output, status, result)
+        except Exception as error:
+            # Preserve the original check/pair outcome even if diagnostic
+            # scheduling itself cannot proceed (for example, changed source).
+            diagnostics = {'status': 'blocked', 'reason': str(error), 'evaluation_run': identity}
+        if diagnostics is not None:
+            result = dict(result, diagnostics=diagnostics)
+        if action['tool'] in {'pipeline_run', 'pipeline_pair'}:
+            self.state['last_attempt'] = {'run': identity, 'stage': action['arguments'].get('stage', 'G'),
+                                          'status': status, 'evaluation_outcome': result.get('evaluation_outcome'),
+                                          'source': (self.state['candidate'] or {}).get('sha256')}
         save(output / 'result.json', {'status': status, 'data': result})
         files = {str(p.relative_to(output)): sha(p) for p in output.rglob('*') if p.is_file() and not p.is_symlink()}
         save(output / 'manifest.json', files)
         self.state['receipts'].append({'run': identity, 'tool': action['tool'], 'status': status,
                                        'manifest_sha256': sha(output / 'manifest.json')})
         save(self.root / ('event-%08d.json' % len(self.state['receipts'])), {'parent': self.chain, 'body': self.state, 'sha256': digest(self.state)})
-        return {'status': status, 'data': {'run': identity, 'result': result if len(encoded(result)) < 16000 else 'Read result.json with pipeline_read'}}
+        return {'status': status, 'data': {'run': identity, 'result': result if len(encoded(result)) < 16000 else 'Read result.json with pipeline_read',
+                                         'workflow': self.workflow()}}
 
 
 def main(config, action):

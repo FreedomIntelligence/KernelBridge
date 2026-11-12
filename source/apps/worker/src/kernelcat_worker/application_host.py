@@ -7,6 +7,7 @@ input acknowledgement. Socket loss never causes an effect to be resubmitted.
 from __future__ import annotations
 
 import argparse
+from collections import deque
 from concurrent.futures import Future
 import ctypes
 import fcntl
@@ -285,7 +286,7 @@ class ApplicationHost:
                             def delta(value):
                                 nonlocal sequence
                                 sequence += 1
-                                self.broadcast({"type": "model_delta", "generation_id": call_id,
+                                self.broadcast({"type": "model_delta", "generation_id": request.get("context", {}).get("model_generation_id", call_id),
                                                 "sequence": sequence, "delta": value})
                             goal = self.journal.state()["goal"]
                             with observe(delta):
@@ -391,7 +392,15 @@ class ApplicationHost:
             elif original.get("status") == "pending":
                 raise Conflict("original call is unresolved; query its receipt instead of executing again")
             else:
-                result = handle(method, params)
+                from kernelcat_executor.capabilities.streaming import observe
+                sequence = 0
+                def delta(value):
+                    nonlocal sequence
+                    sequence += 1
+                    self.broadcast({"type": "model_delta", "generation_id": request.get("context", {}).get("model_generation_id", call_id),
+                                    "sequence": sequence, "delta": value})
+                with observe(delta):
+                    result = handle(method, params)
             self.journal.command("call_result", {"call_id": call_id, "result": result})
             future.set_result(result)
         except BaseException as error:
@@ -407,7 +416,10 @@ class ApplicationHost:
                   "部分完成" if outcome.status == "completed" else "已中断" if data.get("reason") == "worker_exited" else "失败")
         body = data.get("summary") or data.get("reason") or data.get("error") or ""
         text = (f"[子代理结果] {action.arguments['agent']}「{label}」{status}（agent_id: {action.id}）\n\n{body}").strip()[:65536]
-        receipt = self.journal.command("accept", {"input_id": "subagent-" + uuid.uuid5(uuid.NAMESPACE_URL, action.id).hex,
+        input_id = "subagent-" + uuid.uuid5(uuid.NAMESPACE_URL, action.id).hex
+        if input_id in self.journal.state()["inputs"]:
+            return  # Replay after result/notification crash window is idempotent.
+        receipt = self.journal.command("accept", {"input_id": input_id,
             "text": text, "kind": "follow_up", "channel": "policy", "initiator": "agent"})
         self.broadcast({"type": "input", "receipt": receipt})
 
@@ -421,7 +433,7 @@ class ApplicationHost:
     def agents_status(self, action):
         from kernelcat_executor.contracts.models import Outcome
         children = [{key: child.get(key) for key in ("id", "agent", "description", "status", "background", "partial",
-                     "reason", "steps", "tool_calls", "summary")} for child in self.status()["subagents"]]
+                     "reason", "steps", "tool_calls", "summary", "started_at_ns", "ended_at_ns", "elapsed_ms")} for child in self.status()["subagents"]]
         wanted = action.arguments.get("agent_id")
         if wanted:
             children = [child for child in children if child["id"] == wanted]
@@ -458,6 +470,9 @@ class ApplicationHost:
             return receipt
         if action_id in self.user_effects:
             raise Conflict("user bash is already running; retain its original permit")
+        effects, calls = self.unsettled_foreground(self.status())
+        if effects or calls:
+            raise Conflict("user bash requires a settled foreground execution boundary")
         declaration = {"name": "bash", "description": "Run an admitted command in an isolated workspace snapshot",
             "parameters": {"type": "object", "properties": {"command": {"type": "string"}},
                            "required": ["command"], "additionalProperties": False}}
@@ -555,6 +570,21 @@ class ApplicationHost:
             if outcome.get("data", {}).get("background"):
                 return execution["actions"].get(key + "/background", {}).get("outcome") or {"status": "running", "data": {"background": True}}
             return outcome
+        event_times = {}
+        for event in self.owner.gateway.store._events(self.owner.gateway.store.events()):
+            if event["kind"] == "admitted":
+                event_times.setdefault(event["action"]["id"], {})["start"] = event.get("time_ns")
+            elif event["kind"] in {"settled", "cancelled_unstarted"}:
+                event_times.setdefault(event["action_id"], {})["end"] = event.get("time_ns")
+        now = time.time_ns()
+        def child_times(key, item):
+            start = event_times.get(key, {}).get("start")
+            background = item.get("outcome", {}).get("data", {}).get("background")
+            end = event_times.get(key + "/background" if background else key, {}).get("end")
+            # Nanoseconds exceed JavaScript's safe integer range. Preserve
+            # exact timestamps as strings; elapsed milliseconds stay numeric.
+            return {"started_at_ns": str(start) if start else None, "ended_at_ns": str(end) if end else None,
+                    "elapsed_ms": max(0, ((end or now) - start) // 1_000_000) if start else None}
         state["subagents"] = [{"id": key, "tool_call_id": "kc_" + digest(key),
             "agent": item["action"]["arguments"]["agent"],
             "description": item["action"]["arguments"].get("description"),
@@ -564,6 +594,7 @@ class ApplicationHost:
             "summary": child_result(key, item).get("data", {}).get("summary", ""),
             "partial": child_result(key, item).get("data", {}).get("partial", False),
             "reason": child_result(key, item).get("data", {}).get("reason") or child_result(key, item).get("data", {}).get("completion_reason"),
+            **child_times(key, item),
             **child_activity.get(key + "/leaf", {"steps": 0, "tool_calls": 0, "latest_tool": None,
                                                  "latest_detail": None, "tokens": 0})}
             for key, item in execution["actions"].items() if item["action"]["tool"] == "delegate"]
@@ -1004,18 +1035,66 @@ class Connection:
         self.owns_worker = False
         self.detach_mode = None
         self.subscribed = False
-        self.outgoing = queue.Queue(maxsize=256)
+        self.outgoing = deque()
+        self.observations = deque()
+        self.observation_bytes = 0
+        self.outgoing_ready = threading.Condition()
         self.closed = threading.Event()
 
     def emit(self, message):
-        try:
-            self.outgoing.put_nowait(message)
-        except queue.Full:
-            # Slow subscribers reconnect using the durable cursor. Never hold execution.
-            self.close()
+        encoded = canonical(message).encode() + b"\n"
+        # RPC replies and durable input/control notifications cannot be displaced
+        # by token deltas. Their slow-reader failure remains explicit; no effect
+        # or input is retried. Display observations are bounded independently.
+        presentation = message.get("type") in {"model_delta", "harness", "state"} and "id" not in message
+        with self.outgoing_ready:
+            if self.closed.is_set():
+                return
+            if not presentation:
+                if len(self.outgoing) >= 256:
+                    self.close("reliable response queue exhausted")
+                    return
+                self.outgoing.append(encoded)
+            else:
+                if message.get("type") == "state":
+                    retained = deque()
+                    for previous, payload in self.observations:
+                        if previous.get("type") == "state":
+                            self.observation_bytes -= len(payload)
+                        else:
+                            retained.append((previous, payload))
+                    self.observations = retained
+                elif message.get("type") == "model_delta" and self.observations:
+                    previous, payload = self.observations[-1]
+                    delta, old_delta = message.get("delta", {}), previous.get("delta", {})
+                    if (previous.get("type") == "model_delta"
+                            and previous.get("generation_id") == message.get("generation_id")
+                            and delta.get("type") in {"text_delta", "thinking_delta"}
+                            and delta.get("type") == old_delta.get("type")
+                            and isinstance(delta.get("delta"), str) and isinstance(old_delta.get("delta"), str)
+                            and len(payload) + len(encoded) <= 256 * 1024):
+                        message = {**message, "delta": {**delta, "delta": old_delta["delta"] + delta["delta"]}}
+                        encoded = canonical(message).encode() + b"\n"
+                        self.observations.pop()
+                        self.observation_bytes -= len(payload)
+                # These are transient display hints, not execution receipts.
+                # The complete model result and authoritative state are still
+                # returned on the worker's separate effect/control connections.
+                limit = 4 * 1024 * 1024
+                while self.observations and (len(self.observations) >= 256 or self.observation_bytes + len(encoded) > limit):
+                    _, removed = self.observations.popleft()
+                    self.observation_bytes -= len(removed)
+                if len(encoded) <= limit:
+                    self.observations.append((message, encoded))
+                    self.observation_bytes += len(encoded)
+            self.outgoing_ready.notify()
 
-    def close(self):
+    def close(self, reason=None):
+        if reason and not self.closed.is_set():
+            print(f"application connection closed: {reason}", file=sys.stderr, flush=True)
         self.closed.set()
+        with self.outgoing_ready:
+            self.outgoing_ready.notify_all()
         try:
             self.connection.shutdown(socket.SHUT_RDWR)
         except OSError:
@@ -1023,14 +1102,19 @@ class Connection:
 
     def writer(self):
         while not self.closed.is_set():
+            with self.outgoing_ready:
+                self.outgoing_ready.wait_for(lambda: self.closed.is_set() or self.outgoing or self.observations)
+                if self.closed.is_set():
+                    return
+                if self.outgoing:
+                    payload = self.outgoing.popleft()
+                else:
+                    _, payload = self.observations.popleft()
+                    self.observation_bytes -= len(payload)
             try:
-                message = self.outgoing.get(timeout=1)
-            except queue.Empty:
-                continue
-            try:
-                self.connection.sendall(canonical(message).encode() + b"\n")
-            except OSError:
-                self.close()
+                self.connection.sendall(payload)
+            except OSError as error:
+                self.close(f"socket write failed: {error}")
 
     def run(self):
         threading.Thread(target=self.writer, daemon=True).start()

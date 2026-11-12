@@ -26,7 +26,9 @@ const CHILD_STATUS = { running: '运行中', completed: '完成', failed: '失�
 export function subagentStatus(child) {
   const status = child.partial ? `部分结果（${reasonLabel(child.reason)}）`
     : child.status === 'failed' ? `失败${child.reason ? '：' + reasonLabel(child.reason) : ''}` : CHILD_STATUS[child.status] ?? child.status;
-  return plain([child.agent, status, childMetrics(child), delegateTitle(child)].filter(Boolean).join(' · '));
+  const elapsed = child.elapsed_ms ?? child.duration_ms ?? (child.started_at_ns == null ? undefined
+    : Math.max(0, (child.ended_at_ns == null ? Date.now() : Number(child.ended_at_ns) / 1e6) - Number(child.started_at_ns) / 1e6));
+  return plain([child.agent, status, childMetrics(child, elapsed), delegateTitle(child)].filter(Boolean).join(' · '));
 }
 
 export function goalSummary(state) {

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import subprocess
 
 NAME = re.compile(r"^[a-z][a-z0-9-]{1,47}$")
 
@@ -65,5 +66,16 @@ def discover(project: Path, home: Path, *, project_mode: bool) -> list[dict]:
                 agent = None
             if agent:
                 agents[agent["name"]] = {**agent, "source": source}
+    # Worktrees require a real committed project. Do not advertise a capability
+    # whose preparation will fail after the delegation has been admitted.
+    writable = False
+    if project_mode and any(agent["tools"] == "write" for agent in agents.values()):
+        try:
+            probe = subprocess.run(["git", "-C", str(project), "rev-parse", "--verify", "HEAD"],
+                                   capture_output=True, timeout=5)
+            writable = probe.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            pass
     # Isolated device tasks keep children read-only; their sources are frozen.
-    return [agent for agent in agents.values() if project_mode or agent["tools"] == "read"]
+    return [agent for agent in agents.values()
+            if (project_mode or agent["tools"] == "read") and (agent["tools"] != "write" or writable)]

@@ -14,8 +14,17 @@ export const BUILTIN_AGENTS = [
  * first, then this session's runs. Enter opens details; Esc returns or closes.
  */
 export function agentsPanel(children, types, finish, requestRender, rows = () => process.stdout.rows ?? 30) {
-  const runs = [...children].reverse();
-  const entries = [...types.map(type => ({ kind: 'type', type })), ...runs.map(child => ({ kind: 'run', child }))];
+  const read = value => typeof value === 'function' ? value() : value;
+  let runs, entries;
+  const refresh = () => {
+    const previous = entries?.[selected];
+    runs = [...(read(children) ?? [])].reverse();
+    entries = [...(read(types) ?? []).map(type => ({ kind: 'type', type })), ...runs.map(child => ({ kind: 'run', child }))];
+    const retained = previous && entries.findIndex(entry => entry.kind === previous.kind
+      && (entry.kind === 'run' ? entry.child.id === previous.child.id : entry.type.name === previous.type.name));
+    selected = retained >= 0 ? retained : Math.max(0, Math.min(selected, entries.length - 1));
+    if (detail?.kind === 'run') detail = entries.find(entry => entry.kind === 'run' && entry.child.id === detail.child.id) ?? detail;
+  };
   let selected = 0, detail = null, offset = 0;
   const groups = () => {
     const lines = [];
@@ -34,6 +43,7 @@ export function agentsPanel(children, types, finish, requestRender, rows = () =>
     focused: false,
     invalidate() {},
     render(width) {
+      refresh();
       const clip = text => truncateToWidth(text, width, '…');
       if (detail) {
         const view = Math.max(3, rows() - 6);
@@ -46,7 +56,7 @@ export function agentsPanel(children, types, finish, requestRender, rows = () =>
           body = new Markdown(clean(detail.child.summary || '（尚无报告）'), 0, 0, getMarkdownTheme()).render(Math.max(10, width - 2));
         }
         offset = Math.max(0, Math.min(offset, body.length - view));
-        return [...head, '', ...body.slice(offset, offset + view).map(line => '  ' + line), '',
+        return [...head, '', ...body.slice(offset, offset + view).map(line => clip('  ' + line)), '',
           clip(`Esc 返回${body.length > view ? ' · ↑↓ 滚动' : ''}`)];
       }
       const lines = [clip('子代理'), ''];
@@ -55,7 +65,10 @@ export function agentsPanel(children, types, finish, requestRender, rows = () =>
         const mark = item.index === selected ? '❯' : ' ';
         if (item.entry.kind === 'type') {
           lines.push(clip(`${mark} ${item.entry.type.name.padEnd(18)} ${item.entry.type.description}`));
-        } else lines.push(clip(`${mark} ${subagentStatus(item.entry.child)}`));
+        } else {
+          lines.push(clip(`${mark} ${subagentStatus(item.entry.child)}`));
+          lines.push(clip(`  ${clean(item.entry.child.description || item.entry.child.task).replace(/\s+/g, ' ')}`));
+        }
       }
       const view = Math.max(4, rows() - 4);
       const cursor = lines.findIndex(line => line.startsWith('❯'));
@@ -64,6 +77,7 @@ export function agentsPanel(children, types, finish, requestRender, rows = () =>
       return [...lines.slice(start, start + view), '', clip(`↑↓ 选择 · Enter 查看${stoppable ? ' · s 停止' : ''} · Esc 关闭`)];
     },
     handleInput(data) {
+      refresh();
       if (detail) {
         if (matchesKey(data, 'escape') || matchesKey(data, 'left')) { detail = null; offset = 0; }
         else if (matchesKey(data, 'up')) offset = Math.max(0, offset - 1);

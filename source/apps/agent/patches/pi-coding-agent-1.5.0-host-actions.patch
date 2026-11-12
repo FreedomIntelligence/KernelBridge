@@ -30,6 +30,9 @@
 @@ -386,1 +406,2 @@
          this.ui = createInteractiveTuiReference(() => this.renderer);
 +        if (this.options.hostActions && "scrollToEndIndicator" in this.renderer) this.renderer.scrollToEndIndicator = () => theme.bg("selectedBg", theme.fg("text", ` ↓ 回到最新消息 · ${keyDisplayText("tui.altScreen.bottom") || "Ctrl+End"} `));
+@@ -415,1 +436,1 @@
+-        this.footerContainer.addChild(this.footer);
++        if (!this.options.hostActions) this.footerContainer.addChild(this.footer);
 @@ -466,6 +487,9 @@
          }));
      }
@@ -170,6 +173,9 @@
      }
      /**
       * Get a registered tool definition by name (for custom rendering).
+@@ -2057,1 +2087,1 @@
+-            this.footerContainer.addChild(this.footer);
++            if (!this.options.hostActions) this.footerContainer.addChild(this.footer);
 @@ -2367,6 +2397,11 @@
       * Show a notification for extensions.
       */

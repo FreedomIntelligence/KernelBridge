@@ -4,6 +4,16 @@
 `operator_pipeline` 或 `operator_infra` 后注册；普通会话不会自行启动测评或上板。
 工具走原有 Executor Journal、输入队列和共享预算，没有第二份可花费额度。
 
+启用 `operator_pipeline` 后，harness 根据封存工具表自动加载算子流程提示。
+用户提出算子开发或优化任务时，模型先调用 `pipeline_status`，随后按每次回执中的
+`workflow.next_actions` 推进 A→B→C→D→E→F→G→H→I；失败或退步时读取 J 的
+诊断产物并回到 C，用户要求继续迭代时由 I 回到 B。用户不需要逐个输入阶段命令。
+状态建议不替代模型决策，也不扩大授权；源码、完整正确性、配对和晋升约束仍由工具强制检查。
+
+独立 launch、官方完整测评、官网校准及诊断能力取决于显式配置的驱动。
+没有对应驱动时返回缺失条件，不会用本地检查冒充官方验收。没有独立 E 驱动的本地流程
+可以由 F 直接构建和检查。未知执行必须收回原任务，不会自动重新上传或启动。
+
 ## 正确性、比较器与 incumbent
 
 这三个身份必须分开：
@@ -42,6 +52,68 @@ ABBA 配对。不能把候选与自身输出相等当作独立正确性验证，
 `pipeline_pair` 当前报告各 case 的样本中位数、等权几何平均加速比和家族汇总。
 它不是 CANNBench 官方加权分数；官方校准结果通过独立驱动/回执保留。
 诊断不能替代完整验收，模拟时间不能替代板上性能。
+
+## 测评后的自动诊断
+
+仅仅注册 `ir_collect`、`profiler_collect` 或 J 阶段驱动，并不意味着模型一定会调用它们。
+需要确定性调度时，在显式的 `operator_pipeline` 配置中加入：
+
+```json
+{
+  "diagnostics": {
+    "on_failure": true,
+    "on_regression": true,
+    "required": false,
+    "drivers": { "ir": "device-ir", "profiler": "device-profiler" },
+    "scope": "npu_diagnostic"
+  }
+}
+```
+
+`drivers` 的值必须是同一 profile 中已配置、绑定文件哈希的 `kind: "diagnostic"`
+驱动名。`scope` 必须与驱动原始结果一致；本地 scatter 示例应填写
+`local_cpu_diagnostic`，不能把 CPU 产物标为 NPU。
+
+- `on_failure`：F 的 build/semantics/full 未全部通过，或 F/G 驱动已知失败时执行诊断。
+- `on_regression`：G 的整体配对无正向收益，或任一 case 回退时执行诊断。
+- `required`：F/G 后必须有当前候选的 IR 和 profiler；缺失、失败、不可用、未知或产物被修改
+  时阻止晋升。它不改变正确性或正向配对条件。
+
+未提供 `diagnostics` 时仍为手动 J 阶段；普通 codegen 没有隐式上板。该策略覆盖
+`pipeline_run(stage="F")` 与 `pipeline_pair`，独立的 `operator_check` /
+`operator_evaluate` 不会被拦截。采用自动流程的 NPU campaign 应走这些 pipeline 入口。
+
+驱动仍收到冻结的 `source`、`contract`、`binding`、`output` 和原 `handle`，额外的
+`trigger` 保留触发测评的 run、F/G 阶段、原因和相同 binding。结果协议是：
+
+```json
+{
+  "kind": "ir",
+  "scope": "npu_diagnostic",
+  "candidate_sha256": "request.source.sha256",
+  "artifacts": { "kernel.ll": "实际文件SHA256" }
+}
+```
+
+产物必须实际存在于 `request.output` 内，使用相对路径，且 SHA256、候选身份和 scope
+全部匹配。`profiler` 使用同样协议；没有硬件或工具时可返回
+`{"status":"unavailable","reason":"具体原因"}`，不能返回空成功标记。
+F/G 的返回结果及 `pipeline_status` 显示每项诊断的 `completed`、`failed`、
+`unavailable`、`unknown` 或 `blocked`，并给出原始 receipt 与读取路径。
+主 agent 应通过 `pipeline_read` 读取这些产物，再以 C 阶段记录新假设。
+
+每个 binding、源码、驱动配置和 scope 组合只自动采集一次；再次触发会验证原始 receipt
+和产物哈希后复用，不重复编译或采 trace。改变候选或比较器/测量契约后重新采集。
+诊断超时或进程中断时保留原 intent，后续调用返回原未决状态，不自动重派；F/G 自身
+超时未决时也不再启动设备诊断。先检查原日志/handle 并回收原任务。自动诊断不会掩盖
+原正确性/性能失败，也不会自动宣称已读懂 trace 或完成设备验收。
+
+对于已经在原 NPU 进程内完成测评的 campaign，
+[diagnostic_policy.py](../examples/operator_pipeline/diagnostic_policy.py) 提供同一策略的单次接口：
+先用 `diagnostic_reason(policy, failed=..., regression=...)` 判断是否采集，再用
+`assess_diagnostics(policy, evaluation, records, artifact_root, source_sha256, binding=..., handle=...)`
+检查实际产物并把结果写进原 `result.json`。此接口不启动进程、不重新编译或重新提交；
+支持已保留 IR 和同进程采 profiler。`satisfied` 仅表示诊断产物完备，不能替代正确性或性能判定。
 
 驱动在显式配置中提供 `kind`、`argv`、`files` 和可选 `timeout`；源码文件在配置冻结时
 绑定哈希。无 shell 拼接。每次驱动从 stdin 读取一个 JSON：

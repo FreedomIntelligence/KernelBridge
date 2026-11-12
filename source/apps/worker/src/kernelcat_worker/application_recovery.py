@@ -8,6 +8,43 @@ from kernelcat_executor.contracts.models import Action, Conflict, InDoubt, Outco
 from kernelcat_executor.operations.control import SessionControl
 
 
+def reconcile_backgrounds(host):
+    """Recover original child identities and replay lost completion notifications.
+
+    This only runs while restoring a worker, never during a live child lane.
+    Uncertain child effects retain their original fence; nothing is redispatched.
+    """
+    gateway = host.owner.gateway
+    actions = gateway.store.snapshot()["actions"]
+    for identity, item in actions.items():
+        action, started = item["action"], item.get("outcome", {})
+        if (action["task"] != host.task.id or action["tool"] != "delegate"
+                or started.get("status") != "completed" or not started.get("data", {}).get("background")):
+            continue
+        result = actions.get(identity + "/background")
+        if result is None:
+            child_actions = [row for row in actions.values() if row["action"]["task"] == identity + "/leaf"]
+            if any(not row.get("terminal") or row.get("outcome", {}).get("status") == "unknown" for row in child_actions):
+                continue
+            changes = {}
+            descriptor = started.get("data", {}).get("worktree")
+            if descriptor:
+                from kernelcat_executor.capabilities.commands import Worktree
+                try:
+                    changes = {"worktree": Worktree.recover(descriptor).finish("kernelbridge recovered subagent")}
+                except Exception as error:
+                    changes = {"worktree": {**descriptor, "changed": None, "error": str(error)[:400]}}
+            outcome = gateway.internal(Action(id=identity + "/background", task=action["task"],
+                tool="__background_result__", arguments={"agent_id": identity}, parents=(identity,)), 0,
+                lambda: Outcome(status="failed", data={"reason": "worker_exited", "recovered": True,
+                    "agent": action["arguments"]["agent"], "advisory": True, "promoted": False, **changes}))
+        elif not result.get("terminal") or result.get("outcome", {}).get("status") == "unknown":
+            continue
+        else:
+            outcome = Outcome.model_validate_json(canonical(result["outcome"]))
+        host.background_settled(Action.model_validate_json(canonical(action)), outcome)
+
+
 def recovery_plan(host, *, cancel_unstarted=False):
     store = host.owner.gateway.store
     state = store.snapshot()
@@ -17,16 +54,19 @@ def recovery_plan(host, *, cancel_unstarted=False):
             task_id = item["action"]["task"]
             if (task_id == host.task.id or task_id.startswith(host.task.id + "/")) and not any(
                     item.get(key) for key in ("terminal", "started", "outcome")):
-                store.cancel_unstarted(Action.model_validate(item["action"]))
+                store.cancel_unstarted(Action.model_validate_json(canonical(item["action"])))
+        reconcile_backgrounds(host)
         actions = store.snapshot()["actions"]
-    pending = [key for key, item in actions.items() if not item.get("terminal")]
+    pending = [key for key, item in actions.items() if not item.get("terminal")
+               or item.get("outcome", {}).get("status") == "unknown"]
     if pending and cancel_unstarted and host.owner.rsi is not None:
         for key in pending:
             item = actions[key]
             if item["action"]["tool"] == "__rsi_adapter__" and item.get("started"):
                 host.owner.rsi.adapter.collect_pending(host.owner.gateway, host.task.id, key)
         actions = store.snapshot()["actions"]
-        pending = [key for key, item in actions.items() if not item.get("terminal")]
+        pending = [key for key, item in actions.items() if not item.get("terminal")
+               or item.get("outcome", {}).get("status") == "unknown"]
     if pending:
         raise InDoubt("original effects require reconciliation: " + ", ".join(pending))
     ended = {item["outcome"]["data"]["proposal_id"] for item in actions.values()

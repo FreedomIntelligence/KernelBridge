@@ -4,7 +4,7 @@
 
 范围：普通 codegen 的 TUI 交互，以及子代理（`delegate`）的执行模型和展示。不含 NPU 测试后的 profiler/IR 调用链（另行核查），也不改 Goal、Trial、评测协议。
 
-> 注意：排查期间另一个 agent（Codex 桌面端）仍在改这个工作区，例如 23:40 改了 `validation/test_portable_environment.py`。改动后 `./kernelagent` 启动时的清单校验会失败（`changed delivery file`）。动手实现前先停掉并发会话，或改在独立 worktree 里做。
+> 本文第 1–5 节保留最初排查和设计。当前行为以实施状态、`docs/tui.md` 与最新验收记录为准。并行修改按文件分工；源码封存后统一构建和验收，`PIN_MANIFEST.json` 使用原子写入。另一个仍活跃的验收 checkout 不参与清理。
 
 ---
 
@@ -25,17 +25,27 @@
 
 ## 实施状态（2026-11-11，分支 `feat/tui-subagent-redesign`）
 
-除标注项外，§6 的 TODO 均已实现，并通过单元测试和 PTY 验收（见 `validation/tui/ACCEPTANCE.md` 顶部一节）。与原设计不同的地方：
+§6 的功能已实现；逐项验证范围和原始失败记录见 `validation/tui/ACCEPTANCE.md` 顶部。对原方案作了以下具体调整：
 
 | 项 | 结果 |
 | --- | --- |
 | P0-1/2/3 | 已完成。T5 根因是启动竞态导致重复提交；流式输出只扣留可能构成密钥前缀的后缀 |
 | 阶段 1 / 1B | 已完成。1-7 按用户要求改为对齐 Claude Code/Codex：取消单子代理的默认步数、读取和时长上限，只保留 `max_concurrent`（默认 6，超出排队）；接近上下文上限时改为最后一次总结调用。1-8 的 `/agents` 改为"可用类型 + 本会话运行记录"，不显示策略和数值。1B-4 的 working 行显示耗时和 Esc，不显示 tokens（流式期间没有可靠的 token 计数） |
 | 阶段 2 | 已完成。2-0 结论：继续使用 pi-subagents，它可以同时处理多个委派请求。全是 delegate 的回复记录 `execution_mode: "delegation"` 批次计划 |
-| 阶段 3 | 已完成。没有单独的 `ChildScheduler`：后台运行由执行层的 `background` 表管理，结果由宿主写成通知输入。不提供阻塞式 `wait_agents`，因为它会占住宿主执行线程，导致后台子代理的读取死锁；改为由通知驱动，与 Claude Code 一致。后台子代理随交互 worker 结束；退出或交给 headless worker 时会记为中断 |
-| 阶段 4 | 已完成。代理定义在网关封存工具规格之前发现；`kernel-worker` 只在 Git 项目里可用，基于 `git stash create` 快照（不含未跟踪文件） |
+| 阶段 3 | 已完成。后台运行由执行层的 `background` 表管理，结果写成原身份通知输入。不提供阻塞式 `wait_agents`：完成通知驱动父会话继续，`agents_status` 查询，`stop_agent` 取消实际进程组。退出时先结算已知效应；未知效应继续隔离，不能伪报中断成功。恢复补发遗漏通知且不重跑 |
+| 阶段 4 | 已完成。定义在网关封存工具规格之前发现；`kernel-tester` 前台执行并阻止父写入，后台命令使用隔离的 `kernel-worker`。worker 只在有 committed HEAD 的 Git 项目里可用，基于 `git stash create` 快照（不含未跟踪文件）。已完成的 checkout 被清理，分支和 diff 保留；未知执行保留 checkout |
 | 阶段 5 | 已完成。默认 `--tui-mode regular`，`fullscreen` 可选 |
 | V-3 | 真实 DeepSeek 验收见 ACCEPTANCE |
+
+后续真实验收还修复了并发预算 CAS 冲突、generation 误认导致的流串台、
+首帧原生预算页脚、中断收尾窗口拒收输入，以及展示队列溢出时关闭控制连接的问题。
+effect、control、observer 分连接；有界预览允许合并，最终完整答复来自原 effect。
+长快照/恢复有独立 ACK 等待上限，超时保留原身份而不重派。
+
+验收采用原 Journal 的重叠时间和“后台仍运行时父输入已经完成”的断言证明并行/后台，
+不以繁忙开发机上的固定 1.6 倍墙钟阈值判定。流式 token 数没有可靠中途计数时不展示伪估值。
+reasoning 的解析和展示链由协议测试覆盖；真实模型验收使用配置中的默认 DeepSeek 路由，
+不宣称已覆盖所有 provider 的 thinking 模式或与 Codex/Claude Code 每个细节完全相同。
 
 ---
 

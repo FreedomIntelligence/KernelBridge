@@ -15,14 +15,16 @@ import { recoverApplication } from './recovery.mjs';
 
 export async function runApplicationWorker(directory, ticket, { interactive = false } = {}) {
   const effectClient = await ApplicationClient.connect(directory);
-  let control;
+  let control, observer;
   const scratch = await mkdtemp(join(tmpdir(), 'kernelbridge-context-'));
   let actions;
   try {
     const lease = await WorkerLease.claim(effectClient, ticket);
     control = await ApplicationClient.connect(directory);
     await control.call('bind_worker', { lease: lease.lease });
-    actions = createHostActions(control, lease);
+    // Streaming observations must not delay or disconnect command replies.
+    observer = await ApplicationClient.connect(directory);
+    actions = createHostActions(control, lease, { observer });
     const rpc = controlledContext(controlledRsi(controlledModels(lease), async () => {
       const state = await control.state();
       return state.trials.at(-1)?.rsi_context;
@@ -32,7 +34,8 @@ export async function runApplicationWorker(directory, ticket, { interactive = fa
       return run(rpc, {
       interactive, persistent: true, semanticCompaction: true, extensionFactories: [actions.extension],
       beforeModel: () => actions.beforeModel(),
-      subscribeModelDeltas: listener => control.subscribe(event => {
+      withModelGeneration: (generation, run) => lease.withModelGeneration(generation, run),
+      subscribeModelDeltas: listener => observer.subscribe(event => {
         if (event.type === 'model_delta') listener(event.delta, event.generation_id);
       }),
       onEvent(event) {
@@ -43,6 +46,7 @@ export async function runApplicationWorker(directory, ticket, { interactive = fa
     });
   } finally {
     actions?.dispose();
+    observer?.close();
     control?.close();
     effectClient.close();
     await rm(scratch, { recursive: true, force: true });
@@ -56,5 +60,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const ticket = args[args.indexOf('--ticket') + 1];
     if (!args.includes('--host') || !args.includes('--ticket')) throw new Error('Worker requires --host and its one-use --ticket');
     await runApplicationWorker(directory, ticket, { interactive: !args.includes('--headless') });
-  } catch (error) { process.stderr.write(String(error) + '\n'); process.exitCode = 1; }
+  } catch (error) {
+    // Keep the originating stack (and any transport cause) when startup fails.
+    // String(error) hid the only evidence for failures before a session exists.
+    console.error(error);
+    process.exitCode = 1;
+  }
 }

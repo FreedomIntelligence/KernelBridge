@@ -90,7 +90,7 @@ class SubagentEffect:
             "Use only when the user or applicable project instructions explicitly request delegation. "
         )
         background = self.settings.get("background", True)
-        kinds = {"read": "read-only", "test": "can also run commands", "write": "edits an isolated Git worktree branch"}
+        kinds = {"read": "read-only", "test": "runs project commands in the foreground only", "write": "edits an isolated Git worktree branch"}
         catalogue = "; ".join(f"{name} ({kinds[agent.get('tools', 'read')]}): {agent['description']}"
                               for name, agent in self.agents.items())
         writes = any(agent.get("tools") == "write" for agent in self.agents.values())
@@ -103,7 +103,8 @@ class SubagentEffect:
             + ("A worktree agent returns its branch and diff; review it and apply it yourself (apply_hint) only if it is correct. " if writes else "")
             + "Split independent questions into separate calls in the same reply; those children run concurrently. Then synthesize their results. "
             + ("Set background=true only for long work the user need not wait for: the call returns at once and the result arrives later "
-               "as a [子代理结果] message; agents_status shows progress and stop_agent cancels. " if background else "")
+               "as a [子代理结果] message; agents_status shows progress and stop_agent cancels. "
+               "Test agents must stay foreground because they share the project directory; use a worktree worker for background commands. " if background else "")
             + "Children cannot spawn further children. Answers are advisory, not validation."), credits=1,
             parameters={"type": "object", "additionalProperties": False,
                 "properties": {"agent": {"type": "string", "enum": list(self.agents)},

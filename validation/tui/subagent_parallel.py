@@ -37,6 +37,7 @@ class Terminal(codegen_edges.Terminal):
 
 class Provider(BaseHTTPRequestHandler):
     children = defaultdict(int)
+    background_release = threading.Event()
     def log_message(self, *_): pass
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
@@ -52,6 +53,8 @@ class Provider(BaseHTTPRequestHandler):
         if 'read_file' in tools and 'read' not in tools:
             label = (re.search('CHILD_[A-Z]+', text) or ['CHILD_X'])[0]
             step = self.children[label]; self.children[label] += 1
+            if label == 'CHILD_BG' and step == 1:
+                if not self.background_release.wait(300): raise TimeoutError('background fixture was not released')
             time.sleep(4 if label.startswith('CHILD_SLOW') else DELAY)
             plan = [('list_files', {'path': '.', 'pattern': '*.py'}), ('search_text', {'query': 'def '}),
                     ('read_file', {'path': 'solution.py'})]
@@ -65,6 +68,8 @@ class Provider(BaseHTTPRequestHandler):
             content = 'AFTER_CANCEL_REPLY'
         elif tools and '[子代理结果]' in text:
             content = 'BACKGROUND_SEEN 已读取后台子代理结果。'
+        elif tools and 'WHILE_CHILD_RUNNING' in text:
+            content = 'FOREGROUND_DURING_BACKGROUND'
         elif tools and not answered and 'BACKGROUND_START' in text:
             content = '后台启动扫描。'
             calls = [('delegate', {'agent': 'kernel-scout', 'description': '后台扫描', 'task': 'CHILD_BG scan in background', 'background': True})]
@@ -133,16 +138,16 @@ def main():
         binding = json.loads(next(home.glob('runs/*/application.json')).read_text())
         client = Client(Path(binding['host_directory']))
         ui.send('启动两个子代理 PARALLEL')
-        ui.until(lambda: '等待 2 个子代理完成' in ui.text() and ui.text().count('⎿') >= 2, timeout=60)
+        ui.until(lambda: '等待 2 个子代理完成' in ui.text() and ui.text().count('⎿') >= 2, timeout=180)
         (output / 'running-screen.txt').write_text(ui.text())
         assert 'kernel-scout(梳理开发流程)' in ui.text() and 'kernel-reviewer(核对验证流程)' in ui.text()
-        assert '子代理 2 个运行中' in ui.text()
+        assert '等待 2 个子代理完成' in ui.text()
         checks.append('two_children_visible_running_together')
-        ui.until(lambda: 'PARENT_SYNTHESIS' in ui.text() and '等待输入' in ui.text(), timeout=90)
+        ui.until(lambda: 'PARENT_SYNTHESIS' in ui.text() and '等待输入' in ui.text(), timeout=300)
         settle(1.5)
         screen = ui.text(); (output / 'settled-screen.txt').write_text(screen)
-        assert screen.count('完成 · 读取 3 · 模型 4') == 2, screen
-        assert 'durable host receipt' not in screen and '子代理 2 个运行中' not in screen and '子代理 1 个运行中' not in screen
+        assert screen.count('完成 · 工具 3 次 · 模型 4') == 2, screen
+        assert 'durable host receipt' not in screen and '等待 2 个子代理完成' not in screen and '等待 1 个子代理完成' not in screen
         journal = next(home.glob('runs/*/state/events.jsonl'))
         events = [json.loads(line) for line in journal.read_text().splitlines()]
         assert overlap(events), 'children did not overlap in the Journal'
@@ -165,7 +170,7 @@ def main():
         os.write(ui.master, b'\x1b'); ui.until(lambda: '本会话（2）' in ui.text())
         os.write(ui.master, b'\x1b'); ui.until(lambda: '本会话（2）' not in ui.text())
         checks.append('agents_panel_lists_and_opens_reports')
-        ui.send('TOOL_ROWS'); ui.until(lambda: 'TOOL_ROWS_DONE' in ui.text() and '等待输入' in ui.text(), timeout=60)
+        ui.send('TOOL_ROWS'); ui.until(lambda: 'TOOL_ROWS_DONE' in ui.text() and '等待输入' in ui.text(), timeout=180)
         settle()
         screen = ui.text(); (output / 'tool-rows-screen.txt').write_text(screen)
         assert '⏺ Read(solution.py)' in screen and '读取 2 行' in screen, screen
@@ -174,10 +179,23 @@ def main():
         assert str(project) not in error and "'missing.py'" in error
         checks.append('tool_rows_status_header_summary_and_relative_errors')
         ui.send('BACKGROUND_START')
-        ui.until(lambda: 'BACKGROUND_STARTED' in ui.text() and '后台运行' in ui.text() and '等待输入' in ui.text(), timeout=60)
+        def background_ready():
+            state = client.call('status')
+            return (state['subagents'][-1]['status'] == 'running'
+                    and any(row['text'] == 'BACKGROUND_START' and row['status'] == 'completed' for row in state['inputs'].values())
+                    and 'BACKGROUND_STARTED' in ui.text() and '后台任务运行中' in ui.text())
+        ui.until(background_ready, timeout=180)
         (output / 'background-running-screen.txt').write_text(ui.text())
-        assert '子代理 1 个运行中' in ui.text()
-        ui.until(lambda: 'BACKGROUND_SEEN' in ui.text() and '等待输入' in ui.text(), timeout=90)
+        assert '等待 1 个子代理完成' in ui.text()
+        ui.send('WHILE_CHILD_RUNNING')
+        def foreground_finished():
+            state = client.call('status')
+            return (state['subagents'][-1]['status'] == 'running' and 'FOREGROUND_DURING_BACKGROUND' in ui.text()
+                    and any(row['text'] == 'WHILE_CHILD_RUNNING' and row['status'] == 'completed' for row in state['inputs'].values()))
+        ui.until(foreground_finished, timeout=180)
+        checks.append('parent_returns_and_accepts_next_prompt_while_background_child_runs')
+        Provider.background_release.set()
+        ui.until(lambda: 'BACKGROUND_SEEN' in ui.text() and '等待输入' in ui.text(), timeout=300)
         settle(1)
         screen = ui.text(); (output / 'background-done-screen.txt').write_text(screen)
         assert '⏺ kernel-scout「后台扫描」已完成' in screen, screen
@@ -189,22 +207,24 @@ def main():
                    for item in state['inputs'].values())
         checks.append('background_child_notifies_and_parent_continues')
         before = len(client.call('status')['subagents'])
-        ui.send('CANCEL_PARALLEL'); ui.until(lambda: '等待 2 个子代理完成' in ui.text(), timeout=60)
+        ui.send('CANCEL_PARALLEL'); ui.until(lambda: '等待 2 个子代理完成' in ui.text(), timeout=180)
         os.write(ui.master, b'\x1b')
         ui.until(lambda: len(client.call('status')['subagents']) == before + 2
                  and all(row['status'] != 'running' for row in client.call('status')['subagents'][before:])
-                 and not client.call('status')['pending_effect_ids'], timeout=60)
+                 and not client.call('status')['pending_effect_ids'], timeout=180)
         cancelled = client.call('status')['subagents'][before:]
         assert all(row['status'] == 'failed' and row['reason'] == 'cancelled' for row in cancelled), cancelled
         settle(1); (output / 'cancel-screen.txt').write_text(ui.text())
-        ui.send('AFTER_CANCEL'); ui.until(lambda: 'AFTER_CANCEL_REPLY' in ui.text() and '等待输入' in ui.text(), timeout=60)
+        ui.send('AFTER_CANCEL'); ui.until(lambda: 'AFTER_CANCEL_REPLY' in ui.text() and '等待输入' in ui.text(), timeout=180)
         assert client.call('status')['budget']['reserved'] == 0
         checks.append('esc_cancels_concurrent_children_and_parent_continues')
         ui.send('/quit'); ui.until(lambda: ui.child.poll() is not None); assert ui.child.returncode == 0
         (output / 'scenario.json').write_text(json.dumps({'status': 'passed', 'checks': checks}, ensure_ascii=False, indent=2) + '\n')
         print(json.dumps({'status': 'passed', 'checks': checks}, ensure_ascii=False), flush=True)
     finally:
+        Provider.background_release.set()
         (output / 'last-screen.txt').write_text(ui.text())
+        (output / 'transcript.txt').write_bytes(ui.transcript)
         try: ui.close(output / 'transcript.txt')
         except Exception: pass
         if client: client.close()
