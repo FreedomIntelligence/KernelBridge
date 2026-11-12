@@ -16,6 +16,11 @@ export async function journalOf(hostDirectory: string): Promise<string> {
   return join(config.state_dir, 'events.jsonl');
 }
 
+/** The full projection of a saved or running session's Journal, read once. */
+export async function readTrace(journal: string, title?: string) {
+  return projectTrace(parseRows(await readFile(journal, 'utf8')).rows, { live: false, title });
+}
+
 export async function startTraceServer(options: { journal: string; port?: number; host?: string; title?: string }): Promise<TraceServer> {
   let rows: unknown[] = []; let offset = 0; let rest = '';
   let reading = false; let dirty = false;

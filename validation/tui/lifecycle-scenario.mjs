@@ -1,3 +1,4 @@
+import { StepTimeout, scaled } from './timing.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { ApplicationSession } from '../../source/apps/agent/src/sdk/index.ts';
@@ -8,9 +9,9 @@ const base = JSON.parse(await readFile(process.argv[2], 'utf8'));
 const outcomes = [];
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(predicate) {
-  const end = Date.now() + 30000;
+  const end = Date.now() + scaled(30000);
   while (Date.now() < end) { if (await predicate()) return; await sleep(50); }
-  throw new Error('Lifecycle transition did not settle');
+  throw new StepTimeout('Lifecycle transition did not settle within ' + scaled(30000) + ' ms');
 }
 for (const mode of ['pause', 'detach', 'awaiting_user', 'budget', 'credits', 'seed_credits']) {
   const output = base.output + '/' + mode;

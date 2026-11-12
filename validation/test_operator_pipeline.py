@@ -404,7 +404,8 @@ else:
 
     def test_native_invalid_indices_and_nan_rejected(self):
         library = self.root / 'native.so'
-        subprocess.run([shutil.which('clang++'), '-O2', '-shared', '-fPIC', str(ROOT / 'examples/scatter/native.cpp'), '-o', str(library)], check=True)
+        from driver import cxx_compiler  # examples/scatter is on sys.path (setUp)
+        subprocess.run([cxx_compiler(), '-O2', '-shared', '-fPIC', str(ROOT / 'examples/scatter/native.cpp'), '-o', str(library)], check=True)
         native = ctypes.CDLL(str(library)).scatter_extrema
         native.argtypes = [ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_int64), ctypes.c_int64, ctypes.c_int64, ctypes.c_int64, ctypes.c_int, ctypes.POINTER(ctypes.c_float)]
         out = (ctypes.c_float * 1)(); x = (ctypes.c_float * 1)(2); index = (ctypes.c_int64 * 1)(-1)

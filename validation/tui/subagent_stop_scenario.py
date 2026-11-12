@@ -33,7 +33,7 @@ def main():
         ui.until(lambda: '/help' in ui.text() and '等待输入' in ui.text())
         binding = json.loads(next(home.glob('runs/*/application.json')).read_text()); client = Client(Path(binding['host_directory']))
         ui.send('BACKGROUND_START')
-        ui.until(lambda: '后台任务运行中' in ui.text() and '等待 1 个子代理完成' in ui.text(), timeout=60)
+        ui.until(lambda: '个运行中 · /agents 查看' in ui.text() and '等待 1 个子代理完成' in ui.text(), timeout=60)
         child_id = client.call('status')['subagents'][0]['id']
         ui.send('/agents'); ui.until(lambda: '本会话（1）' in ui.text())
         for _ in client.call('status')['subagent_types']:

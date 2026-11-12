@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { InputQueue } from '../../application/input-queue.mjs';
 import { workspaceTools } from './workspace-tools.mjs';
 import { goalSummary, statePresentation, installProductUI, showProductFeedback, workingMessage } from './product-ui.mjs';
-import { updateSubagentProgress, explorationBoundary, seedExplorationGroups } from './tool-render.mjs';
+import { DETERMINISTIC, updateSubagentProgress, explorationBoundary, seedExplorationGroups } from './tool-render.mjs';
 import { agentsPanel, BUILTIN_AGENTS } from './agents-panel.mjs';
 import { COMMAND_POLICY_VERSION, PRODUCT_COMMANDS, PRODUCT_COMMAND_NAMES, parseGoalCommand, commandHelp } from './command-policy.mjs';
 import { sessions } from '../../application/host.mjs';
@@ -45,6 +45,10 @@ export function createHostActions(control, effects, { observer = control } = {})
   let applying = [];
   let persistedInputs = [];
   const runningInputs = new Set();
+  // Turn settlement (input transitions and the boundary checkpoint) must finish before
+  // the next input is applied; otherwise a queued notification's __input__ admission
+  // can land between them and the host refuses the checkpoint as unsettled.
+  let settlement = Promise.resolve();
   let exiting = false;
   let approvedSwitch = false;
   let inputDelivery = Promise.resolve();
@@ -72,10 +76,10 @@ export function createHostActions(control, effects, { observer = control } = {})
   };
   const syncTools = () => {
     if (governed && state.workspace_mode === 'project') {
-      const tools = governed.session.getActiveToolNames().filter(name => !['finish_goal', 'update_goal'].includes(name));
+      const tools = governed.session.getActiveToolNames().filter(name => !['finish_goal', 'update_goal', 'update_plan'].includes(name));
       // Pi captures its tool schema before beforeModel persists the new user
       // entry. That entry reactivates an awaiting Goal in the host journal.
-      if (['active', 'awaiting_user'].includes(state.goal?.status)) tools.push('finish_goal', 'update_goal');
+      if (['active', 'awaiting_user'].includes(state.goal?.status)) tools.push('finish_goal', 'update_goal', 'update_plan');
       governed.session.setActiveToolsByName(tools);
     }
   };
@@ -112,7 +116,7 @@ export function createHostActions(control, effects, { observer = control } = {})
         installProductUI(context, () => state, { demo: process.env.KERNELBRIDGE_DEMO === '1' });
         context.ui.setHiddenThinkingLabel?.('思考中…');
         const accent = text => context.ui.theme?.fg?.('accent', text) ?? text;
-        context.ui.setWorkingIndicator?.({ frames: SPINNER.map(accent), intervalMs: 120 });
+        context.ui.setWorkingIndicator?.({ frames: (DETERMINISTIC ? ['✻'] : SPINNER).map(accent), intervalMs: 120 });
       }
       if (governed && state.pending_transition) {
         const parent = state.pending_transition.parent;
@@ -200,6 +204,13 @@ export function createHostActions(control, effects, { observer = control } = {})
       tick(workingTimer.started);
     });
     pi.on('agent_settled', async event => {
+      let finished;
+      settlement = new Promise(resolve => { finished = resolve; });
+      // Errors still reach Pi: an unknown effect must surface as InDoubt (input-settlement.mjs).
+      try { await settleTurn(event); }
+      finally { finished(); }
+    });
+    async function settleTurn(event) {
       stopWorking();
       const providerFailed = governed?.controller.stopResult?.status === 'providers_failed';
       const setupFailed = governed?.controller.stopResult?.status === 'seed_failed';
@@ -255,12 +266,18 @@ export function createHostActions(control, effects, { observer = control } = {})
         runningInputs.delete(inputId);
       }
       activeInput = undefined;
-      if (governed) await snapshot('checkpoint');
+      if (governed) {
+        try { await snapshot('checkpoint'); }
+        catch (error) {
+          // Another input already reached the host; its own application checkpoints this boundary.
+          if (!/settled execution boundary/.test(String(error?.message ?? error))) throw error;
+        }
+      }
       await refresh();
       const plateau = state.fork_suggestion;
       if (plateau) await suggestFork(plateau, 'plateau-' + state.model_turns);
       if (interactive && !event.aborted && !failure && !exiting) setImmediate(() => { void advance().catch(report); });
-    });
+    }
     pi.on('user_bash', async event => {
       const text = (event.excludeFromContext ? '!!' : '!') + event.command;
       const receipt = inputs.consume(text);
@@ -329,6 +346,7 @@ export function createHostActions(control, effects, { observer = control } = {})
   const report = error => { showProductFeedback(context, String(error), true); };
 
   async function persistInput(receipt, entryId) {
+    await settlement;
     const manager = governed.session.sessionManager;
     const path = manager.getSessionFile();
     if (!path) throw new Error('Applied input has no persistent native session file');
@@ -579,12 +597,12 @@ export function createHostActions(control, effects, { observer = control } = {})
       }
       if (command === '/goal') {
         const { operation, ...values } = parseGoalCommand(text);
-        if (operation === 'status') return { action: 'handled', message: statePresentation(await refresh()) };
+        if (operation === 'status') return { action: 'handled', message: (await refresh(), () => statePresentation(state)) };
         if (operation === 'resume' && governed.controller.failure) return { action: 'handled',
           message: '当前运行时已失败。先 /quit，重新连接并排除原错误后再显式 /goal resume。若历史消息无效，需依据可信回执或有效检查点修复；重新连接不会修复历史，也不会自动重跑原效果。' };
         await control.control(operation, { channel: 'tui', ...values,
           ...(acceptedCommand ? { input_id: acceptedCommand.input_id + '-goal' } : {}) });
-        return { action: 'handled', message: statePresentation(await refresh()) };
+        return { action: 'handled', message: (await refresh(), () => statePresentation(state)) };
       }
       if (command === '/detach') {
         if (governed.session.isStreaming || governed.session.isBashRunning) {
@@ -596,7 +614,7 @@ export function createHostActions(control, effects, { observer = control } = {})
       }
       if (command === '/quit') return { action: 'continue', text: '/quit' };
       if (command === '/settings') {
-        return { action: 'handled', message: statePresentation(await refresh()) };
+        return { action: 'handled', message: (await refresh(), () => statePresentation(state)) };
       }
       if (command === '/name' && arguments_.length) {
         await control.call('configuration', { operation: 'rename', name: arguments_.join(' ').slice(0, 120) });

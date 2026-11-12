@@ -1,0 +1,8 @@
+╭──────────────────────────────────────────────╮
+│ ✻ KernelBridge                               │
+│                                              │
+│   /help 命令 · /agents 子代理 · /model 模型[0m…[0m │
+│   esc 中断 · ctrl+o 展开工具输出 · /resume [0m…[0m │
+│                                              │
+│   cwd: /home/dev/projects/kernel-bridge      │
+╰──────────────────────────────────────────────╯

@@ -108,7 +108,9 @@ test('the vendored viewer accepts every live transform exactly once', async () =
   assert.ok(page.indexOf('id="kb-trace"') < page.indexOf('/* kernelbridge live adapter */'));
   assert.ok(page.indexOf('/* kernelbridge live adapter */') < page.indexOf('\nloadSession(DS_INV);\nreadHash();\n'));
   assert.ok(!page.includes('</script><script>alert(1)'), 'embedded JSON cannot close the script element');
-  assert.match(page, /if \(DS\.live\) L = DS\.baseCtx/);
+  assert.match(page, /if \(DS\.live\) L = AG\[k\]\.fork && FORK_CTX \? FORK_CTX\.slice\(\) : DS\.baseCtx/);
+  assert.equal(page.split('kbAtOrBefore(').length - 1, 7, 'every id comparison against FORK.step uses timeline order');
+  assert.doesNotMatch(page, /s\.id <= FORK\.step|s\.id > FORK\.step|state\.sel <= FORK\.step/);
   assert.match(page, /DS\.live \? DS\.configHTML\(\)/);
 });
 
@@ -161,4 +163,94 @@ test('server requires the token and loopback host, and streams Journal growth', 
     assert.deepEqual(events.at(-1).rows, ['M/main', 'M/c1']);
     stream.destroy();
   } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('a /fork from a historical entry shows the abandoned turns as branch B', () => {
+  const S = 1_800_000_000_000_000_000; let seq = 0; const rows = []; let clock = S;
+  const add = row => rows.push({ seq: seq++, ...row });
+  const app = (kind, data) => { clock += 1e8; add({ kind, application_session_id: 'a', data, time_ns: clock }); };
+  const turn = (id, text, usage) => {
+    app('application/call_intent', { call_id: id, method: 'model' });
+    add({ kind: 'admitted', action: { id, tool: '__propose__', task: 't', arguments: {}, parents: [] } });
+    add({ kind: 'started', action_id: id });
+    add({ kind: 'settled', action_id: id, elapsed_ms: 50, outcome: { status: 'completed', data: { content: [{ type: 'text', text }], usage } } });
+    app('application/call_result', { call_id: id, result: {} });
+  };
+  add({ kind: 'task', task: { id: 't', goal: 'g' } });
+  app('application/input_accepted', { kind: 'prompt', initiator: 'user', text: 'first' });
+  turn('t/step/0/model/primary', 'One.', { prompt_tokens: 1000, completion_tokens: 10 });
+  app('application/checkpoint', { pi_session_id: 'p1', entry_id: 'e1', operation: 'checkpoint' });
+  app('application/input_accepted', { kind: 'prompt', initiator: 'user', text: 'abandoned idea' });
+  turn('t/step/1/model/primary', 'Abandoned.', { prompt_tokens: 1200, completion_tokens: 20 });
+  app('application/checkpoint', { pi_session_id: 'p1', entry_id: 'e2', operation: 'checkpoint' });
+  app('application/configuration', { operation: 'transition_prepared', parent: { operation: 'fork', pi_session_id: 'p1', entry_id: 'e1' } });
+  app('application/input_accepted', { kind: 'prompt', initiator: 'user', text: 'better idea' });
+  turn('t/step/2/model/primary', 'Better.', { prompt_tokens: 1100, completion_tokens: 30 });
+  const trace = projectTrace(rows, { now_ns: clock + 1e9 });
+  assert.deepEqual(trace.rows, ['M/main', 'B/main']);
+  const b = trace.steps.filter(step => step.branch === 'B');
+  assert.deepEqual(b.map(step => step.title), ['用户：abandoned idea', 'Abandoned.']);
+  assert.equal(trace.fork.step, trace.steps.find(step => step.title === 'One.').id);
+  assert.equal(trace.agents['B/main'].fork, true);
+  assert.ok(trace.steps.some(step => step.branch === 'M' && step.title === 'Better.'));
+  assert.equal(trace.result.B.ok, true);
+  // A fork from the current leaf leaves nothing behind: no branch, just the marker.
+  const latest = rows.map(row => row.data?.parent ? { ...row, data: { ...row.data, parent: { ...row.data.parent, entry_id: 'e2' } } } : row);
+  const plain = projectTrace(latest, { now_ns: clock + 1e9 });
+  assert.equal(plain.fork, null); assert.deepEqual(plain.rows, ['M/main']);
+});
+
+test('progress: Goal, accepted plans and completion review, also from atomic rows', () => {
+  const rows = []; let seq = 0; let clock = S;
+  const at = () => (clock += 500_000_000);
+  const add = row => { rows.push({ seq: seq++, time_ns: at(), ...row }); };
+  // Host writes are compound rows: their events carry no seq of their own.
+  const atomic = (...events) => add({ kind: 'atomic', events: events.map(event => ({ application_session_id: 'application-progress', ...event })) });
+  const goal = { goal_id: 'g1', objective: 'read and check', status: 'active', started_at_ns: S + 1_000_000_000, token_budget: 50000 };
+  const plan = (id, items, outcome = { status: 'completed', data: { result: { isError: false } } }) => {
+    add({ kind: 'admitted', action: { id, tool: 'update_plan', task: TASK, arguments: { plan: items }, parents: [] } });
+    add({ kind: 'started', action_id: id }); add({ kind: 'settled', action_id: id, elapsed_ms: 5, outcome });
+  };
+  add({ kind: 'task', task: { id: TASK, goal: 'g' } });
+  atomic({ kind: 'application/input_accepted', data: { kind: 'prompt', initiator: 'user', text: '/goal read and check' } }, { kind: 'application/goal', data: goal });
+  const model = TASK + '/step/0/model/primary';
+  add({ kind: 'admitted', action: { id: model, tool: '__propose__', task: TASK, arguments: {}, parents: [] } });
+  add({ kind: 'started', action_id: model });
+  add({ kind: 'settled', action_id: model, elapsed_ms: 40, outcome: { status: 'completed', data: { content: [{ type: 'text', text: 'Plan first.' }], usage: { prompt_tokens: 900, completion_tokens: 100 } } } });
+  plan(model + '/call/0', [{ step: 'read', status: 'in_progress' }, { step: 'check', status: 'pending' }]);
+  plan(model + '/call/1', [{ step: 'read', status: 'in_progress' }, { step: 'check', status: 'in_progress' }], { status: 'failed', data: { error: 'one in_progress' } });
+  plan(model + '/call/2', [{ step: 'read', status: 'completed' }, { step: 'check', status: 'in_progress' }]);
+  const review = TASK + '/goal-review/g1/loopx-1';
+  add({ kind: 'admitted', action: { id: review, tool: '__propose__', task: TASK, arguments: {}, parents: [] } });
+  add({ kind: 'started', action_id: review });
+  add({ kind: 'settled', action_id: review, elapsed_ms: 30, outcome: { status: 'completed', data: { content: [{ type: 'text', text: '{"status": "met", "summary": "Read verified."}' }], usage: { prompt_tokens: 300, completion_tokens: 20 } } } });
+  atomic({ kind: 'application/configuration', data: { operation: 'goal_review', goal_id: 'g1', status: 'met', summary: 'Read verified.' } },
+    { kind: 'application/goal', data: { ...goal, status: 'completed', ended_at_ns: S + 9_000_000_000, summary: 'Read verified.' } });
+
+  const trace = projectTrace(rows);
+  const progress = trace.progress;
+  assert.equal(progress.goal.goal_id, 'g1');
+  assert.equal(progress.goal.status, 'completed');
+  assert.equal(progress.goal.objective, 'read and check');
+  assert.equal(progress.goal.token_budget, 50000);
+  assert.equal(progress.goals.length, 2, 'both Goal rows inside atomic rows are read');
+  // The refused update_plan (two in_progress) is not part of the plan history.
+  assert.deepEqual(progress.plans.map(item => `${item.done}/${item.total}`), ['0/2', '1/2']);
+  assert.deepEqual(progress.plans.at(-1).items.map(item => item.status), ['completed', 'in_progress']);
+  assert.ok(progress.plans.every(item => trace.steps.some(step => step.id === item.step)), 'plan entries point at their steps');
+  assert.deepEqual(progress.reviews.map(item => [item.status, item.summary]), [['met', 'Read verified.']]);
+  assert.equal(progress.usage.modelCalls, 2);
+  assert.equal(progress.usage.tokens, 1320);
+  // The review model call reads as a verdict, not as raw JSON.
+  assert.equal(trace.steps.find(step => step.action_id === review).title, '完成审查：达成 · Read verified.');
+  // Atomic events take their compound row's seq and time; the input inside one is projected.
+  assert.ok(trace.steps.some(step => step.kind === 'input' && step.title.includes('/goal read and check')));
+});
+
+test('progress without a Goal is empty but well formed', () => {
+  const progress = projectTrace(parseRows(journal()).rows).progress;
+  assert.equal(progress.goal, null);
+  assert.deepEqual(progress.plans, []);
+  assert.deepEqual(progress.reviews, []);
+  assert.ok(progress.usage.modelCalls > 0);
 });

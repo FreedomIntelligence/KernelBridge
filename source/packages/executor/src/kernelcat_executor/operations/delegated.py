@@ -90,9 +90,11 @@ class DelegatedEffects:
         import os
         from pathlib import Path
         project = Path(owner.workspace_policy["root"])
+        # The application session names the exported trace; commands get a traceparent under it.
+        session = lambda: (getattr(owner.gateway.store, "_application_lease", None) or (None,))[0]
         if self.kind == "test":
             tools = [tool for name, tool in owner.gateway.tools.items() if name in READ_TOOLS and name != "read_receipt"]
-            view = Gateway(owner.gateway.store, [*tools, run_command_tool(project, self.cancelled)], owner.gateway.scope)
+            view = Gateway(owner.gateway.store, [*tools, run_command_tool(project, self.cancelled, session)], owner.gateway.scope)
             view._guards = owner.gateway._guards
             return view
         home = Path(os.environ.get("KERNELBRIDGE_HOME") or Path.home() / ".kernelbridge")
@@ -100,7 +102,7 @@ class DelegatedEffects:
         workspace = Workspace(self.worktree.path, create=False)
         names = {"load_skill", "read_file", "list_files", "search_text", "write_file", "edit_file"}
         tools = [tool for tool in builtin_tools(workspace, owner.skills) if tool.spec.name in names]
-        return Gateway(owner.gateway.store, [*tools, run_command_tool(self.worktree.path, self.cancelled)], owner.gateway.scope)
+        return Gateway(owner.gateway.store, [*tools, run_command_tool(self.worktree.path, self.cancelled, session)], owner.gateway.scope)
 
     def _stop(self, reason: str) -> Json:
         self.failure = reason

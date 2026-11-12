@@ -1,11 +1,16 @@
 import { realpath } from 'node:fs/promises';
 import { applicationDirectory, sessions } from './host.mjs';
-import { journalOf, openBrowser, startTraceServer } from '../trace/server.ts';
+import { journalOf, openBrowser, readTrace, startTraceServer } from '../trace/server.ts';
+import { exportTrace } from '../../../../packages/pi-lattice-trace/src/otlp.ts';
 
-export const TRACE_HELP = `kernelagent trace [ID_OR_TITLE] [--all] [--port N] [--no-open]
+export const TRACE_HELP = `kernelagent trace [ID_OR_TITLE] [--all] [--port N] [--no-open] [--otlp]
   Serve the live trajectory viewer (Lattice Trace) for a session on 127.0.0.1.
   Without an ID it follows this project's latest session; --all searches every project.
   The viewer tails the session Journal read-only and updates as the session runs.
+  --otlp sends the session once as OpenTelemetry GenAI spans (OTLP/HTTP JSON) to
+  OTEL_EXPORTER_OTLP_ENDPOINT instead. No content is sent unless
+  OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true or
+  KERNELBRIDGE_OTEL_CAPTURE=prompts,tools,outputs selects it.
 `;
 
 /** Resolves one saved session the same way `resume` does. */
@@ -27,7 +32,13 @@ export async function traceCommand(args) {
   const query = args.find((value, index) => !value.startsWith('--') && index !== portIndex + 1);
   const selected = await selectSession(query, args.includes('--all'));
   if (!selected) throw new Error(query ? '没有匹配的会话；用 kernelagent sessions 查看全部。' : '当前项目没有会话；先运行 kernelagent，或传入会话 ID。');
-  const server = await startTraceServer({ journal: await journalOf(await applicationDirectory(selected.application_session_id)), port, title: selected.title });
+  const journal = await journalOf(await applicationDirectory(selected.application_session_id));
+  if (args.includes('--otlp')) {
+    const result = await exportTrace(await readTrace(journal, selected.title), { service: 'kernelbridge' });
+    process.stdout.write(`已导出 ${result.spans} 个 span → ${result.endpoint}\n会话：${selected.title ?? selected.application_session_id}\n`);
+    return 0;
+  }
+  const server = await startTraceServer({ journal, port, title: selected.title });
   process.stdout.write(`实时轨迹：${server.url}\n会话：${selected.title ?? selected.application_session_id}\n按 Ctrl-C 停止。\n`);
   if (!args.includes('--no-open')) openBrowser(server.url);
   await new Promise(resolve => { process.once('SIGINT', resolve); process.once('SIGTERM', resolve); });

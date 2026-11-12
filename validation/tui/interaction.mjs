@@ -49,8 +49,10 @@ test('direct Goal objectives pass through durable control and remain readable', 
   assert.equal(controls.length, 1);
   assert.equal(controls[0].operation, 'set');
   assert.equal(controls[0].objective, '1');
-  assert.match(result.message, /目标：1/);
-  assert.doesNotMatch(result.message, /checkpoint|pi_session|\{"/);
+  // /goal answers with a live block: a function the feedback widget re-reads each second.
+  assert.equal(typeof result.message, 'function');
+  assert.match(result.message(), /目标：1/);
+  assert.doesNotMatch(result.message(), /checkpoint|pi_session|\{"/);
   const policyText = 'Continue with the original receipts.\n{"decision_id":"private-id"}';
   state.inputs = { policy: { kind: 'policy', initiator: 'loopx', text: policyText } };
   await actions.submit('/goal', {});

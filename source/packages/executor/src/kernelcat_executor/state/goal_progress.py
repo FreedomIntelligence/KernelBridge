@@ -64,12 +64,70 @@ def goal_usage(events, goal):
             'by_role': groups, 'counting': 'all_model_calls_including_compact_child_review'}
 
 
+# Reading the Goal or rewriting the plan is bookkeeping, not work (Codex: "a plan
+# update is not progress").
+BOOKKEEPING_TOOLS = frozenset({"get_goal", "update_plan"})
+
+
 def continuation_has_progress(events, receipt):
     """Status polling and protocol bookkeeping do not constitute new work."""
     start = receipt.get("applied_seq", receipt["accepted_seq"])
     return any(row["kind"] == "admitted" and row.get("seq", -1) > start
                and not row["action"]["tool"].startswith("__")
-               and row["action"]["tool"] != "get_goal" for row in events)
+               and row["action"]["tool"] not in BOOKKEEPING_TOOLS for row in events)
+
+
+PLAN_STATUSES = ("pending", "in_progress", "completed")
+MAX_PLAN_STEPS = 12
+MAX_STEP_CHARS = 80
+
+
+class PlanError(ValueError):
+    """An update_plan call the host refuses; the message is returned to the model."""
+
+
+def validate_plan(items):
+    """Whole-plan replacement in Codex's shape, checked by the host (Codex only documents the rules)."""
+    if not isinstance(items, list) or not items:
+        raise PlanError("plan must contain at least one step")
+    if len(items) > MAX_PLAN_STEPS:
+        raise PlanError(f"plan has {len(items)} steps; keep it to at most {MAX_PLAN_STEPS}")
+    plan = []
+    for item in items:
+        step = " ".join(str((item or {}).get("step", "")).split())
+        status = (item or {}).get("status")
+        if not step:
+            raise PlanError("plan steps must not be empty")
+        if len(step) > MAX_STEP_CHARS:
+            raise PlanError(f"plan step exceeds {MAX_STEP_CHARS} characters; keep steps short and checkable")
+        if status not in PLAN_STATUSES:
+            raise PlanError("plan step status must be pending, in_progress or completed")
+        plan.append({"step": step, "status": status})
+    if sum(item["status"] == "in_progress" for item in plan) > 1:
+        raise PlanError("at most one plan step may be in_progress")
+    return plan
+
+
+def current_plan(actions, goal):
+    """The latest accepted update_plan receipt of this Goal; the receipt is the record."""
+    if not goal:
+        return None
+    latest = None
+    for key, item in actions.items():
+        if item["action"]["tool"] != "update_plan" or item.get("seq", -1) <= goal.get("start_seq", -1):
+            continue
+        outcome = item.get("outcome") or {}
+        data = outcome.get("data") or {}
+        if outcome.get("status") == "completed" and data.get("goal_id") == goal["goal_id"] and data.get("plan"):
+            latest = {**data, "action_id": key}
+    return latest
+
+
+def plan_text(plan):
+    """Compact plan for model-facing continuation and review prompts."""
+    marks = {"completed": "x", "in_progress": ">", "pending": " "}
+    done = sum(item["status"] == "completed" for item in plan["plan"])
+    return f"({done}/{len(plan['plan'])} complete) " + "; ".join(f"[{marks[item['status']]}] {item['step']}" for item in plan["plan"])
 
 
 def model_call_progress(store):

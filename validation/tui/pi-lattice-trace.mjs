@@ -169,3 +169,150 @@ test('the shared server follows a replaced source and pushes it over SSE', async
     stream.destroy();
   } finally { await server.close(); }
 });
+
+test('token fields follow OpenTelemetry semantics and clipped outputs say so', () => {
+  parent = null;
+  const long = 'x'.repeat(5000);
+  const entries = [
+    msg('us000009', 100, { role: 'user', content: [{ type: 'text', text: 'go' }] }),
+    { ...msg('as000009', 200, { role: 'assistant', provider: 'fixture', model: 'fixture-1', stopReason: 'toolUse',
+      usage: { input: 100, output: 50, cacheRead: 300, cacheWrite: 40, reasoning: 30, totalTokens: 490 },
+      content: [{ type: 'toolCall', id: 'call_x', name: 'read', arguments: { path: 'big.txt' } }] }), timestamp: iso(400) },
+    msg('tr000009', 500, { role: 'toolResult', toolCallId: 'call_x', toolName: 'read', isError: false, content: [{ type: 'text', text: long }] }),
+  ];
+  const trace = projectSession(entries, { header, now: T0 + 1000 });
+  const model = trace.steps.find(s => s.src === 'model');
+  assert.equal(model.tokIn, 440, 'input tokens include cache reads and writes (gen_ai.usage.input_tokens)');
+  assert.deepEqual([model.cacheReal, model.cacheWrite, model.reasoningOut], [300, 40, 30]);
+  const tool = trace.steps.find(s => s.tool === 'read');
+  assert.equal(tool.truncated, true); assert.equal(tool.originalLength, 5000);
+  assert.ok(tool.out.length < 5000 && tool.out.includes('截断'));
+});
+
+test('lattice-trace CLI: the resumed branch of a session file, followed as it grows', async () => {
+  const { sessionBranch } = await import('../../source/packages/pi-lattice-trace/bin/lattice-trace.ts');
+  const { mkdtemp, writeFile, appendFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os'); const { join } = await import('node:path'); const { spawn } = await import('node:child_process');
+  const entries = session();
+  // An abandoned branch from the first user message, written before the resumed leaf.
+  const abandoned = { type: 'message', id: 'ab000001', parentId: 'us000001', timestamp: iso(250),
+    message: { role: 'user', content: [{ type: 'text', text: 'abandoned idea' }], timestamp: T0 + 250 } };
+  const lines = [header, ...entries.slice(0, 5), abandoned, ...entries.slice(5)].map(row => JSON.stringify(row)).join('\n') + '\n';
+  const branch = sessionBranch(lines + '{"type":"message","id":"torn"');
+  assert.equal(branch.header.id, 'sess-1');
+  assert.ok(!branch.entries.some(entry => entry.id === 'ab000001'), 'the abandoned branch is not on the resumed path');
+  assert.equal(branch.entries.at(-1).id, entries.at(-1).id);
+  const directory = await mkdtemp(join(tmpdir(), 'lattice-cli-')); const file = join(directory, 'session.jsonl');
+  await writeFile(file, lines);
+  const child = spawn(process.execPath, [new URL('../../source/packages/pi-lattice-trace/bin/lattice-trace.ts', import.meta.url).pathname, file, '--no-open'], { stdio: ['ignore', 'pipe', 'inherit'] });
+  try {
+    const url = await new Promise((accept, reject) => {
+      let out = ''; child.stdout.on('data', chunk => { out += chunk; const found = out.match(/http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]{32}\//); if (found) accept(found[0]); });
+      child.once('exit', code => reject(new Error('CLI exited ' + code)));
+    });
+    const fetchTrace = async () => JSON.parse(await (await fetch(url + 'trace.json')).text());
+    const before = await fetchTrace();
+    assert.equal(before.session.title, 'Greeting module'); assert.equal(before.labels.harness, 'Pi');
+    await appendFile(file, JSON.stringify({ type: 'message', id: 'us000003', parentId: entries.at(-1).id, timestamp: iso(4000),
+      message: { role: 'user', content: [{ type: 'text', text: 'one more' }], timestamp: T0 + 4000 } }) + '\n');
+    let after = before;
+    for (let i = 0; i < 60 && after.steps.length === before.steps.length; i++) { await new Promise(r => setTimeout(r, 100)); after = await fetchTrace(); }
+    assert.equal(after.steps.length, before.steps.length + 1);
+  } finally { child.kill('SIGTERM'); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('other branches of the session tree become fork lanes at their latest common entry', async () => {
+  const { findFork } = await import('../../source/packages/pi-lattice-trace/src/session-trace.ts');
+  const entries = session();
+  // Two abandoned attempts after the first tool results: an older and a newer one.
+  const older = [msg('ob000001', 1050, { role: 'user', content: [{ type: 'text', text: 'try the old approach' }] })];
+  older[0].parentId = 'tr000002';
+  const newerUser = msg('nb000001', 1060, { role: 'user', content: [{ type: 'text', text: 'try another approach' }] });
+  newerUser.parentId = 'tr000002';
+  const newerReply = { ...msg('nb000002', 1070, { role: 'assistant', provider: 'fixture', model: 'fixture-1', stopReason: 'stop', usage: usage(150, 10, 1200),
+    content: [{ type: 'text', text: 'Another approach done.' }] }), parentId: 'nb000001', timestamp: iso(1090) };
+  const tree = [...entries.slice(0, 7), ...older, newerUser, newerReply, ...entries.slice(7)];
+  const fork = findFork(tree, entries);
+  assert.equal(entries[fork.index].id, 'tr000002');
+  assert.deepEqual(fork.branches.map(branch => branch.map(entry => entry.id)), [['nb000001', 'nb000002'], ['ob000001']], 'newest branch first');
+  const trace = projectSession(entries, { header, tree, now: T0 + 5000 });
+  assert.deepEqual(trace.rows, ['M/main', 'B/main', 'C/main']);
+  assert.equal(trace.fork.step, trace.steps.find(s => s.tool === 'ls').id, 'the fork follows the last root step at the forked entry');
+  assert.equal(trace.agents['B/main'].fork, true); assert.equal(trace.agents['B/main'].branch, 'B');
+  const b = trace.steps.filter(step => step.branch === 'B');
+  assert.deepEqual(b.map(step => step.kind), ['input', 'final']);
+  assert.equal(b[1].tokIn, 1350); assert.match(trace.branches.B.name, /try another approach/);
+  assert.equal(trace.result.B.ok, true);
+  assert.ok(trace.steps.every((step, i, all) => !i || all[i - 1].t0 <= step.t0), 'steps stay in timeline order');
+  assert.equal(projectSession(entries, { header, now: T0 + 5000 }).fork, undefined, 'no tree, no fork');
+});
+
+test('pi-subagents children get lanes from their messages or their session files', async () => {
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
+  const { childSessionEntries } = await import('../../source/packages/pi-lattice-trace/src/session-file.ts');
+  const directory = await mkdtemp(join(tmpdir(), 'lattice-child-'));
+  try {
+    const childFile = join(directory, 'child.jsonl');
+    await writeFile(childFile, [
+      { type: 'session', version: 3, id: 'child-b', timestamp: iso(1200), cwd: '/work/project' },
+      { type: 'message', id: 'cb1', parentId: null, timestamp: iso(1210), message: { role: 'user', content: [{ type: 'text', text: 'Review greet.py' }], timestamp: T0 + 1210 } },
+      { type: 'message', id: 'cb2', parentId: 'cb1', timestamp: iso(1400), message: { role: 'assistant', provider: 'f', model: 'fixture-1', stopReason: 'stop',
+        usage: usage(90, 10, 0), content: [{ type: 'text', text: 'Looks fine.' }], timestamp: T0 + 1220 } },
+    ].map(row => JSON.stringify(row)).join('\n') + '\n');
+    parent = null;
+    const childMessages = [
+      { role: 'user', content: [{ type: 'text', text: 'Find callers of greet' }], timestamp: T0 + 1100 },
+      { role: 'assistant', provider: 'f', model: 'fixture-1', stopReason: 'toolUse', usage: usage(120, 15, 0),
+        content: [{ type: 'toolCall', id: 'cc1', name: 'grep', arguments: { pattern: 'greet' } }], timestamp: T0 + 1110 },
+      { role: 'toolResult', toolCallId: 'cc1', toolName: 'grep', isError: false, content: [{ type: 'text', text: 'main.py:3: greet()' }], timestamp: T0 + 1300 },
+      { role: 'assistant', provider: 'f', model: 'fixture-1', stopReason: 'stop', usage: usage(140, 12, 0), content: [{ type: 'text', text: 'main.py calls it.' }], timestamp: T0 + 1310 },
+    ];
+    const entries = [
+      msg('us000001', 1000, { role: 'user', content: [{ type: 'text', text: 'Delegate two reviews' }] }),
+      { ...msg('as000001', 1010, { role: 'assistant', provider: 'f', model: 'fixture-1', stopReason: 'toolUse', usage: usage(300, 20, 0),
+        content: [{ type: 'toolCall', id: 'sub1', name: 'subagent', arguments: { tasks: [{ agent: 'scout', task: 'Find callers' }, { agent: 'reviewer', task: 'Review' }] } }] }), timestamp: iso(1050) },
+      msg('tr000001', 1500, { role: 'toolResult', toolCallId: 'sub1', toolName: 'subagent', isError: false, content: [{ type: 'text', text: 'two results' }],
+        details: { mode: 'parallel', results: [
+          { index: 0, agent: 'scout', task: 'Find callers', exitCode: 0, usage: {}, finalOutput: 'main.py calls it.', messages: childMessages },
+          { index: 1, agent: 'reviewer', task: 'Review', exitCode: 1, error: 'reviewer timed out', usage: {}, sessionFile: childFile },
+        ] } }),
+    ];
+    const trace = projectSession(entries, { header, childEntries: childSessionEntries, now: T0 + 2000 });
+    assert.deepEqual(trace.rows, ['M/main', 'M/c1', 'M/c2']);
+    assert.equal(trace.agents['M/c1'].short, 'scout'); assert.equal(trace.agents['M/c1'].parent, 'M/main'); assert.equal(trace.agents['M/c2'].level, 1);
+    const spawns = trace.steps.filter(s => s.kind === 'spawn'); const returns = trace.steps.filter(s => s.kind === 'return');
+    assert.deepEqual(spawns.map(s => s.child), ['M/c1', 'M/c2']); assert.deepEqual(returns.map(s => s.child), ['M/c1', 'M/c2']);
+    assert.equal(returns[1].status, 'error'); assert.match(returns[0].out, /main\.py calls it/);
+    const scout = trace.steps.filter(s => s.agent === 'M/c1');
+    assert.deepEqual(scout.map(s => s.src), ['harness', 'model', 'tool', 'model']);
+    assert.equal(scout[1].t0, 1.11, 'child times use the parent session clock');
+    assert.equal(scout.find(s => s.tool === 'grep').status, 'ok');
+    const reviewer = trace.steps.filter(s => s.agent === 'M/c2');
+    assert.deepEqual(reviewer.map(s => s.title), ['用户：Review greet.py', 'Looks fine.'], 'a result without messages reads its session file');
+    assert.ok(trace.steps.every(s => trace.rows.includes(s.agent)), 'every step sits on a known lane');
+    assert.equal(new Set(trace.steps.map(s => s.id)).size, trace.steps.length, 'ids stay unique across lanes');
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('a sanitized real session projects with provider token counts and paired tools', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { sessionBranch } = await import('../../source/packages/pi-lattice-trace/src/session-file.ts');
+  // Structure, ids, timestamps and usage of a real DeepSeek session; every text replaced by x.
+  const text = readFileSync(new URL('./fixtures/pi-session-sanitized.jsonl', import.meta.url), 'utf8');
+  const { header, entries, tree } = sessionBranch(text);
+  const trace = projectSession(entries, { header, tree, live: false });
+  const assistants = entries.filter(entry => entry.type === 'message' && entry.message.role === 'assistant');
+  const models = trace.steps.filter(step => step.src === 'model');
+  assert.equal(models.length, assistants.length);
+  models.forEach((step, index) => {
+    const usage = assistants[index].message.usage;
+    assert.equal(step.tokIn, usage.input + usage.cacheRead + usage.cacheWrite);
+  });
+  const tools = trace.steps.filter(step => step.src === 'tool');
+  const calls = assistants.flatMap(entry => entry.message.content.filter(block => block.type === 'toolCall'));
+  assert.equal(tools.length, calls.length);
+  assert.ok(tools.every(step => step.status !== 'warn'), 'every call found its result');
+  assert.ok(trace.steps.every(step => Number.isFinite(step.t0) && step.t1 >= step.t0));
+  assert.equal(trace.session.status, 'idle');
+});

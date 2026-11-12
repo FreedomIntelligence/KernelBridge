@@ -31,6 +31,7 @@ class Terminal(codegen_edges.Terminal):
         self.master, self.slave = pty.openpty()
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack('HHHH', rows, columns, 0, 0))
         self.screen = pyte.Screen(columns, rows); self.stream = pyte.ByteStream(self.screen); self.transcript = bytearray()
+        self.started = time.time(); self.events = []; self.size = (columns, rows)
         self.child = subprocess.Popen(command, cwd=cwd, env=env, stdin=self.slave, stdout=self.slave, stderr=self.slave,
                                       start_new_session=True)
 
@@ -122,6 +123,10 @@ def main():
     output = args.output.resolve(); output.mkdir(parents=True, exist_ok=False)
     project = output / 'project'; project.mkdir()
     (project / 'solution.py').write_text('def add(a, b):\n    return a + b\n')
+    # kernel-worker is offered only in a Git project with a committed HEAD (its worktree needs one).
+    git = ['git', '-C', str(project), '-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid']
+    for command in (['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'fixture']):
+        subprocess.run(git + command, check=True, capture_output=True)
     server = ThreadingHTTPServer(('127.0.0.1', 0), Provider); threading.Thread(target=server.serve_forever, daemon=True).start()
     config = output / 'config.json'; config.write_text(json.dumps({'providers': {'primary': {'model': 'parallel-fixture',
         'base_url': f'http://127.0.0.1:{server.server_port}/v1', 'api_key_env': 'KERNELBRIDGE_TEST_KEY'}}}))
@@ -183,10 +188,11 @@ def main():
             state = client.call('status')
             return (state['subagents'][-1]['status'] == 'running'
                     and any(row['text'] == 'BACKGROUND_START' and row['status'] == 'completed' for row in state['inputs'].values())
-                    and 'BACKGROUND_STARTED' in ui.text() and '子代理 1 个运行中' in ui.text())
+                    and 'BACKGROUND_STARTED' in ui.text() and '个运行中 · /agents 查看' in ui.text())
         ui.until(background_ready, timeout=180)
         (output / 'background-running-screen.txt').write_text(ui.text())
-        assert '子代理 1 个运行中 · /agents 查看' in ui.text()
+        # The parent turn has ended: the footer reports the background child, the working row does not.
+        assert '等待 1 个子代理完成' not in ui.text() and '子代理 1 个运行中' in ui.text()
         ui.send('WHILE_CHILD_RUNNING')
         def foreground_finished():
             state = client.call('status')

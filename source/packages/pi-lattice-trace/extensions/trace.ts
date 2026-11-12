@@ -6,6 +6,8 @@
 // follows the new session; it stops when Pi quits.
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { openBrowser, serveTrace, type TraceServer } from '../src/server.ts';
+import { exportTrace } from '../src/otlp.ts';
+import { childSessionEntries } from '../src/session-file.ts';
 import { projectSession, type RunningTool } from '../src/session-trace.ts';
 import type { Trace } from '../src/trace-core.ts';
 
@@ -21,15 +23,16 @@ const shared: SharedState = ((globalThis as any)[KEY] ??= {
   source: () => projectSession([], {}), running: new Map(), streamingSince: null,
 });
 
-const USAGE = '用法：/trace [--no-open] [--offline] [--port N]';
+const USAGE = '用法：/trace [--no-open] [--offline] [--port N] [--otlp]';
 
 function parseArgs(raw: string) {
   const words = raw.trim().split(/\s+/).filter(Boolean);
-  const options = { open: true, offline: false, port: 0, error: '' };
+  const options = { open: true, offline: false, otlp: false, port: 0, error: '' };
   for (let i = 0; i < words.length; i++) {
     const word = words[i];
     if (word === '--no-open') options.open = false;
     else if (word === '--offline') options.offline = true;
+    else if (word === '--otlp') options.otlp = true;
     else if (word === '--port') {
       const port = Number(words[++i]);
       if (!Number.isInteger(port) || port < 0 || port > 65535) options.error = '--port 需要 0–65535 的整数';
@@ -49,7 +52,8 @@ export default function latticeTrace(pi: ExtensionAPI) {
     shared.source = () => projectSession(sessions.getBranch(), {
       header: sessions.getHeader(), running: shared.running, streamingSince: shared.streamingSince,
       model: ctx.model ? { provider: ctx.model.provider, id: ctx.model.id, contextWindow: ctx.model.contextWindow } : null,
-      thinkingLevel: ctx.thinkingLevel ?? null, sessionName: sessions.getSessionName() ?? null,
+      thinkingLevel: ctx.thinkingLevel ?? null, sessionName: sessions.getSessionName() ?? null, tree: sessions.getEntries(),
+      childEntries: childSessionEntries,
     });
   };
   // Pi appends an entry after message_end handlers return; publish on the next tick.
@@ -93,6 +97,14 @@ export default function latticeTrace(pi: ExtensionAPI) {
       const options = parseArgs(args ?? '');
       if (options.error) { ctx.ui.notify(options.error + '\n' + USAGE, 'error'); return; }
       bind(ctx);
+      if (options.otlp) {
+        // One-shot export to OTEL_EXPORTER_OTLP_ENDPOINT; content stays out unless the capture variables select it.
+        try {
+          const result = await exportTrace(shared.source(), { service: 'pi' });
+          ctx.ui.notify(`已导出 ${result.spans} 个 span → ${result.endpoint}`, 'info');
+        } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error'); }
+        return;
+      }
       const existing = shared.server;
       shared.server ??= serveTrace({ snapshot: () => shared.source(), port: options.port, unref: true,
         page: { title: 'Pi · 实时轨迹', offline: options.offline } });

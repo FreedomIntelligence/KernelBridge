@@ -1,0 +1,11 @@
+子代理
+
+  内置
+❯ kernel-scout       查找文件、搜索代码、追踪实现
+  kernel-tester      运行测试、构建和诊断
+
+  本会话（1）
+  kernel-scout · 完成 · 工具 4 次 · 模型 3 · 900 tokens · 15s · 梳理调用链
+  梳理调用链
+
+↑↓ 选择 · Enter 查看 · Esc 关闭

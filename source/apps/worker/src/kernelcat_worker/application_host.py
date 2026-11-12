@@ -162,9 +162,22 @@ class ApplicationHost:
                 parameters={"type": "object", "properties": {"status": {"enum": ["complete", "blocked"]},
                     "summary": {"type": "string", "minLength": 1, "maxLength": 4096}},
                     "required": ["status", "summary"], "additionalProperties": False}), self.update_codegen_goal)
+            # Codex's update_plan shape; offered only while a Goal is active (host-actions syncTools).
+            update_plan = FunctionTool(ToolSpec(name="update_plan", credits=0,
+                description="For an active Goal with three or more phases: record a short checklist. Send the whole plan each call; "
+                    "at most one step in_progress. Keep steps short and checkable; mark a step completed before starting the next "
+                    "(several may complete in one call). Give an explanation when the plan changes. Do not restate the plan in text. "
+                    "Skip it for one- or two-step work. A plan update is not progress: do and verify the work.",
+                parameters={"type": "object", "properties": {
+                    "explanation": {"type": "string", "maxLength": 1000},
+                    "plan": {"type": "array", "minItems": 1, "maxItems": 12, "items": {"type": "object", "properties": {
+                        "step": {"type": "string", "minLength": 1, "maxLength": 80},
+                        "status": {"enum": ["pending", "in_progress", "completed"]}},
+                        "required": ["step", "status"], "additionalProperties": False}}},
+                    "required": ["plan"], "additionalProperties": False}), self.update_codegen_plan)
             owner = build(config, config_path.parent, task, probe_versions=False, external_context=True, startup=startup,
                           subagent_home=Path(os.environ.get("KERNELBRIDGE_HOME") or Path.home() / ".kernelbridge"),
-                          extra_tools=(finish_goal, get_goal, update_goal, agents_status, stop_agent) if config.workspace_mode == "project" else (transition,))
+                          extra_tools=(finish_goal, get_goal, update_goal, update_plan, agents_status, stop_agent) if config.workspace_mode == "project" else (transition,))
             # This host runs child model calls on their own threads, so
             # independent delegate calls from one reply may overlap.
             owner.concurrent_delegation = True
@@ -506,7 +519,7 @@ class ApplicationHost:
             raise Conflict("compaction is fenced while an interactive worker takes over")
         from kernelcat_executor.state.goal_progress import with_model_call_progress
         facts = with_model_call_progress(
-            {key: state.get(key) for key in ("goal", "task_version", "checkpoint", "best", "platform", "budget", "pending_effect_ids")},
+            {key: state.get(key) for key in ("goal", "task_version", "checkpoint", "best", "platform", "budget", "pending_effect_ids", "plan")},
             self.owner.gateway.store)
         harness = {**harness, "system_prompt": harness["system_prompt"] + "\nRetain these authoritative facts verbatim in the summary:\n" + canonical(facts)}
         if len(canonical(harness).encode()) > policy.context_bytes:
@@ -522,10 +535,21 @@ class ApplicationHost:
         blocks = outcome.data.get("content", [])
         if any(block.get("type") != "text" for block in blocks):
             raise Conflict("compaction returned an unexpected tool call")
-        return {"text": "\n".join(block["text"] for block in blocks), "calls": [], "usage": outcome.data.get("usage", {})}
+        text = "\n".join(block["text"] for block in blocks)
+        plan = state.get("plan") if (state.get("goal") or {}).get("status") in {"active", "awaiting_user"} else None
+        if plan:
+            # The host restates the plan itself instead of trusting the summary to keep it.
+            from kernelcat_executor.state.goal_progress import plan_text
+            text += "\n\nCurrent Goal plan " + plan_text(plan) + ". Continue from the in-progress step."
+        return {"text": text, "calls": [], "usage": outcome.data.get("usage", {})}
 
     def status(self):
-        state = self.journal.state()
+        # One shared read serves the application projection, the execution
+        # snapshot, its policy and the event times (previously four transactions).
+        from kernelcat_executor.contracts.models import Policy, canonical
+        from kernelcat_executor.state.application import project
+        store = self.owner.gateway.store
+        state, execution, rows = self.journal.read(lambda rows: (project(rows, self.identity), store._state(rows), rows))
         state["host_pid"] = os.getpid()
         state["workspace_mode"] = self.config.workspace_mode
         state["subagent_config"] = self.config.subagents.model_dump()
@@ -541,10 +565,11 @@ class ApplicationHost:
         state["goal_review"] = next((item for item in reversed(state["configurations"])
             if item.get("operation") == "goal_review" and item.get("goal_id") == (state["goal"] or {}).get("goal_id")), None)
         state["fork_policy"] = (state.get("goal") or self.descriptor["goal_defaults"]).get("fork_policy", {})
+        from kernelcat_executor.state.goal_progress import current_plan
+        state["plan"] = current_plan(execution["actions"], state.get("goal"))
         state["cwd"] = self.owner.workspace_policy["root"]
-        route = self.owner.gateway.store.policy().routes[0]
+        route = Policy.model_validate_json(canonical(execution["policy"])).routes[0]
         state["model"] = self.config.providers[route].model
-        execution = self.owner.gateway.store.snapshot()
         state["budget"] = {key: execution.get(key) for key in ("limit", "spent", "reserved", "resources")}
         state["pending_effect_ids"] = [key for key, item in execution["actions"].items() if not item.get("terminal")]
         state["model_turns"] = sum(1 for item in execution["actions"].values() if item["action"]["tool"] == "__propose__")
@@ -575,7 +600,7 @@ class ApplicationHost:
                 return execution["actions"].get(key + "/background", {}).get("outcome") or {"status": "running", "data": {"background": True}}
             return outcome
         event_times = {}
-        for event in self.owner.gateway.store._events(self.owner.gateway.store.events()):
+        for event in store._events(rows):
             if event["kind"] == "admitted":
                 event_times.setdefault(event["action"]["id"], {})["start"] = event.get("time_ns")
             elif event["kind"] in {"settled", "cancelled_unstarted"}:
@@ -604,7 +629,7 @@ class ApplicationHost:
             for key, item in execution["actions"].items() if item["action"]["tool"] == "delegate"]
         if state["goal"]:
             from kernelcat_executor.state.goal_progress import goal_usage
-            state["goal_usage"] = goal_usage(list(self.owner.gateway.store._events(self.owner.gateway.store.events())), state["goal"])
+            state["goal_usage"] = goal_usage(list(store._events(rows)), state["goal"])
             goal = state["goal"]
             state["goal_usage"]["elapsed_seconds"] = max(0, (goal.get("ended_at_ns", time.time_ns()) - goal.get("started_at_ns", time.time_ns())) // 1_000_000_000)
         state["calls"] = {key: {field: item[field] for field in ("method", "status", "intent_seq") if field in item}
@@ -656,6 +681,21 @@ class ApplicationHost:
             "summary": action.arguments["summary"], "action_id": action.id})
         return Outcome(data={"status": "awaiting_user", "reason": "blocked", "summary": action.arguments["summary"]})
 
+    def update_codegen_plan(self, action):
+        from kernelcat_executor.contracts.models import Outcome, ToolFailure
+        from kernelcat_executor.state.goal_progress import PlanError, validate_plan
+        goal = self.journal.state()["goal"]
+        if not goal or goal["status"] not in {"active", "awaiting_user"}:
+            raise ToolFailure("update_plan is available only while an explicit Goal is active")
+        try:
+            plan = validate_plan(action.arguments.get("plan"))
+        except PlanError as error:
+            raise ToolFailure(str(error)) from None
+        explanation = " ".join(str(action.arguments.get("explanation") or "").split()) or None
+        done = sum(item["status"] == "completed" for item in plan)
+        return Outcome(data={"goal_id": goal["goal_id"], "plan": plan, "explanation": explanation,
+                             "completed": done, "total": len(plan)})
+
     def next_input(self, connection):
         from kernelcat_worker.loopx_application import recommend
         state = self.status()
@@ -706,11 +746,14 @@ class ApplicationHost:
         if input_id in state["inputs"]:
             return {"action": "wait", "reason": "decision_already_consumed"}
         self.journal.command("configuration", {**connection.worker, "operation": "loopx_decision", **decision})
+        from kernelcat_executor.state.goal_progress import plan_text
         text = (("Continue the explicitly requested coding Goal. Implement and verify the remaining work. "
                 "Use get_goal to inspect progress when needed. When all requested work is verified, call update_goal "
                 "with status complete and a summary of actual checks (finish_goal is also supported). "
                 "If progress requires missing user input, call update_goal with status blocked and explain what is needed. "
                 "Do not call a missing device result verified. A tool-free automatic turn returns control to the user.\n"
+                + (f"Current plan {plan_text(state['plan'])}. Continue from the in-progress step; a plan update alone is not progress.\n"
+                   if state.get("plan") else "")
                 if self.config.workspace_mode == "project" else "Continue the current task from original receipts. "
                 "Complete the declared correctness/performance acceptance; do not treat a single timing as a paired gain. "
                 "Inspect missing or failed measurements before diagnosing stagnation.\n")

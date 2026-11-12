@@ -100,13 +100,14 @@ def main():
         # Submit at the first ready footer, before extra settling delays.
         ui.send('THREE_BACKGROUND')
         binding = json.loads(next(home.glob('runs/*/application.json')).read_text()); client = Client(Path(binding['host_directory']))
-        ui.until(lambda: '等待 3 个子代理完成' in ui.text() and '后台任务运行中' in ui.text(), timeout=60)
+        ui.until(lambda: '等待 3 个子代理完成' in ui.text() and '个运行中 · /agents 查看' in ui.text(), timeout=60)
         assert len(state()['subagents']) == 3
         assert not any(row['status'] == 'completed' for row in state()['subagents'])
         save('three-running'); checks.append('three_background_children_visible_at_48_columns')
         Provider.release['A'].set()
+        # After a notification turn the parent is idle: the footer, not the working row, counts running children.
         ui.until(lambda: len(notifications()) == 1 and notifications()[0]['status'] == 'completed'
-                 and '等待 2 个子代理完成' in ui.text(), timeout=60)
+                 and '子代理 2 个运行中' in ui.text(), timeout=60)
         settle(); save('two-running')
         assert 'kernel-scout「检索 A」已完成' in ui.text(), ui.text()
         ui.send('/agents'); ui.until(lambda: '本会话（3）' in ui.text())
@@ -117,7 +118,7 @@ def main():
         ui.until(lambda: 'REPORT_B' in ui.text() and '完成' in ui.text(), timeout=60)
         save('live-report'); checks.append('open_agent_report_updates_when_background_result_arrives')
         os.write(ui.master, b'\x1b'); ui.until(lambda: '本会话（3）' in ui.text())
-        os.write(ui.master, b'\x1b'); ui.until(lambda: '等待 1 个子代理完成' in ui.text(), timeout=60)
+        os.write(ui.master, b'\x1b'); ui.until(lambda: '子代理 1 个运行中' in ui.text(), timeout=60)
         ui.until(lambda: len(notifications()) == 2 and all(row['status'] == 'completed' for row in notifications()))
         save('one-running'); Provider.release['C'].set()
         ui.until(lambda: len(notifications()) == 3 and all(row['status'] == 'completed' for row in notifications())

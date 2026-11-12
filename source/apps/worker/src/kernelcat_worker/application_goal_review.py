@@ -16,6 +16,9 @@ objective. Missing or omitted evidence is not success. blocked requires a
 specific external dependency or missing user input, not ordinary unfinished
 work. Explain what is verified or the next missing check. Never equate CPU,
 simulation or source-only evidence with device acceptance or official scores.
+A plan, when present, is the working agent's own checklist and is not evidence.
+Steps it left pending or in progress, or dropped without explanation, point to
+unfinished work: name them in the summary.
 """
 
 
@@ -47,6 +50,8 @@ def review(host, connection, state, latest):
                 omitted += 1; continue
             evidence.append(row); used += size
         facts = with_model_call_progress({"objective": goal["objective"],
+            # The agent's own final checklist; SYSTEM tells the reviewer it is not evidence.
+            **({"plan": {"steps": state["plan"]["plan"], "explanation": state["plan"].get("explanation")}} if state.get("plan") else {}),
             "evidence": list(reversed(evidence)), "omitted_records": omitted}, owner.gateway.store)
         harness = {"schema_version": "kernelcat.pi-harness/v1", "adapter": "pi@1.5.0",
             "system_prompt": SYSTEM, "tools": [], "messages": [{"role": "user", "content": canonical(facts)}]}

@@ -77,7 +77,7 @@ class RuntimeJournal(AgentJournal):
         super().__init__(path.resolve())
         self.clock = clock
 
-    def _transaction(self, fn: Callable[[list[Json]], tuple[Json | None, T]]) -> T:
+    def _transaction(self, fn: Callable[[list[Json]], tuple[Json | None, T]], *, shared: bool = False) -> T:
         def fenced(rows: list[Json]) -> tuple[Json | None, T]:
             if rows:
                 header = rows[0]
@@ -88,7 +88,7 @@ class RuntimeJournal(AgentJournal):
                     raise Conflict("runtime account canonical authority path changed; copied ledger refused")
                 self._check_format(rows)
             return fn(rows)
-        return super()._transaction(fenced)
+        return super()._transaction(fenced, shared=shared)
 
     @classmethod
     def _check_format(cls, rows: list[Json]) -> None:

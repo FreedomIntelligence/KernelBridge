@@ -1,0 +1,4 @@
+● deepseek-v4 · Goal 进行中
+子代理 1 个运行中 · /agents 查看
+计划 1/3 · 正在：修复 parser 的[0m…[0m
+/…/kernel-bridge (main)    /help

@@ -1,3 +1,4 @@
+import { StepTimeout, scaled } from './timing.mjs';
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { ApplicationSession } from '../../source/apps/agent/src/sdk/index.ts';
@@ -6,9 +7,9 @@ const options = JSON.parse(await readFile(process.argv[2], 'utf8'));
 const session = await ApplicationSession.create(options);
 const hostPid = (await session.state()).host_pid;
 const until = async predicate => {
-  const deadline = Date.now() + 30000;
+  const deadline = Date.now() + scaled(30000);
   while (Date.now() < deadline) { if (await predicate()) return; await new Promise(r => setTimeout(r, 25)); }
-  throw new Error('Steering scenario timed out');
+  throw new StepTimeout('Steering scenario timed out after ' + scaled(30000) + ' ms');
 };
 try {
   await session.prompt('Initial admitted input.', { inputId: 'initial' });

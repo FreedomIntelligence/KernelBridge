@@ -1,3 +1,4 @@
+import { StepTimeout, scaled } from './timing.mjs';
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { ApplicationSession } from '../../source/apps/agent/src/sdk/index.ts';
@@ -9,9 +10,9 @@ try {
   await session.prompt('First provider request fails.', { inputId: 'failed' });
   const failed = await session.run();
   assert.equal(failed.inputs.failed.status, 'failed');
-  const deadline = Date.now() + 10000;
+  const deadline = Date.now() + scaled(10000);
   while ((await session.state()).lease) {
-    assert.ok(Date.now() < deadline);
+    if (Date.now() >= deadline) throw new StepTimeout('Lease was not released within ' + scaled(10000) + ' ms');
     await new Promise(resolve => setTimeout(resolve, 25));
   }
   const stopped = await session.state();

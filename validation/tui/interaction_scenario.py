@@ -20,6 +20,7 @@ import time
 import pyte
 from product_scenario import ROOT, Provider, prepare
 from pty_scenario import Client, stop_child
+from timing import SCALE, StepTimeout
 
 # The isolated-task hint in the empty editor (product-ui.mjs HINTS); it fits 48 columns.
 HINT = '输入约束或问题 · /goal 目标内容 持续执行'
@@ -63,12 +64,12 @@ def main():
             if b'\x1b[6n' in data: os.write(master, b'\x1b[1;1R')
     def until(predicate, timeout=None):
         timeout = args.timeout_seconds if timeout is None else timeout
-        deadline = time.monotonic() + timeout
+        deadline = time.monotonic() + timeout * SCALE
         while time.monotonic() < deadline:
             pump()
             if predicate(): return
             if child.poll() is not None: raise AssertionError(f'CLI exited {child.returncode}\n{text()}')
-        raise AssertionError(f'Screen condition timed out\n{text()}')
+        raise StepTimeout(f'TIMEOUT after {timeout * SCALE:.0f}s (base {timeout}s x scale {SCALE})\n{text()}')
     def state(): return client.call('status')
     def recorded(message, status='completed'):
         return any(item['text'] == message and item['status'] == status for item in state()['inputs'].values())
@@ -140,7 +141,8 @@ def main():
         # D12 keeps the detach policy at a wide width; a long branch can take
         # priority over that optional label once the terminal narrows.
         until(lambda: '退出暂停' in text())
-        branch = subprocess.check_output(['git', 'branch', '--show-current'], cwd=state()['cwd'], text=True).strip()
+        # Outside a Git repository (the runner's output directory) there is no branch to show.
+        branch = subprocess.run(['git', 'branch', '--show-current'], cwd=state()['cwd'], capture_output=True, text=True).stdout.strip()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 48, 0, 0))
         screen.resize(24, 48)
         os.killpg(child.pid, signal.SIGWINCH)

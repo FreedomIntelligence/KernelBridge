@@ -68,8 +68,8 @@
   - `node validation/tui/trace-projection.mjs` 通过。
 - [x] **0-5** 把 `/tmp/kbtrace-wt` 里那 5 个文件提交到 `feat/tui-polish-2`，再合进 `main`（S）。这部分属于 §B 的 D9 和 D10，验收在 §B 完成。
 - [x] **0-6** 主目录执行 `git checkout main && git reset --hard` 到合并后的 `main`（必须在 0-1 的备份确认之后）（S）。然后用 `git worktree remove` 删掉 `/tmp/kbpolish-wt`、`/tmp/kbtrace-wt`、`/tmp/kb-wip`。已合并的 `feat/*` 分支可以删除。
-- [ ] **0-7** 腾出磁盘空间（S）。目标是剩余空间不少于 30 GiB，然后再做任何 PTY 验收。`.validation/` 里的旧 artifacts 先确认已经在结果索引里有 SHA256 记录，再清理。（部分：清掉 Kiro 残留、旧 Chrome 签名副本和可重建缓存后为 11.8 GiB；剩下的大头是微信、桌面归档和实验回执，等用户决定）
-- [ ] **0-8** 约定（S）：以后在 worktree 里提交后，回到主目录用 `git merge --ff-only`，不再用 `update-ref` 直接移动 `main`。这一条写进 `CLAUDE.md` 或 `AGENTS.md`。
+- [x] **0-7** 腾出磁盘空间（S）。目标是剩余空间不少于 30 GiB，然后再做任何 PTY 验收。`.validation/` 里的旧 artifacts 先确认已经在结果索引里有 SHA256 记录，再清理。（部分：清掉 Kiro 残留、旧 Chrome 签名副本和可重建缓存后为 11.8 GiB；剩下的大头是微信、桌面归档和实验回执，等用户决定）（2026-11-12 你决定不再清理：微信、桌面归档、实验目录和 Docker 都保留，可用空间约 10 GiB；全套验收在这个空间下照常跑完）
+- [x] **0-8**（写进了仓库根目录的 `AGENTS.md`，`CLAUDE.md` 引用它） 约定（S）：以后在 worktree 里提交后，回到主目录用 `git merge --ff-only`，不再用 `update-ref` 直接移动 `main`。这一条写进 `CLAUDE.md` 或 `AGENTS.md`。
 
 ---
 
@@ -221,7 +221,7 @@ startTraceServer(options: {
   - `/tree` 之后 `getBranch()` 只包含当前路径；
   - 追加记录之后 ID 不变；
   - 校准之后，每次模型调用的 `ctx` 等于下一次调用的 `tokIn`。
-- [ ] **A2-3**（未做：本地没有可用的真实 pi 会话；KernelBridge 的 `state/pi-sessions/` 用 KernelBridge 的 provider 记录，留待下一轮）真实会话回放：KernelBridge 的 `state/pi-sessions/` 存的就是 pi 原生会话，可以挑 2–3 个本地跑一遍，确认不抛异常、步数合理。这些会话可能含私人内容，不提交；只提交一份脱敏后的 fixture。
+- [x] **A2-3** 真实会话回放：`validation/tui/pi_real_replay.py` 回放本机 KernelBridge 运行留下的 7 份真实 DeepSeek 会话（227 步、101 次模型调用），投影零异常、零无效步骤，101 个输入 token 与同一运行 Journal 里 provider 报告的 `prompt_tokens` 全部一致，最大的 3 份在 Chrome 渲染无错误；脱敏样本 `validation/tui/fixtures/pi-session-sanitized.jsonl` 进仓库并有单元测试
 - [x] **A2-4** 完成标准：全部单元测试通过，用 `node --test` 运行。
 
 **A3 插件入口**（M）
@@ -259,13 +259,13 @@ startTraceServer(options: {
 
 **A7–A10：第二版及以后**
 
-- [ ] **A7** 分支对比（M–L）：pi 的会话本身是树。用 `getTree()` 的每个叶子生成一个 `BR` 分支，适配脚本不再隐藏“分支 · 点选切换”。这正是 KernelBridge 一侧只能空着的那个视图。
-- [ ] **A8** 子代理泳道（L）：
+- [x] **A7**（`findFork` 选最近的分叉点，最多 3 条分支；查看器 7 处 ID 比较改为按时间线排序；`trace_branches_render.py` 在 headless Chrome 里检查 9 个标签页 × 两个分支视角） 分支对比（M–L）：pi 的会话本身是树。用 `getTree()` 的每个叶子生成一个 `BR` 分支，适配脚本不再隐藏“分支 · 点选切换”。这正是 KernelBridge 一侧只能空着的那个视图。
+- [x] **A8** 子代理泳道（L；前台 `subagent` 结果已合并，只通过完成通知回报的后台运行未合并）：
   - 通过 pi-subagents 的进程内 RPC 或状态查询，拿到每个子代理的 `sessionFile`；
   - 读取子会话，投影成 `M/cN` 泳道；
   - 父会话里的 `subagent` 工具调用作为 spawn 和 return 步骤。
-- [ ] **A9** 独立 CLI（S–M）：`pi-lattice-trace <session.jsonl>` 打开已保存的会话，从文件追读，复用 KernelBridge 的追读层。同时加上 A.6 说的 `--offline`。
-- [ ] **A10** 发布决定（S，需要你决定）：
+- [x] **A9**（`bin/lattice-trace.ts`；`--offline` 和 `--otlp` 同样可用） 独立 CLI（S–M）：`pi-lattice-trace <session.jsonl>` 打开已保存的会话，从文件追读，复用 KernelBridge 的追读层。同时加上 A.6 说的 `--offline`。
+- [x] **A10** 发布决定（S，需要你决定）：（2026-11-12 决定：只在仓库内使用，保持 UNLICENSED，用 `pi install ./source/packages/pi-lattice-trace` 安装）
   - 发到 npm 还是 git；
   - 先确认 Lattice Trace v15 查看器的版权归属和许可证（Geist 字体是 OFL，通过 Google Fonts 链接引用，没有问题）；
   - 包名是否需要加 scope。
@@ -312,17 +312,17 @@ startTraceServer(options: {
 
 ### B.3 这次新发现的问题
 
-- [ ] **B-N1（P0）主目录工作区不同步**，见 §0。
-- [ ] **B-N2 `status` 的耗时随 Journal 长度增长**（M，涉及执行层改动，需要单独评审）：
+- [x] **B-N1（P0）主目录工作区不同步**，见 §0。
+- [x] **B-N2 `status` 的耗时随 Journal 长度增长**（M，涉及执行层改动，需要单独评审）：
   - `Journal._transaction` 每次调用都要拿排他 `flock`，并重新读取、校验整条哈希链；`status` 一次要做两次这样的事务。
   - 结果：会话越长，每个回合边界越慢；机器负载高时，`advanced_scenario` 会碰到 10 秒的 socket 超时。
   - 方案：在已经逐条校验事件的追加路径上，顺带维护一份内存里的投影状态，`status` 直接读它。Journal 仍然是权威来源，这份状态只是由写入方自己失效的缓存。
   - 完成标准：一万行 Journal 下，`status` 的耗时不随行数增长；`advanced_scenario` 在负载下不再超时。
-- [ ] **B-N3 `/trace` 里没数据的视图**（与 A7 合并考虑）：
+- [x] **B-N3 `/trace` 里没数据的视图**（`/fork` 历史条目时，被放弃的回合显示为分支 B；工作区快照仍为空，因为项目模式不快照）（与 A7 合并考虑）：
   - KernelBridge 一侧的分支对比和工作区快照是空的。
   - Journal 里有 `transition_prepared` 记录的 `/fork`，可以把 fork 前后两段映射成两个分支（M）。
-- [ ] **B-N4 中断提示目前是“反馈”而不是“记录行”**：会被下一条反馈覆盖，滚动记录里也看不到。归入 D10。
-- [ ] **B-N5 清理遗留的 worktree 和分支**（S）：
+- [x] **B-N4 中断提示目前是“反馈”而不是“记录行”**：会被下一条反馈覆盖，滚动记录里也看不到。归入 D10。
+- [x] **B-N5 清理遗留的 worktree 和分支**（S）：（已合并的分支和本轮的 worktree 已删除；`codex/harness-20turn` 是另一个会话正在进行的工作，有 14 个未合并提交和 8 个未提交文件，保留不动）
   - 已经合进 `main`、可以删除的 10 个（`git branch --merged main` 核实）：
     - `feat/live-trace`、`feat/tui-polish`、`feat/tui-polish-2`、`feat/tui-subagent-redesign`；
     - `codex/cann-portable-restore-fixes`、`codex/cann-task-sdk-20261109`、`codex/codegen-audit`、`codex/full-acceptance-20261109`、`codex/pi15-native-audit-20261109`、`codex/vector-cube-20turn`。

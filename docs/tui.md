@@ -8,7 +8,7 @@ Ordinary codegen tools act directly in the project. Conversation checkpoints do 
 
 Budget omission means no limit: `credits`, `policy.max_steps`, `max_model_turns`, `max_trials` and `max_forks` default to null. Only explicitly configured positive limits are enforced (`max_forks` may be zero). `--budget` sets a codegen credit limit. Usage remains accounted, but an unset limit is absent from the status bar. Context capacity, per-response output size and transport safety bounds are separate from execution budgets.
 
-Goal scheduling is opt-in through `/goal OBJECTIVE`, `--goal OBJECTIVE`, explicit task `--goal-from-task`, or SDK `sessionOnly: false`. A codegen Goal can inspect progress with `get_goal` and report completion with `update_goal({status:"complete",summary:"actual checks"})` (`finish_goal` remains available); that report is not NPU acceptance evidence. A later user prompt returns to ordinary codegen. Completed or cleared Goals stay ended after pause, resume or interrupt; use `/goal OBJECTIVE` to start new work. `/clear` starts a fresh conversation and preserves the historical ledger, without creating another Trial after Goal completion. Device acceptance still requires an explicit isolated task and evaluator/profile.
+Goal scheduling is opt-in through `/goal OBJECTIVE`, `--goal OBJECTIVE`, explicit task `--goal-from-task`, or SDK `sessionOnly: false`. A codegen Goal can inspect progress with `get_goal` and report completion with `update_goal({status:"complete",summary:"actual checks"})` (`finish_goal` remains available); that report is not NPU acceptance evidence. While a Goal is active the model can also keep a short plan with `update_plan` (Codex's shape: the whole plan each call, `pending`/`in_progress`/`completed`). The host refuses more than one step in progress, empty or over-long steps and more than 12 steps. Each accepted call's receipt is the record. The TUI shows each update as a checklist and the footer shows `计划 n/m` and the step in progress. Automatic continuations carry the current plan. The fresh completion reviewer receives the final plan as the agent's own checklist, not as evidence. A turn that only updates the plan or reads the Goal is not progress. The tool is absent without a Goal and is not given to subagents. A later user prompt returns to ordinary codegen. Completed or cleared Goals stay ended after pause, resume or interrupt; use `/goal OBJECTIVE` to start new work. `/clear` starts a fresh conversation and preserves the historical ledger, without creating another Trial after Goal completion. Device acceptance still requires an explicit isolated task and evaluator/profile.
 
 Install using the root README. Select a task/profile only when running an experiment:
 
@@ -55,7 +55,7 @@ The original `createSession({manifest})`, `runTask`, and external LoopX APIs rem
 | Command | Behavior |
 | --- | --- |
 | `/goal TEXT` | Create or update the persistent objective and start continuation |
-| `/goal`, `/goal pause`, `/goal resume`, `/goal clear` | View, pause, resume or clear the Goal |
+| `/goal`, `/goal pause`, `/goal resume`, `/goal clear` | View, pause, resume or clear the Goal. The status block stays live: elapsed time advances each second while the Goal runs, and model calls and tokens follow each refresh |
 | `/help`, `/latest` | Show supported commands or return to the latest message |
 | `/goal on-detach pause\|continue`, `/detach`, `/quit` | Set or apply detach behavior |
 | `/compact` | Metered semantic compaction; preserve original JSONL and authoritative facts |
@@ -121,7 +121,7 @@ Tool calls render like other coding CLIs: a status header `⏺ Tool(main argumen
 
 Assistant text streams as it arrives; only a suffix that could still form a credential is held back. Reasoning deltas (`reasoning_content`) display as a collapsible thinking block while streaming and are not part of the settled reply.
 
-`--tui-mode regular` renders inline, keeping output in the terminal's own scrollback like Claude Code; `--tui-mode fullscreen` uses Pi's alternate screen with in-app scrolling (`Ctrl+End` returns to the latest message). `KERNELBRIDGE_TUI_MODE` sets the same choice.
+`--tui-mode regular` renders inline, keeping output in the terminal's own scrollback like Claude Code; `--tui-mode fullscreen` uses Pi's alternate screen with in-app scrolling (`Ctrl+End` returns to the latest message). `KERNELBRIDGE_TUI_MODE` sets the same choice. `KERNELBRIDGE_UI_DETERMINISTIC=1` freezes the spinner and the UI's own clocks (elapsed time shows `—`) so screens can be compared byte for byte; durations reported by the host are still shown as reported.
 
 Operator tools and no-Torch self iteration are documented in [operator-workflow.md](operator-workflow.md).
 
@@ -146,6 +146,8 @@ E0 is compilation, E1 full correctness, E2 a single complete timing observation,
 After an incumbent exists, another branch replaces it only with a qualifying pair against that incumbent under the same measurement profile. An improvement over an older parent remains recorded evidence. Changing task version clears the current best projection while preserving its historical receipts.
 
 ## Recovery and artifacts
+
+The Journal is append-only and hash-chained. Each process verifies the whole chain once, then only what was appended since. It refuses a shorter file, a changed last record, or a replacement that does not extend the history it already verified. The whole chain is verified again every five minutes and on restart. Every transaction takes the exclusive lock. On macOS each append is flushed with `F_FULLFSYNC`, because `fsync` there leaves data in the drive cache; this costs about 3 ms per append.
 
 `state/events.jsonl` and `state/pi-sessions/` are authoritative. `events.jsonl`, `loopx/state.json`, `manifest.json`, `result.json`, `acceptance.json`, and `state/host/projection.json` are rebuildable exports. The manifest records Pi/patch versions, prompt/tool/resource hashes and evaluator identity. Host diagnostics are in `logs/host.log` and background-worker diagnostics in `logs/worker.log`; production keystrokes are not recorded.
 
