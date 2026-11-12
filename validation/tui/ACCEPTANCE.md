@@ -155,3 +155,17 @@ Implementation review also corrected undeclared interactive plugin activation, b
 The [installation and supplemental index](results/installation-20261110.json) binds these additional checks to their original logs and final runtime source hashes. The installed-entrypoint test includes the final Pi patch: exit hints use `kernelagent tui --attach`, and native project-trust guidance cannot offer an inapplicable resource-loading path. It waits for the host footer before submitting after attach, because Pi enables raw terminal mode before its submit handler is ready.
 
 Real Linux execution, different-uid connection attempts, cross-host restore, Vector/Cube NPU evaluation, device 20-turn runs, capability promotion and publication remain unqualified. Prior delivery/device results are historical and are not reused as evidence for this implementation.
+
+## TUI polish and live trajectory viewer (2026-11-12)
+
+Commits `3a4d142`, `6dc9a79`, `9d98de8`, `5af7700`. Plan and per-item findings: [tui-polish-plan.md](../../docs/architecture/tui-polish-plan.md).
+
+Presentation changes were found by rendering real screens from the PTY scenarios and comparing against Claude Code and Codex, not by assumption: one blank line between transcript rows (the Pi patch now trims the user component's own padding), one two-column `/help` table for both workspace modes that fits a 24-row 48-column terminal, marked host feedback (`⏺` notice, `✗` error), a footer that hides zero counters and elides a long path in the middle so the directory name and git branch stay readable, and tool rows that always name their arguments. The working row counts messages queued behind the running turn, and an interrupted turn leaves a visible row instead of ending mid-thought.
+
+`/trace` and `kernelagent trace` serve the vendored Lattice Trace viewer from a read-only projection of the session Journal, updated over SSE. The server binds 127.0.0.1 behind a random path token and checks the `Host` header; the trusted CLI process hosts it, and the TUI worker only receives the URL. Viewer transforms are exact-match and fail loudly if the vendored file changes.
+
+Checks: `subagent-presentation.mjs` (8), `interaction.mjs` (5), `trace-projection.mjs` (5), `trace_scenario.py` (5, including a headless Chrome render with no page errors), `codegen_scenario.py` (10, including `interrupt_then_continue`), `interaction_scenario.py` (including a 48-column screen), `pty_scenario.py`, `advanced_scenario.py` (11), `subagent_cancel_scenario.py`, `codegen_edges.py`, `resume_default_home.py`, `goal_review_scenario.py`. `install.py --verify-only` clean.
+
+`pty_scenario.py` and `advanced_scenario.py` first failed by timeout, never by assertion, at a different step each run, while unrelated processes held this workstation's load average between 18 and 70 with the data volume full. Both pass when run without contention; the earlier failures are recorded as environmental, not as passes.
+
+Not qualified here: the plan surface (`/plan` or todo) decision, an editor placeholder, a narrow-width sweep of every host-rendered block, and the O(journal) read-only `status` path noted in the plan.
