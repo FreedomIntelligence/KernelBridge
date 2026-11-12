@@ -104,7 +104,7 @@
 - [x] **T-6**（`KERNELBRIDGE_UI_DETERMINISTIC=1`） 加一个确定性开关：spinner 用空帧、冻结耗时显示，固定 `TERM` 和配色。
 - [x] **T-7**（做法有调整：`validation/tui/snapshots.mjs` 对 13 个宿主界面块在 32/40/48/80/110 列生成 65 份文本快照，只有 `UPDATE_SNAPSHOTS=1` 才会更新；时钟和 spinner 用确定性开关冻结。没有引入 `@xterm/headless`：它会给锁定的交付物新增依赖，而这些界面块输出的已经是最终的行。整屏组合仍由 PTY 场景覆盖） 布局检查下沉到 Node：在 32、40、48、80、110 列下渲染整屏到 `@xterm/headless`，生成快照文件，只有显式加标志才更新。PTY 场景只保留必须用真进程的部分：启动、按键和粘贴、调整窗口大小、退出恢复、attach 和 resume、进程组清理、模型调用次数。
 - [x] **T-8**（`validation/tui/width-properties.mjs`，每项 250 个样本，16–140 列） 宽度和中日韩字符的随机属性测试：每行可见宽度不超过列数，双宽字符不被切开。
-- [ ] **T-9** 在 T-1 到 T-3 完成、机器空闲时跑一次全套 PTY，按新格式记录验收结果。
+- [x] **T-9**（`acceptance-final4`，`5bb40df`：27/27 通过，无不稳定项，每核负载 0.8–2.0，放大系数 1.75；结果记在 `validation/tui/ACCEPTANCE.md`） 在 T-1 到 T-3 完成、机器空闲时跑一次全套 PTY，按新格式记录验收结果。
 
 本轮已经修了 `main` 上几处过时的断言（见 `3a2d5cb`）。现在这几个场景都能在负载 20 左右的机器上通过：`subagent_parallel`、`subagent_stop`、`subagent_panel`、`interaction`、`codegen_edges`、`trace`。
 

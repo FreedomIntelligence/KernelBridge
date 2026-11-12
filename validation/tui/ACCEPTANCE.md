@@ -202,6 +202,40 @@ Checks: `subagent-presentation.mjs` (8), `interaction.mjs` (5), `trace-projectio
 `pty_scenario.py` and `advanced_scenario.py` first failed by timeout, never by assertion, at a different step each run, while unrelated processes held this workstation's load average between 18 and 70 with the data volume full. Both pass when run without contention; the earlier failures are recorded as environmental, not as passes.
 
 Not qualified here: the plan surface (`/plan` or todo) decision, an editor placeholder, a narrow-width sweep of every host-rendered block, and the O(journal) read-only `status` path noted in the plan.
+## Industry alignment, trace plugin, 进展 page and acceptance runner (2026-11-12)
+
+Scope: [industry-alignment.md](../../docs/architecture/industry-alignment.md), [pi-trace-plugin-and-tui-plan.md](../../docs/architecture/pi-trace-plugin-and-tui-plan.md) and Phase 4 of [tui-polish-plan.md](../../docs/architecture/tui-polish-plan.md). The runner is `validation/tui/run.py` (schema v2). Each check ends passed, flaky, failed or environmental, and only passed counts.
+
+| Run | Code | Result |
+| --- | --- | --- |
+| `acceptance-r1` | `07d5c02` | 25 passed, 1 flaky (`subagents-panel`); the runner then misread an assertion failure as a timeout, see below |
+| `acceptance-r2` | `b229b85` (checkpoint race fixed) | 26/26 passed, timeout scale 1.64 |
+| `acceptance-final3` | `33e7973` (merged with `origin/main`) | 26 passed, 1 failed (`interaction`: `git branch` raised outside a repository); not counted as a pass |
+| `acceptance-final4` | `5bb40df` (fix, 进展 page, live `/goal`) | **27/27 passed**, none flaky, timeout scale 1.75, load per CPU 0.8–2.0; evidence hashed in `acceptance.json` |
+
+Failures found and repaired:
+
+- **End-of-turn checkpoint race.** Under load, the checkpoint taken at the end of a turn reached the host after a queued subagent notification's `__input__` had been admitted. The host refused it as unsettled, and Pi printed the raw stack into the transcript. Replaying the Journal of the failed run showed the window: the input completed at seq 151, `__input__` was admitted at 152, and no checkpoint came between. The fix finishes turn settlement before the next input is applied. With load average about 80, the old code failed on the first of three runs and the fix passed 3/3.
+- **Runner classification.** A failure followed by a cleanup `TimeoutExpired` was treated as a timeout and retried. Outcomes are now taken from the first exception. Transcripts are also written when shutdown stalls; before, a stalled shutdown lost them.
+- **Viewer.** The branch history drew NaN coordinates for a session with one lane, failed for a subagent without a return step, and the divergence summary failed when a branch began with an input. Browser checks did not see these because the viewer catches and logs them. The checks now count logged errors and cover all ten tabs.
+- **进展 was disabled for live sessions.** The viewer's progress module had pages only for its demo studies. The trace now carries `progress` (Goal, accepted plan revisions, completion reviews, usage since the Goal started) and 进展 › 目标与计划 renders it. The Journal projection also skipped atomic rows, where the host writes Goal and review records, and showed the completion review's model call as raw JSON.
+- **`/goal` status was a snapshot.** It printed `已用时 0s · 模型调用 0 · tokens 0` and never changed. The block is now live: elapsed time advances each second while the Goal runs and the counters follow each state refresh.
+- **Tests already failing on `main`.** The `test_goal_progress` stub lacked `subagents`; `kernel-worker` is only offered with a committed HEAD; footer and working-row wording had changed; `test_operator_pipeline` picked a conda `clang++` without the SDK headers (now `/usr/bin/clang++` on macOS unless `CXX` is set).
+
+Other evidence:
+
+| Check | Result |
+| --- | --- |
+| `npm test` | 147 passed, 2 skipped (original-artifact replays that need external fixtures), 0 failed: snapshots 65 files, width properties 5×250 samples, OTLP, plan presentation and live `/goal` status, trace projection including progress, Pi plugin |
+| Python authority tests | 79 tests OK in the `authority` check, including Journal read path 14, Goal plan 10, traceparent 2 |
+| Journal read path | 856 ms → 116 ms per snapshot at load 166; 336 ms → 43 ms at load 22; `status` takes one read instead of five; independent review (no high-severity findings; writer starvation under `LOCK_SH` fixed) |
+| `F_FULLFSYNC` | `fsync` median 0.02 ms (no flush), `F_FULLFSYNC` median 3 ms, p90 4.4 ms |
+| Real Pi sessions (`pi_real_replay.py`) | 7 DeepSeek sessions from local runs, 227 steps: no errors, 101/101 input-token counts equal the provider's `prompt_tokens`, 3 largest render cleanly; only counts recorded |
+| Branch views (`trace_branches_render.py`) | Pi session-tree branch with a subagent, and a KernelBridge `/fork` with a running child and a Goal plan: 10 tabs × 2 scopes, no errors; 进展 shows the Goal and plan for KernelBridge, the no-Goal note for Pi, and its step links select the step |
+| 进展 on a real Journal | The `goal-plan` scenario's Journal: Goal, two accepted plans (the refused one omitted), the `met` review, curve and activity, no page errors |
+
+Not claimed: NPU or device results, Linux qualification, publication of `pi-lattice-trace` (kept in-repo by decision), TRACEPARENT for Pi's native `bash` and user `!` commands, and xterm-based full-screen snapshots (component snapshots are used instead).
+
 ## Shared Journal admission stress follow-up
 
 Four stress scenarios passed in `.validation/propose-admit-stress-summary.json`: 32 independent Gateway/Journal instances issued 320 proposals (192 original HTTP completions and 128 budget rejections); 64 concurrent copies of one ID dispatched once; parent admission survived 32 concurrent child proposals; 32 real child permits retained an unknown-result fence until original-receipt recovery. Every Journal prefix was checked for nonnegative reservations, no overspend and unique admission/start/settlement. All final reservations were zero. The first child fixture omitted its parent dependency and was correctly rejected; that failed fixture log remains retained. No runtime policy was weakened.

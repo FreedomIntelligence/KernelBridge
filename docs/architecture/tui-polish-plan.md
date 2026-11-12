@@ -65,9 +65,9 @@ Found while fixing Phase 1, already handled:
 
 ### Phase 4 — acceptance
 
-- [ ] Run the full PTY suite (`pty`, `interaction`, `advanced`, `cancel`, `edges`, `resume`, `goalreview`, `codegen`, `trace`) on an idle machine.
-- [ ] Refresh `PIN_MANIFEST.json`, `install.py --verify-only`.
-- [ ] Record results in `validation/tui/ACCEPTANCE.md` and update `docs/tui.md`.
+- [x] Run the full PTY suite (`pty`, `interaction`, `advanced`, `cancel`, `edges`, `resume`, `goalreview`, `codegen`, `trace`) on an idle machine. `run.py` ran all 27 checks on `5bb40df` at 0.8–2.0 load per CPU: 27 passed, none flaky.
+- [x] Refresh `PIN_MANIFEST.json`, `install.py --verify-only`.
+- [x] Record results in `validation/tui/ACCEPTANCE.md` and update `docs/tui.md`.
 
 ## Known test fragility, and the product finding behind it
 
