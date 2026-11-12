@@ -227,3 +227,172 @@ test('an explicit execution limit is not relabelled as a harness failure', async
   assert.equal(run.records.some(item => item.operation === 'harness_failure' || item.method === 'control'), false);
   assert.equal(run.state.inputs.original.status, 'failed');
 });
+
+/** Keep enqueue before Pi's user entry, as in the real native input hook. */
+async function admissionFixture(t, enqueue) {
+  const hooks = new Map(), entries = [], calls = [], accepted = [], notifications = [];
+  const state = { cursor: 1, workspace_mode: 'project', subagents: [], trials: [], inputs: {} };
+  let stateFailure, nextDecision;
+  const client = {
+    subscribe: () => () => {}, async observe() {},
+    async state() {
+      calls.push({ method: 'state' });
+      if (stateFailure) throw stateFailure;
+      return structuredClone(state);
+    },
+    async input(text, options) {
+      const receipt = { input_id: options.inputId, text, kind: options.kind, channel: options.channel, status: 'queued' };
+      state.inputs[receipt.input_id] = receipt;
+      accepted.push(receipt);
+      return structuredClone(receipt);
+    },
+    async call(method, params = {}) {
+      calls.push({ method, ...params });
+      if (method === 'next') return nextDecision ?? { receipt: Object.values(state.inputs).find(item => item.status === 'queued') };
+      return {};
+    },
+  };
+  const effects = { bind() {}, async call(method, params) {
+    calls.push({ method, ...params });
+    return enqueue({ method, params, state, calls });
+  } };
+  const manager = { getBranch: () => entries, getLeafId: () => undefined, getSessionId: () => 'pi-admission' };
+  const context = { sessionManager: manager, ui: { setStatus() {}, notify(message, kind) { notifications.push({ message, kind }); } } };
+  const governed = { restored: true, manifest: {}, controller: {}, session: {
+    sessionManager: manager, isStreaming: false, isCompacting: false,
+    getActiveToolNames: () => [], setActiveToolsByName() {},
+  }, async prompt(text) { return hooks.get('input')({ text }); } };
+  const actions = createHostActions(client, effects);
+  actions.extension({ on(name, handler) { hooks.set(name, handler); }, appendEntry(customType, data) {
+    entries.push({ type: 'custom', customType, data });
+  } });
+  t.after(() => actions.dispose());
+  await actions.bind(governed);
+  await hooks.get('session_start')({}, context);
+  calls.length = 0;
+  return { actions, state, calls, accepted, entries, notifications, context, hooks,
+    setStateFailure(error) { stateFailure = error; },
+    setNextDecision(decision) { nextDecision = decision; },
+    async submit(text = 'work') {
+      const submitted = await actions.submit(text, { streaming: false, compacting: false });
+      return submitted.action === 'continue' ? hooks.get('input')({ text: submitted.text }) : submitted;
+    } };
+}
+
+test('explicit enqueue rejection never persists Pi input and releases local delivery state', async t => {
+  const run = await admissionFixture(t, ({ params, state }) => {
+    if (state.inputs[params.input_id].text === 'fixed') return { executor_input_id: params.input_id };
+    Object.assign(state.inputs[params.input_id], { status: 'failed', reason: 'input_validation_failed', error_summary: 'text exceeds 65536 bytes' });
+    return { status: 'rejected', input_id: params.input_id, reason: 'input_validation_failed',
+      error_summary: 'text exceeds 65536 bytes', input_bytes: 65537, validation_errors: [{ type: 'string_too_long' }] };
+  });
+  assert.deepEqual(await run.submit(), { action: 'handled' });
+  const original = run.accepted[0].input_id;
+  assert.equal(run.state.inputs[original].status, 'failed');
+  assert.equal(run.actions.inputs.deliveries.length, 0);
+  assert.equal(run.actions.inputs.uncertain.size, 0);
+  // Even a subsequent user message cannot accidentally consume a stale applying receipt.
+  await run.hooks.get('message_end')({ message: { role: 'user' } }, run.context);
+  assert.deepEqual(run.entries, []);
+  assert.match(run.notifications[0].message, /input_validation_failed.*\ntext exceeds 65536 bytes/);
+  assert.equal(run.notifications[0].kind, 'error');
+  assert.equal(run.calls.filter(item => item.method === 'application_enqueue').length, 1);
+  assert.equal(run.calls.some(item => item.method === 'transition'), false);
+  assert.deepEqual(await run.submit('fixed'), { action: 'continue' });
+  assert.equal(run.accepted[1].kind, 'prompt');
+  await run.hooks.get('message_end')({ message: { role: 'user' } }, run.context);
+  assert.deepEqual(run.entries.map(item => item.data.input_id), [run.accepted[1].input_id]);
+});
+
+test('lost enqueue ACK checks durable state before retrying only the original queued identity', async t => {
+  let attempts = 0;
+  const run = await admissionFixture(t, ({ params }) => {
+    if (++attempts === 1) throw new Error('ACKNOWLEDGEMENT_TIMEOUT');
+    return { executor_input_id: params.input_id };
+  });
+  assert.deepEqual(await run.submit(), { action: 'continue' });
+  assert.equal(run.accepted.length, 1);
+  assert.deepEqual(run.calls.map(item => item.method), ['application_enqueue', 'state', 'application_enqueue']);
+  assert.deepEqual(run.calls.filter(item => item.method === 'application_enqueue').map(item => item.input_id),
+    [run.accepted[0].input_id, run.accepted[0].input_id]);
+  assert.equal(run.actions.inputs.uncertain.size, 0);
+  await run.hooks.get('message_end')({ message: { role: 'user' } }, run.context);
+  assert.equal(run.entries.length, 1);
+});
+
+test('enqueue uncertainty never replays an applied or terminal original receipt', async t => {
+  for (const status of ['applied', 'completed', 'failed', 'interrupted']) await t.test(status, async t => {
+    const run = await admissionFixture(t, ({ params, state }) => {
+      state.inputs[params.input_id].status = status;
+      throw new Error('ACK lost after durable transition');
+    });
+    assert.deepEqual(await run.submit(), { action: 'handled' });
+    assert.equal(run.calls.filter(item => item.method === 'application_enqueue').length, 1);
+    assert.equal(run.state.inputs[run.accepted[0].input_id].status, status);
+    assert.equal(run.actions.inputs.uncertain.size, 0);
+    await run.hooks.get('message_end')({ message: { role: 'user' } }, run.context);
+    assert.deepEqual(run.entries, []);
+    assert.equal(run.calls.some(item => item.method === 'transition'), false);
+  });
+});
+
+test('repeated unknown enqueue remains retryable by original ID without blocking later admission', async t => {
+  let fail = true;
+  const run = await admissionFixture(t, ({ params }) => {
+    if (fail) throw new Error('transport disconnected');
+    return { executor_input_id: params.input_id };
+  });
+  assert.deepEqual(await run.submit(), { action: 'handled' });
+  const original = run.accepted[0].input_id;
+  assert.equal(run.state.inputs[original].status, 'queued');
+  assert.equal(run.actions.inputs.consumed.has(original), false);
+  assert.equal(run.actions.inputs.uncertain.has(original), true);
+  await run.hooks.get('message_end')({ message: { role: 'user' } }, run.context);
+  assert.deepEqual(run.entries, []);
+  // A headless attempt yields on retained uncertainty, instead of spinning next/enqueue.
+  const before = run.calls.length;
+  await run.actions.headless();
+  assert.ok(run.calls.length - before < 10);
+  assert.equal(run.calls.some(item => item.method === 'next'), true);
+  fail = false;
+  assert.deepEqual(await run.submit(), { action: 'continue' });
+  assert.equal(run.accepted.length, 1);
+  assert.deepEqual(new Set(run.calls.filter(item => item.method === 'application_enqueue').map(item => item.input_id)), new Set([original]));
+  assert.equal(run.actions.inputs.uncertain.size, 0);
+  await run.hooks.get('message_end')({ message: { role: 'user' } }, run.context);
+  assert.deepEqual(run.entries.map(item => item.data.input_id), [original]);
+});
+
+test('failed status lookup retains the original input and cannot create a replacement on resubmit', async t => {
+  let run;
+  run = await admissionFixture(t, () => {
+    run.setStateFailure(new Error('status unavailable'));
+    throw new Error('ACK lost');
+  });
+  assert.deepEqual(await run.submit(), { action: 'handled' });
+  const original = run.accepted[0].input_id;
+  await assert.rejects(run.submit(), /status unavailable/);
+  assert.equal(run.accepted.length, 1);
+  assert.equal(run.actions.inputs.uncertain.has(original), true);
+  assert.equal(run.calls.filter(item => item.method === 'application_enqueue').length, 1);
+  assert.equal(run.calls.some(item => item.method === 'transition'), false);
+  run.setStateFailure(undefined);
+  run.state.inputs[original].status = 'completed';
+  assert.equal((await run.submit()).action, 'handled');
+  assert.equal(run.accepted.length, 1);
+  assert.equal(run.actions.inputs.uncertain.size, 0);
+});
+
+test('invalid automatic continuation displays its returned summary without creating or replaying an input', async t => {
+  const run = await admissionFixture(t, () => assert.fail('rejected continuation cannot enter the executor'));
+  run.state.goal = { status: 'awaiting_user' };
+  run.setNextDecision({ action: 'wait', reason: 'continuation_input_invalid', error_summary: 'text exceeds 65536 bytes' });
+  await run.actions.headless();
+  assert.deepEqual(run.notifications, [{ message: 'Goal 自动继续输入被拒绝：text exceeds 65536 bytes', kind: 'error' }]);
+  assert.equal(run.accepted.length, 0);
+  assert.deepEqual(run.entries, []);
+  // Later awaiting-user polls carry no new rejection; do not replay historical diagnostics.
+  run.setNextDecision({ action: 'wait', reason: 'awaiting_user' });
+  await run.actions.headless();
+  assert.equal(run.notifications.length, 1);
+});

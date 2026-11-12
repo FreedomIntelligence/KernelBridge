@@ -162,7 +162,8 @@ class ChildInstructionTests(unittest.TestCase):
             self.assertIsNone(admitted_task_instructions(self.task, workspace_mode='project', readonly_paths=('AGENTS.md',)))
             self.assertIsNone(admitted_task_instructions(self.task, workspace_mode='isolated', readonly_paths=('nested/AGENTS.md',)))
             ordinary = self.task.model_copy(update={'contract': {}})
-            self.assertIsNone(admitted_task_instructions(ordinary, workspace_mode='isolated', readonly_paths=('AGENTS.md',)))
+            self.assertEqual([item.path for item in admitted_task_instructions(ordinary,
+                workspace_mode='isolated', readonly_paths=('AGENTS.md',)).files], ['AGENTS.md'])
             absent = self.task.model_copy(update={'seed_files': {'nested/AGENTS.md': 'nested', 'agents.md': 'alias'}})
             self.assertIsNone(admitted_task_instructions(absent, workspace_mode='isolated', readonly_paths=('AGENTS.md', 'nested/AGENTS.md')))
 
@@ -210,17 +211,18 @@ class ChildInstructionTests(unittest.TestCase):
         self.assertNotIn('overflow', self.store.snapshot()['actions'])
         self.assertEqual(self.store.snapshot()['spent'], 0)
 
-    def test_child_factory_binds_host_instructions_only_to_child_transports(self):
+    def test_factory_binds_host_instructions_to_separate_parent_and_child_transports(self):
         configured = {'primary': ProviderConfig(model='fixture', api_key_env='KB_FIXTURE_KEY')}
         with patch.dict(os.environ, {'KB_FIXTURE_KEY': 'fixture-key'}):
             children = bindings._build_proposers(configured, child=True, task_instructions=self.slice)
-            parents = bindings._build_proposers(configured)
-            with self.assertRaisesRegex(ValueError, 'child transports'):
-                bindings._build_proposers(configured, task_instructions=self.slice)
+            parents = bindings._build_proposers(configured, task_instructions=self.slice)
         child = children['primary'].prepare(self.context(), ()).payload()
         parent = parents['primary'].prepare(self.context(), ()).payload()
         self.assertIn(self.slice.files[0].text, self.system(child, 'openai'))
-        self.assertEqual(self.system(parent, 'openai'), SYSTEM)
+        self.assertIn(self.slice.files[0].text, self.system(parent, 'openai'))
+        self.assertEqual(self.system(parents['primary'].prepare_harness({
+            'system_prompt': 'PI_ALREADY_COMPOSED_SYSTEM', 'messages': [], 'tools': []}).payload(), 'openai'),
+            'PI_ALREADY_COMPOSED_SYSTEM')
         self.assertIsNot(children['primary'], parents['primary'])
 
     def test_real_delegated_projection_has_instructions_without_parent_chat(self):
@@ -271,9 +273,9 @@ class ChildInstructionTests(unittest.TestCase):
         return Config.model_construct(python_modules={}, workspace_mode=mode, workspace=str(base / 'workspace'),
             state_dir=str(base / 'state'), credits=50,
             providers={'primary': ProviderConfig(model='fixture', api_key_env='KB_FIXTURE_KEY')},
-            pi_worker=PiWorkerConfig(root=str(ROOT / 'source/apps/agent'), node=os.environ.get('KERNELCAT_NODE', '/usr/bin/node')))
+            pi_worker=PiWorkerConfig(root=str(ROOT / 'source/apps/agent')))
 
-    def test_unmanaged_composition_exports_actual_fact_and_only_child_instructions(self):
+    def test_unmanaged_composition_exports_actual_fact_and_shared_instructions(self):
         base = self.root / 'composition'; base.mkdir()
         config = self.config(base)
         startup = SimpleNamespace(bind_config=lambda config: config, expected={}, report={})
@@ -290,7 +292,8 @@ class ChildInstructionTests(unittest.TestCase):
         hello = ExecutionRPC(session, self.task)._hello_capabilities({}, None)
         self.assertIs(hello['native_harness']['workspace']['case_sensitive'], self.actual_case_sensitive(root))
         self.assertIn(self.slice.files[0].text, self.system(session.child_proposers['primary'].prepare(self.context(), ()).payload(), 'openai'))
-        self.assertEqual(self.system(session.proposers['primary'].prepare(self.context(), ()).payload(), 'openai'), SYSTEM)
+        self.assertIn(self.slice.files[0].text,
+            self.system(session.proposers['primary'].prepare(self.context(), ()).payload(), 'openai'))
 
     def test_managed_composition_exports_actual_fact_and_child_instructions(self):
         from kernelcat_worker import runtime

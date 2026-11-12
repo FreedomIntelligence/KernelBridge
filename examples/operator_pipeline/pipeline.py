@@ -514,10 +514,14 @@ class Pipeline:
         elif last.get('evaluation_outcome') == 'unknown':
             next_actions = [step(last.get('stage'), None, {}, 'Original execution is unresolved; inspect its original logs and handle before continuing.',
                                  status='blocked', run=last['run'])]
-        elif refusal and s.get('contract') and refusal['binding']['contract'] == digest(s['contract']):
-            next_actions = [step('A', 'pipeline_bind', {},
-                'Launch was rejected before any remote job started. Bind the complete declared contract.json exactly; use the exposed baseline/settings tools separately. Do not trim or guess contract fields.',
-                required_arguments=['contract'], failure_phase='preflight', dispatch_outcome='not_started',
+        elif (refusal and s.get('contract') and refusal['binding']['contract'] == digest(s['contract'])
+                and (refusal['error']['code'] != 'candidate_format'
+                     or refusal['binding']['source'] == (s.get('candidate') or {}).get('sha256'))):
+            source_error = refusal['error']['code'] == 'candidate_format'
+            next_actions = [step('D' if source_error else 'A', 'pipeline_freeze' if source_error else 'pipeline_bind', {},
+                ('Launch was rejected before any remote job started. Correct the candidate source format using the retained validation evidence, then freeze the changed source; the task contract remains bound.'
+                 if source_error else 'Launch was rejected before any remote job started. Bind the complete declared contract.json exactly; use the exposed baseline/settings tools separately. Do not trim or guess contract fields.'),
+                required_arguments=['files', 'origin'] if source_error else ['contract'], failure_phase='preflight', dispatch_outcome='not_started',
                 error=refusal['error'], evidence=refusal['artifacts'])]
         elif not s['contract']:
             next_actions = [step('A', 'pipeline_bind', {}, 'Bind the task, pinned independent oracle, complete suite and measurement contract.',

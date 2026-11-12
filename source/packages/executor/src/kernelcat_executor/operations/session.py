@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from kernelcat_executor.capabilities.pi import default_pi_root
 from kernelcat_executor.capabilities.workspace_policy import filesystem_case_sensitive
+from kernelcat_executor.capabilities.task_instructions import TaskInstructionFile
 from kernelcat_executor.contracts.agent import (
     AgentEvent,
     AgentInput,
@@ -66,7 +67,8 @@ class ExecutionSession:
                  timeout: float = 300.0, max_frame_bytes: int = 1048576,
                  role: str = "coder", child_proposers: dict[str, Proposer] | None = None,
                  external_context: bool = False, rsi: RsiSession | None = None,
-                 replay: NativeReplay | None = None, workspace_policy: Json | None = None) -> None:
+                 replay: NativeReplay | None = None, workspace_policy: Json | None = None,
+                 instruction_files: tuple[TaskInstructionFile, ...] | None = None) -> None:
         if role not in {"coder", "scout"}:
             raise ValueError("unknown Pi worker role")
         node = os.environ.get("KERNELCAT_NODE") or shutil.which("node") or ""
@@ -84,6 +86,9 @@ class ExecutionSession:
             raise ValueError("workspace case_sensitive capability must be a boolean")
         self.worker_timeout, self.worker_frame_bytes = timeout, max_frame_bytes
         self.role, self.child_proposers = role, dict(child_proposers or {})
+        # None retains the legacy embedding entry point. Composed hosts always
+        # pass a frozen tuple, including empty, so Pi cannot discover extra files.
+        self.instruction_files = None if instruction_files is None else tuple(instruction_files)
         self.external_context = external_context
         self.rsi = rsi
         self.replay = replay

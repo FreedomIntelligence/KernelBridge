@@ -1,5 +1,6 @@
 """Clean workspace and exact original-receipt projection boundaries, without NPU access."""
 import copy
+from contextlib import ExitStack
 import hashlib
 import importlib.util
 import json
@@ -15,6 +16,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'examples/scatter'))
 import npu_pipeline_driver as adapter
+import npu_trial as native_trial
 from prepare_npu_campaign import prepare
 
 
@@ -100,8 +102,7 @@ class NpuPipelineDriverTest(unittest.TestCase):
             self.assertEqual(result['original_handle'], adapter.wire_handle(self.handle))
             self.assertEqual(result['status'], 'unavailable')
 
-    def test_cached_original_launch_projects_handle_without_dispatch(self):
-        before = {path: path.read_bytes() for path in self.folder.iterdir()}
+    def launch_fixture(self):
         pipeline = self.root / 'pipeline'; pipeline.mkdir()
         (pipeline / 'event-00000001.json').write_text(json.dumps({'body': {'C': {'hypothesis': 'original'}}}))
         project = self.root / 'project'; project.mkdir()
@@ -109,10 +110,126 @@ class NpuPipelineDriverTest(unittest.TestCase):
         transport.write_text('def run(*a, **kw): raise AssertionError("never redispatch")\n')
         config = dict(self.config, candidate=str(project / 'candidate.py'), pipeline_state=str(pipeline),
                       transport_module=str(transport))
-        result = adapter.execute(config, 'launch', dict(self.request, action_id='real-tool-id', handle=None))
+        request = dict(self.request, action_id='real-tool-id', handle=None, role='E')
+        return config, request
+
+    def test_cached_original_launch_projects_handle_without_dispatch(self):
+        # Keep the historical one-field fixture: recovery projects an existing
+        # receipt; it must not re-admit the source under today's parser.
+        before = {path: path.read_bytes() for path in self.folder.iterdir()}
+        config, request = self.launch_fixture()
+        with patch.object(adapter, 'sources', side_effect=AssertionError('historical source reparsed')) as parsed, \
+             patch.object(native_trial, 'sources', side_effect=AssertionError('historical source reparsed')) as trial_parsed, \
+             patch.object(native_trial, 'transport', side_effect=AssertionError('cached transport imported')) as transport, \
+             patch.object(native_trial, 'invoke_remote', side_effect=AssertionError('cached remote called')) as remote:
+            result = adapter.execute(config, 'launch', request)
+        for mocked in (parsed, trial_parsed, transport, remote): mocked.assert_not_called()
         self.assertEqual(result['handle'], adapter.wire_handle(self.handle))
         self.assertEqual(result['original_handle'], result['handle'])
         self.assertEqual({path: path.read_bytes() for path in self.folder.iterdir()}, before)
+
+    def test_pending_original_launch_only_collects_original_hash_and_handle(self):
+        config, request = self.launch_fixture()
+        original = {path.name: path.read_bytes() for path in self.folder.iterdir()}
+        terminal_names = ('device-result.json', 'observation.json', 'result.json')
+        for name in terminal_names: (self.folder / name).unlink()
+        transport = object()
+
+        def finish_original(collected_config, folder, run):
+            self.assertEqual(folder, self.folder)
+            self.assertEqual(run, transport)
+            self.assertEqual((folder / 'intent.json').read_bytes(), original['intent.json'])
+            self.assertEqual((folder / 'candidate.py').read_bytes(), original['candidate.py'])
+            for name in terminal_names: (folder / name).write_bytes(original[name])
+            return {'status': 'completed', 'data': native_trial.wire_summary(json.loads(original['result.json']))}
+
+        with patch.object(adapter, 'sources', side_effect=AssertionError('historical source reparsed')), \
+             patch.object(native_trial, 'sources', side_effect=AssertionError('historical source reparsed')), \
+             patch.object(native_trial, 'transport', return_value=transport) as opened, \
+             patch.object(native_trial, 'invoke_remote', side_effect=AssertionError('must only collect')) as remote, \
+             patch.object(native_trial, 'collect', side_effect=finish_original) as collected:
+            result = adapter.execute(config, 'launch', request)
+        opened.assert_called_once(); collected.assert_called_once(); remote.assert_not_called()
+        self.assertEqual(result['handle'], adapter.wire_handle(self.handle))
+        self.assertEqual(result['native_candidate_sha256'], json.loads(original['intent.json'])['source_sha256'])
+        self.assertEqual(result['remote_result_sha256'], json.loads(original['result.json'])['remote_result_sha256'])
+        self.assertEqual({path.name: path.read_bytes() for path in self.folder.iterdir()}, original)
+        self.assertFalse((self.folder.parent / 'attempt-0002').exists())
+
+    def test_unresolved_original_launch_never_becomes_not_started(self):
+        config, request = self.launch_fixture()
+        (self.folder / 'result.json').unlink()
+        before = {path.name: path.read_bytes() for path in self.folder.iterdir()}
+        with patch.object(adapter, 'sources', side_effect=AssertionError('historical source reparsed')), \
+             patch.object(native_trial, 'sources', side_effect=AssertionError('historical source reparsed')), \
+             patch.object(native_trial, 'transport', return_value=object()) as opened, \
+             patch.object(native_trial, 'invoke_remote', side_effect=AssertionError('must only collect')) as remote, \
+             patch.object(native_trial, 'collect', return_value={'status': 'unknown', 'data': {'error': 'original pending'}}) as collected, \
+             patch.object(adapter, 'make_source_rejection', side_effect=AssertionError('cannot claim not_started')) as rejected, \
+             self.assertRaisesRegex(RuntimeError, 'unresolved'):
+            adapter.execute(config, 'launch', request)
+        opened.assert_called_once(); collected.assert_called_once(); remote.assert_not_called(); rejected.assert_not_called()
+        self.assertEqual({path.name: path.read_bytes() for path in self.folder.iterdir()}, before)
+        self.assertFalse((Path(request['output']) / 'preflight').exists())
+        self.assertFalse((self.folder.parent / 'attempt-0002').exists())
+
+    def test_existing_action_identity_conflicts_never_become_preflight_rejections(self):
+        config, original_request = self.launch_fixture()
+        original = {path.name: path.read_bytes() for path in self.folder.iterdir()}
+        frozen = self.root / 'independent-frozen'; frozen.mkdir()
+        candidate = frozen / 'candidate.py'
+        duplicate = self.folder.parent / 'attempt-0002'
+        for mutation in ('new_source', 'archived_source', 'duplicate_action', 'binding', 'linked_intent', 'contract'):
+            with self.subTest(mutation=mutation):
+                for name, raw in original.items():
+                    path = self.folder / name
+                    if path.is_symlink(): path.unlink()
+                    path.write_bytes(raw)
+                if duplicate.exists():
+                    for path in duplicate.iterdir(): path.unlink()
+                    duplicate.rmdir()
+                candidate.write_bytes(original['candidate.py'])
+                request = copy.deepcopy(original_request)
+                request['source']['root'] = str(frozen)
+                if mutation == 'new_source':
+                    candidate.write_text('kernel_src = "different source, still invalid for new admission"\n')
+                    request['source']['files']['candidate.py'] = adapter.sha(candidate)
+                    request['source']['sha256'] = adapter.manifest_sha(request['source']['files'])
+                    request['binding']['source'] = request['source']['sha256']
+                elif mutation == 'archived_source':
+                    (self.folder / 'candidate.py').write_text('archived bytes were changed\n')
+                elif mutation == 'duplicate_action':
+                    duplicate.mkdir()
+                    for name in ('intent.json', 'candidate.py'): (duplicate / name).write_bytes(original[name])
+                elif mutation == 'binding':
+                    request['binding']['source'] = '0' * 64
+                elif mutation == 'linked_intent':
+                    saved = self.root / 'linked-original-intent.json'
+                    saved.write_bytes(original['intent.json'])
+                    (self.folder / 'intent.json').unlink()
+                    (self.folder / 'intent.json').symlink_to(saved)
+                else:
+                    request['contract']['task'] = {'outputs': 'changed contract'}
+                before = {str(path.relative_to(self.folder.parent)): path.read_bytes()
+                          for path in self.folder.parent.rglob('*') if path.is_file()}
+                with ExitStack() as stack:
+                    forbidden = []
+                    for module, name in ((adapter, 'trial'), (adapter, 'sources'), (adapter, 'transport'),
+                                         (adapter, 'make_rejection'), (adapter, 'make_source_rejection'),
+                                         (native_trial, 'transport'), (native_trial, 'invoke_remote')):
+                        forbidden.append(stack.enter_context(patch.object(module, name,
+                            side_effect=AssertionError('identity conflict must not call ' + name))))
+                    message = {'duplicate_action': 'Ambiguous original action identity',
+                               'linked_intent': 'Original attempt identity contains a link',
+                               'contract': 'differs from the frozen task'}.get(
+                                   mutation, 'Original action source identity changed')
+                    with self.assertRaisesRegex(ValueError, message):
+                        adapter.execute(config, 'launch', request)
+                for mocked in forbidden: mocked.assert_not_called()
+                self.assertEqual({str(path.relative_to(self.folder.parent)): path.read_bytes()
+                                  for path in self.folder.parent.rglob('*') if path.is_file()}, before)
+                self.assertFalse((Path(request['output']) / 'preflight').exists())
+                self.assertFalse((Path(request['output']) / 'dispatch-boundary.json').exists())
 
     def test_changed_semantics_suite_or_measurement_is_rejected(self):
         for field, replacement in [('task', {'outputs': 'weakened'}), ('suite', []), ('measurement', dict(self.contract['measurement'], aggregation='changed'))]:

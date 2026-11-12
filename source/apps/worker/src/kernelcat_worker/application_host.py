@@ -27,7 +27,7 @@ import time
 import uuid
 from jsonschema import Draft202012Validator
 
-from kernelcat_executor.contracts.models import Conflict, Task, canonical
+from kernelcat_executor.contracts.models import Conflict, Task, canonical, digest
 from kernelcat_executor.state.application import ApplicationJournal, ModelAdmissionStopped
 from kernelcat_worker.bindings import build
 from kernelcat_worker.configuration import load_config
@@ -260,12 +260,7 @@ class ApplicationHost:
                     if method == "application_user_bash":
                         result = self.user_bash(connection, params)
                     elif method == "application_enqueue":
-                        accepted = self.journal.state()["inputs"][params["input_id"]]
-                        if accepted["kind"] == "control":
-                            raise Conflict("control input cannot enter the model queue")
-                        identity = owner.enqueue_input(task, accepted["text"],
-                            "prompt" if accepted["kind"] == "policy" else accepted["kind"], accepted["input_id"])
-                        result = {"executor_input_id": identity}
+                        result = self.enqueue_input(connection, task, params["input_id"])
                     elif method == "application_stop_child":
                         result = self.stop_child(params.get("agent_id"))
                     elif method == "application_compact":
@@ -696,6 +691,41 @@ class ApplicationHost:
         return Outcome(data={"goal_id": goal["goal_id"], "plan": plan, "explanation": explanation,
                              "completed": done, "total": len(plan)})
 
+    def enqueue_input(self, connection, task, input_id):
+        from pydantic import ValidationError
+        from kernelcat_executor.contracts.agent import AgentInput
+        from kernelcat_worker.application_continuation import input_validation_failure
+        state = self.journal.state()
+        accepted = state["inputs"][input_id]
+        if accepted["kind"] == "control":
+            raise Conflict("control input cannot enter the model queue")
+        if accepted["status"] == "failed" and accepted.get("reason") == "input_validation_failed":
+            return {"status": "rejected", "input_id": input_id,
+                    **{key: accepted[key] for key in ("reason", "error_summary", "input_bytes", "validation_errors") if key in accepted}}
+        if accepted["status"] != "queued":
+            raise Conflict("original input is no longer queued; recover its existing receipt")
+        kind = "prompt" if accepted["kind"] == "policy" else accepted["kind"]
+        try:
+            message = AgentInput(kind=kind, text=accepted["text"])
+        except ValidationError as error:
+            failure = input_validation_failure(accepted["text"], error)
+            self.journal.command("transition", {**connection.worker, "input_id": input_id, "status": "failed", **failure})
+            goal = self.journal.state().get("goal")
+            goal_id = accepted.get("goal_id")
+            if goal_id is None and accepted["kind"] == "policy" and accepted.get("initiator") == "loopx":
+                try:
+                    goal_id = json.loads(accepted["text"].rsplit("\n", 1)[-1]).get("goal", {}).get("goal_id")
+                except (ValueError, AttributeError, TypeError):
+                    pass
+            if goal and goal["status"] == "active" and goal_id == goal["goal_id"]:
+                self.journal.command("goal_outcome", {"status": "awaiting_user", "reason": failure["reason"],
+                    "input_id": input_id, "summary": failure["error_summary"], "expected_goal_sha256": digest(goal)})
+            return {"status": "rejected", "input_id": input_id, **failure}
+        # Errors after this point may be uncertain admission/ACKs. Do not mark
+        # the durable input failed; recovery retries this same immutable ID.
+        identity = self.owner.enqueue_input(task, message.text, message.kind, input_id)
+        return {"status": "completed", "executor_input_id": identity}
+
     def next_input(self, connection):
         from kernelcat_worker.loopx_application import recommend
         state = self.status()
@@ -748,24 +778,21 @@ class ApplicationHost:
         input_id = "loopx-" + decision["decision_id"]
         if input_id in state["inputs"]:
             return {"action": "wait", "reason": "decision_already_consumed"}
+        from pydantic import ValidationError
+        from kernelcat_worker.application_continuation import continuation_text, input_validation_failure
+        try:
+            text = continuation_text(state, decision, self.config.workspace_mode)
+        except ValidationError as error:
+            failure = input_validation_failure(None, error, accepted=False)
+            self.journal.command("configuration", {**connection.worker, "operation": "continuation_rejected",
+                "decision_id": decision["decision_id"], "goal_id": goal["goal_id"], **failure})
+            self.journal.command("goal_outcome", {"status": "awaiting_user", "reason": "continuation_input_invalid",
+                "summary": failure["error_summary"], "expected_goal_sha256": digest(goal)})
+            return {"action": "wait", "reason": "continuation_input_invalid", "error_summary": failure["error_summary"]}
         self.journal.command("configuration", {**connection.worker, "operation": "loopx_decision", **decision})
-        from kernelcat_executor.state.goal_progress import limits_text, plan_text
-        text = (("Continue the explicitly requested coding Goal. Implement and verify the remaining work. "
-                "Use get_goal to inspect progress when needed. When all requested work is verified, call update_goal "
-                "with status complete and a summary of actual checks (finish_goal is also supported). "
-                "If progress requires missing user input, call update_goal with status blocked and explain what is needed. "
-                "Do not call a missing device result verified. A tool-free automatic turn returns control to the user.\n"
-                + (f"Current plan {plan_text(state['plan'])}. Continue from the in-progress step; a plan update alone is not progress.\n"
-                   if state.get("plan") else "")
-                if self.config.workspace_mode == "project" else "Continue the current task from original receipts. "
-                "Complete the declared correctness/performance acceptance; do not treat a single timing as a paired gain. "
-                "Inspect missing or failed measurements before diagnosing stagnation. If you cannot proceed without the "
-                "user, say exactly what is missing; a tool-free automatic turn returns control to the user.\n")
-                + limits_text(state, decision) + "\n"
-                + canonical({"task": state["task"], "goal": state["goal"], "budget": state["budget"],
-                             "best": state["best"], "decision": decision}))
         receipt = self.journal.command("accept", {"input_id": input_id, "text": text, "kind": "policy",
-            "initiator": "loopx", "channel": "policy", "decision_id": decision["decision_id"]})
+            "initiator": "loopx", "channel": "policy", "decision_id": decision["decision_id"],
+            "goal_id": goal["goal_id"], "continuation_format": "task-reference/v2"})
         return {**decision, "receipt": receipt}
 
     def unsettled_foreground(self, state):
@@ -933,6 +960,14 @@ class ApplicationHost:
         if method == "accept":
             if params.get("initiator") != "user":
                 self.require_worker(connection)
+            if params.get("kind") != "control":
+                from pydantic import ValidationError
+                from kernelcat_executor.contracts.agent import AgentInput
+                from kernelcat_worker.application_continuation import input_validation_failure
+                try:
+                    AgentInput(kind="prompt" if params.get("kind") == "policy" else params.get("kind"), text=params.get("text"))
+                except ValidationError as error:
+                    raise Conflict(input_validation_failure(params.get("text"), error, accepted=False)["error_summary"]) from None
             state = self.journal.state()
             if (params.get("kind") == "prompt" and params.get("input_id") not in state["inputs"]
                     and any(item["status"] == "applied" for item in state["inputs"].values())):

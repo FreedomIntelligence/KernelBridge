@@ -150,6 +150,10 @@ class ExecutionRPC:
         hello: Json = {"task_id": self.task.id, "goal": self.task.goal,
                        "tools": [s.model_dump(mode="json") for s in self.specs],
                        "execution_mode": self.owner.options.tool_execution}
+        if self.owner.instruction_files is not None:
+            hello["project_instructions"] = {"schema_version": "kernelbridge.project-instructions/v1",
+                "files": [{"path": item.path, "content": item.text, "sha256": item.sha256,
+                           "bytes": item.bytes} for item in self.owner.instruction_files]}
         if self.owner.external_context and all(
                 isinstance(proposer, HarnessProposer) for proposer in self.owner.proposers.values()):
             native_tools = ["read", "ls", "find", "grep"]

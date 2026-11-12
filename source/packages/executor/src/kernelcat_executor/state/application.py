@@ -252,6 +252,10 @@ class ApplicationJournal:
                 emit("input_transition", {"input_id": data["input_id"], "status": "completed", "control_result": goal})
             elif method == "goal_outcome":
                 goal = state["goal"]
+                # An asynchronous rejection must not replace a newer explicit
+                # pause/resume/set that arrived after the host's state read.
+                if "expected_goal_sha256" in data and digest(goal) != data["expected_goal_sha256"]:
+                    return None, state
                 if not goal or data.get("status") not in {"completed", "budget_limit", "awaiting_user", "failed"}:
                     raise Conflict("invalid Goal outcome")
                 if data["status"] == "completed":
@@ -275,7 +279,8 @@ class ApplicationJournal:
                             pass
                     if not codegen and not reviewed and (not evidence or evidence["task_version"] != state["task_version"]):
                         raise Conflict("Goal completion requires current original acceptance evidence")
-                emit("goal", {**goal, **data, **({"ended_at_ns": time.time_ns()} if data["status"] in {"completed", "failed"} else {})})
+                outcome = {key: value for key, value in data.items() if key != "expected_goal_sha256"}
+                emit("goal", {**goal, **outcome, **({"ended_at_ns": time.time_ns()} if data["status"] in {"completed", "failed"} else {})})
             elif method == "call_intent":
                 lease()
                 key = data["call_id"]

@@ -196,10 +196,14 @@ class RuntimeService:
         if state["stamp"]["run_status"] == "active":
             rsi = None if self.config.rsi is None else RsiEffects(gateway, workspace,
                 self.artifacts, (self.base / self.config.state_dir).resolve(), task.id, self.config.rsi)
-            self.host = ExecutionSession(self.gateway, _build_proposers(self.config.providers), skills.catalog(),
+            instructions = admitted_task_instructions(task,
+                workspace_mode=self.config.workspace_mode, readonly_paths=self.config.readonly_paths,
+                workspace_root=workspace.root)
+            self.host = ExecutionSession(self.gateway,
+                _build_proposers(self.config.providers, task_instructions=instructions), skills.catalog(),
                 child_proposers=_build_proposers(self.config.providers, child=True,
-                    task_instructions=admitted_task_instructions(task,
-                        workspace_mode=self.config.workspace_mode, readonly_paths=self.config.readonly_paths)),
+                    task_instructions=instructions),
+                instruction_files=instructions.files if instructions else (),
                 profile=self.config.agent_profile, options=self.config.agent_options,
                 task_identity=digest(task), external_context=True, cwd=self.workspace.root,
                 role=self.config.pi_worker.role, timeout=self.config.pi_worker.timeout,
