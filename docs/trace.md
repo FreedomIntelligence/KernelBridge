@@ -39,6 +39,7 @@ The viewer, page assembly, step helpers and HTTP server live in `source/packages
 | `transition_prepared` (fork / reset) | `/fork` or `/new` marker |
 | `input_accepted` | user input, command, Goal continuation or subagent notification |
 | successful `write` / `edit` | file version used by the 溯源 (blame) view; contents rebuilt from these calls only |
+| `application/goal`, accepted `update_plan`, `goal_review` (also inside atomic rows) | `progress`: the latest Goal, the plan history, completion reviews, model calls and tokens since the Goal started |
 
 Executor rows have no clock. Each step's start comes from the nearest application row, and its duration from `elapsed_ms`. Step IDs come from Journal sequence numbers, so they stay the same while the session grows. Tool-output sizes are estimated from text and then scaled between consecutive model calls, so the rebuilt context matches the provider's `prompt_tokens`.
 
@@ -53,6 +54,8 @@ Executor rows have no clock. Each step's start comes from the nearest applicatio
 Host wording in the adapter (harness name, data source, workspace and file notes) comes from the trace's optional `labels`; without it the KernelBridge text applies.
 
 Each replacement anchor must occur exactly once. A changed viewer therefore fails with an explicit error instead of rendering demo data. To update the viewer, replace the file and run `node validation/tui/trace-projection.mjs`.
+
+**进展 › 目标与计划** shows the session's Goal (objective, status, elapsed time that advances while the Goal runs, model calls and tokens against its limits), the current `update_plan` checklist with every accepted revision (each links to its step), the completion reviews, a progress curve (plan completion, model calls and file edits over time) and the latest activity. Refused plans are not part of the history. A session without a Goal shows the curve and the activity only; a Pi session never has a Goal.
 
 The live page shows one session; the demo studies are hidden. Views that need data KernelBridge does not record are empty: branch comparison, because live sessions have one branch, and workspace snapshots, because project mode does not snapshot.
 

@@ -1,6 +1,6 @@
 {
   "name": "pi-lattice-trace",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Live trajectory viewer for Pi sessions: /trace opens the session's timeline, context, tool calls and file history in the browser.",
   "type": "module",
   "license": "UNLICENSED",

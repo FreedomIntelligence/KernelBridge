@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { initTheme } from '../../source/apps/agent/node_modules/@earendil-works/pi-coding-agent/dist/index.js';
 import { visibleWidth } from '../../source/apps/agent/node_modules/@earendil-works/pi-tui/dist/index.js';
 import { directRenderers, planRows } from '../../source/apps/agent/src/harness/pi/tool-render.mjs';
-import { installProductUI, planFooter } from '../../source/apps/agent/src/harness/pi/product-ui.mjs';
+import { goalElapsed, installProductUI, planFooter, showProductFeedback, statePresentation } from '../../source/apps/agent/src/harness/pi/product-ui.mjs';
 import { projectTrace } from '../../source/apps/agent/src/trace/journal-trace.ts';
 
 initTheme();
@@ -74,4 +74,34 @@ test('trace shows a plan update as a titled checklist', () => {
   const step = projectTrace(rows, { now_ns: S + 1e9 }).steps.find(s => s.tool === 'update_plan');
   assert.equal(step.title, '更新计划 1/3');
   assert.equal(step.out, '拆成三步\n\n✔ 复现失败的测试\n■ 修复 parser 的边界条件并补充回归测试用例\n□ 跑全量测试');
+});
+
+test('/goal status is live: elapsed follows the clock, counters follow refreshed state', async () => {
+  const now = Date.now();
+  const started = String(BigInt(now - 65_000) * 1_000_000n);
+  assert.equal(goalElapsed({ started_at_ns: started }, { elapsed_seconds: 0 }), '1m05s');
+  // An ended Goal keeps the host's figure; so does one without a start time.
+  assert.equal(goalElapsed({ started_at_ns: started, ended_at_ns: String(BigInt(now) * 1_000_000n) }, { elapsed_seconds: 42 }), '42s');
+  assert.equal(goalElapsed({}, { elapsed_seconds: 3 }), '3s');
+  assert.equal(goalElapsed({ started_at_ns: started }, { elapsed_seconds: 0 }).includes('.'), false, 'whole seconds');
+
+  let state = { cwd: '/repo', model: 'm', workspace_mode: 'project', budget: {},
+    goal: { goal_id: 'g', objective: '修 parser', status: 'active', started_at_ns: started, token_budget: 9000 },
+    goal_usage: { model_turns: 0, tokens: 0, elapsed_seconds: 0 } };
+  let factory, renders = 0;
+  const context = { ui: { setWidget: (_key, value) => { factory = value; } } };
+  showProductFeedback(context, () => statePresentation(state));
+  const widget = factory({ requestRender: () => { renders++; }, terminal: { rows: 30 } }, plain);
+  const first = widget.render(80).join('\n');
+  assert.match(first, /已用时 1m\d\ds · 模型调用 0 · tokens 0\/9000/);
+  // The handler's closure reads the refreshed state, not a copy taken when /goal ran.
+  state = { ...state, goal_usage: { model_turns: 3, tokens: 2100, elapsed_seconds: 1 } };
+  assert.match(widget.render(80).join('\n'), /模型调用 3 · tokens 2100\/9000/);
+  // The block redraws each second while shown; replacing it stops the timer.
+  await new Promise(resolve => setTimeout(resolve, 1150));
+  assert.ok(renders >= 1, 'the live block asks for a redraw');
+  showProductFeedback(context, undefined);
+  const before = renders;
+  await new Promise(resolve => setTimeout(resolve, 1150));
+  assert.equal(renders, before);
 });

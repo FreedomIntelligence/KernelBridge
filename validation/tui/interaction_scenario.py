@@ -141,7 +141,8 @@ def main():
         # D12 keeps the detach policy at a wide width; a long branch can take
         # priority over that optional label once the terminal narrows.
         until(lambda: '退出暂停' in text())
-        branch = subprocess.check_output(['git', 'branch', '--show-current'], cwd=state()['cwd'], text=True).strip()
+        # Outside a Git repository (the runner's output directory) there is no branch to show.
+        branch = subprocess.run(['git', 'branch', '--show-current'], cwd=state()['cwd'], capture_output=True, text=True).stdout.strip()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 48, 0, 0))
         screen.resize(24, 48)
         os.killpg(child.pid, signal.SIGWINCH)

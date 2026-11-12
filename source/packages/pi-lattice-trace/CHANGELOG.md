@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.3.0] - 2026-11-12
+
+- 进展 › 目标与计划: the viewer's progress module now works for live sessions. It shows the Goal, the plan checklist and its revisions, completion reviews, a progress curve and the latest activity, from the trace's new `progress` field (`progressOf`).
+
 ## [0.2.0] - 2026-11-12
 
 - `--otlp` exports the session as OpenTelemetry GenAI spans (OTLP/HTTP JSON); no message content unless selected.

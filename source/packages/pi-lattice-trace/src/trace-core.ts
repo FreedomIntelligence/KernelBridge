@@ -19,6 +19,8 @@ export interface Trace {
   labels?: TraceLabels;
   /** One fork point shared by every other branch (the viewer's model): the root step it follows. */
   fork?: { t: number; ctx: number; step: string } | null;
+  /** Goal, plan and review history for the live 进展 page. */
+  progress?: Progress;
 }
 
 export const round2 = (value: number) => Math.round(value * 100) / 100;
@@ -139,4 +141,34 @@ export function summarize(steps: Step[], lanes: number) {
   const end = steps.reduce((value, step) => Math.max(value, step.t1), 0);
   const result = { M: { ok: failures === 0, label: pending ? '进行中' : failures ? `${failures} 处失败` : '正常', note: `${steps.length} 步 · ${lanes - 1} 个子代理`, endLabel: pending ? '进行中' : (end / 60).toFixed(1) + ' min' } };
   return { status, result };
+}
+
+export interface Progress {
+  goal: Json | null;
+  goals: Json[];
+  reviews: { t: number; status: string; summary: string }[];
+  plans: { t: number; step: string; done: number; total: number; items: { step: string; status: string }[]; explanation: string | null }[];
+  usage: { modelCalls: number; tokens: number; since: number };
+}
+
+/** Goal timeline (application/goal events, oldest first), review verdicts and accepted update_plan calls. */
+export function progressOf(steps: Step[], goals: Json[] = [], reviews: Json[] = []): Progress {
+  const latest = goals.at(-1) ?? null;
+  const start = latest ? goals.filter(item => item.goal_id === latest.goal_id)[0]?.t ?? latest.t : 0;
+  const plans = steps.filter(step => step.tool === 'update_plan' && step.status === 'ok' && Array.isArray(step.args?.plan))
+    .map(step => {
+      const items = step.args.plan.map((item: Json) => ({ step: text(item.step), status: text(item.status) }));
+      return { t: step.t1, step: step.id, done: items.filter((item: Json) => item.status === 'completed').length, total: items.length, items,
+        explanation: step.args.explanation ? text(step.args.explanation) : null };
+    });
+  const models = steps.filter(step => step.src === 'model' && step.t0 >= start);
+  return {
+    goal: latest && { goal_id: latest.goal_id, objective: latest.objective, status: latest.status, t: start,
+      started_ns: latest.started_at_ns ?? null, ended_ns: latest.ended_at_ns ?? null, token_budget: latest.token_budget ?? null,
+      max_model_turns: latest.max_model_turns ?? null, summary: latest.summary ?? null, reason: latest.reason ?? null },
+    goals: goals.map(item => ({ t: item.t, goal_id: item.goal_id, status: item.status, objective: item.objective })),
+    reviews: reviews.filter(item => !latest || item.goal_id === latest.goal_id).map(item => ({ t: item.t, status: text(item.status), summary: text(item.summary) })),
+    plans: latest ? plans.filter(plan => plan.t >= start) : plans,
+    usage: { modelCalls: models.length, tokens: models.reduce((sum, step) => sum + (step.tokIn ?? 0) + (step.tokOut ?? 0), 0), since: start },
+  };
 }

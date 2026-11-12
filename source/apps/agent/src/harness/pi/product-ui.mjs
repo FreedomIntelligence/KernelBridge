@@ -58,6 +58,17 @@ export function goalSummary(state) {
     ...(state.pending_effect_ids?.length ? [`pending=${state.pending_effect_ids.length}`] : [])].join(' · ');
 }
 
+/** A running Goal's age from its start time on the UI clock, in whole seconds (the host's
+    own measure); an ended Goal, and a deterministic screen, keep the host's figure. */
+export function goalElapsed(goal, usage) {
+  const started = Number(goal?.started_at_ns);
+  const seconds = !DETERMINISTIC && !goal?.ended_at_ns && Number.isFinite(started) && started > 0
+    ? Math.max(0, Math.floor((clock() - started / 1e6) / 1000)) : Math.max(0, Math.floor(usage?.elapsed_seconds ?? 0));
+  const pad = value => String(value).padStart(2, '0');
+  return seconds < 60 ? `${seconds}s` : seconds < 3600 ? `${Math.floor(seconds / 60)}m${pad(seconds % 60)}s`
+    : `${Math.floor(seconds / 3600)}h${pad(Math.floor(seconds / 60) % 60)}m`;
+}
+
 export function statePresentation(state) {
   const goal = currentGoal(state);
   const budget = state.budget ?? {};
@@ -68,7 +79,7 @@ export function statePresentation(state) {
     `状态：${goal ? STATUSES[goal.status] ?? goal.status : '普通会话'}`,
     ...(state.cwd ? [`目录：${shortPath(state.cwd)}`, `模型：${state.model}`] : []),
     ...(state.workspace_mode !== 'project' ? [`任务版本 ${state.task_version} · Trial ${state.trials?.length || 0}`] : []),
-    ...(goal && state.goal_usage ? [`已用时 ${state.goal_usage.elapsed_seconds}s · 模型调用 ${state.goal_usage.model_turns} · tokens ${state.goal_usage.tokens}${goal.token_budget == null ? '' : '/' + goal.token_budget}`,
+    ...(goal && state.goal_usage ? [`已用时 ${goalElapsed(goal, state.goal_usage)} · 模型调用 ${state.goal_usage.model_turns} · tokens ${state.goal_usage.tokens}${goal.token_budget == null ? '' : '/' + goal.token_budget}`,
       ...(state.goal_usage.usage_unknown_calls ? [`${state.goal_usage.usage_unknown_calls} 次调用未报告 token 用量`] : [])] : []),
     ...(goal?.reason ? [`原因：${goal.reason}`] : []),
     ...(goal?.summary ? [`说明：${goal.summary}`] : []),
@@ -268,12 +279,23 @@ export function fitFeedback(text, width) {
 }
 
 /** Host feedback is marked so it reads as the product speaking, not model output. */
+let liveFeedback;
+/** Host feedback above the editor. A function message is live: it is re-read on every
+ * render and redrawn each second until the next feedback replaces it. */
 export function showProductFeedback(context, message, error = false) {
   if (!context) return;
-  context.ui.setWidget('kernelbridge-feedback', message ? (tui, theme) => ({
+  clearInterval(liveFeedback); liveFeedback = undefined;
+  context.ui.setWidget('kernelbridge-feedback', message ? (tui, theme) => {
+    if (typeof message === 'function' && !DETERMINISTIC) {
+      // A live block (the /goal status) redraws each second; one timer at a time.
+      clearInterval(liveFeedback);
+      liveFeedback = setInterval(() => tui.requestRender?.(), 1000);
+      liveFeedback.unref?.();
+    }
+    return {
     invalidate() {},
     render(width) {
-      const lines = String(message).split('\n');
+      const lines = String(typeof message === 'function' ? message() : message).split('\n');
       // The marker goes on the first line only: blocks such as /help keep their own alignment.
       const body = [(error ? '✗ ' : '⏺ ') + lines[0], ...lines.slice(1)].join('\n');
       const rows = fitFeedback(body, width).map(row => theme.fg(error ? 'error' : 'accent', row));
@@ -281,5 +303,6 @@ export function showProductFeedback(context, message, error = false) {
       const limit = Math.max(3, (tui.terminal?.rows ?? 24) - 7);
       return rows.length <= limit ? rows : [...rows.slice(0, limit - 1), '…'];
     },
-  }) : undefined);
+    };
+  } : undefined);
 }

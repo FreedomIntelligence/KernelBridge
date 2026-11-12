@@ -55,7 +55,7 @@ The original `createSession({manifest})`, `runTask`, and external LoopX APIs rem
 | Command | Behavior |
 | --- | --- |
 | `/goal TEXT` | Create or update the persistent objective and start continuation |
-| `/goal`, `/goal pause`, `/goal resume`, `/goal clear` | View, pause, resume or clear the Goal |
+| `/goal`, `/goal pause`, `/goal resume`, `/goal clear` | View, pause, resume or clear the Goal. The status block stays live: elapsed time advances each second while the Goal runs, and model calls and tokens follow each refresh |
 | `/help`, `/latest` | Show supported commands or return to the latest message |
 | `/goal on-detach pause\|continue`, `/detach`, `/quit` | Set or apply detach behavior |
 | `/compact` | Metered semantic compaction; preserve original JSONL and authoritative facts |

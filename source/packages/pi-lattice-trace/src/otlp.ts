@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import type { Json, Step, Trace } from './trace-core.ts';
 
 export const CONVENTIONS = 'otel-genai-semconv (Development, 2026-11) + openinference';
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 const INTERNAL = 1, CLIENT = 3, ERROR = 2;
 
 export interface ContentCapture { prompts: boolean; tools: boolean; outputs: boolean }

@@ -14,7 +14,7 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-TABS = ['overview', 'timeline', 'history', 'workspace', 'decisions', 'context', 'files', 'compare', 'agent']
+TABS = ['overview', 'timeline', 'history', 'workspace', 'decisions', 'context', 'files', 'compare', 'agent', 'live-progress']
 T0 = 1_794_000_000_000
 
 
@@ -67,8 +67,16 @@ def kb_journal(path):
              'data': {'content': [{'type': 'text', 'text': text}], 'usage': {'prompt_tokens': prompt, 'completion_tokens': 20}}}})
         app('application/call_result', {'call_id': id, 'result': {}})
     add({'kind': 'task', 'task': {'id': 't', 'goal': 'g'}})
-    app('application/input_accepted', {'kind': 'prompt', 'initiator': 'user', 'text': 'first'})
+    clock += 100_000_000
+    add({'kind': 'atomic', 'time_ns': clock, 'events': [
+        {'kind': 'application/input_accepted', 'application_session_id': 'application-branches', 'data': {'kind': 'prompt', 'initiator': 'user', 'text': 'first'}},
+        {'kind': 'application/goal', 'application_session_id': 'application-branches', 'data': {'goal_id': 'g1', 'objective': 'Fix the parser', 'status': 'active', 'started_at_ns': clock}}]})
     turn('t/step/0/model/primary', 'One.', 1000)
+    plan = 't/step/0/model/primary/call/0'
+    add({'kind': 'admitted', 'action': {'id': plan, 'tool': 'update_plan', 'task': 't', 'parents': ['t/step/0/model/primary'],
+         'arguments': {'explanation': 'Two steps', 'plan': [{'step': 'Read parser.py', 'status': 'completed'}, {'step': 'Fix the edge case', 'status': 'in_progress'}]}}})
+    add({'kind': 'started', 'action_id': plan})
+    add({'kind': 'settled', 'action_id': plan, 'elapsed_ms': 5, 'outcome': {'status': 'completed', 'data': {'result': {'isError': False}}}})
     app('application/checkpoint', {'pi_session_id': 'p1', 'entry_id': 'e1', 'operation': 'checkpoint'})
     app('application/input_accepted', {'kind': 'prompt', 'initiator': 'user', 'text': 'abandoned idea'})
     turn('t/step/1/model/primary', 'Abandoned.', 1200)
@@ -122,10 +130,25 @@ def render(url, label, output):
         page.wait_for_timeout(200)
         page.evaluate('setTab("compare")'); page.wait_for_timeout(200)
         compare = page.evaluate('document.getElementById("p-compare").innerText')
+        # 进展: the module is enabled for the live session and shows its Goal and plan (or says there is none).
+        page.evaluate('setTab("live-progress")'); page.wait_for_timeout(200)
+        progress = page.evaluate('({shown: !document.getElementById("p-kbprog").hidden, text: document.getElementById("p-kbprog").innerText,'
+                                 ' tab: state.tab, module: state.module})')
+        page.screenshot(path=str(output / f'{label}-progress.png'))
+        if label == 'kernelbridge':
+            page.evaluate('document.querySelector("#p-kbprog [data-goto]").click()'); page.wait_for_timeout(200)
+            selected = page.evaluate('state.sel')
         page.screenshot(path=str(output / f'{label}-compare.png'))
         browser.close()
     assert not errors, (label, errors)
     assert 'B' in compare and '没有 fork 分支' not in compare, (label, compare[:300])
+    assert progress['shown'] and progress['tab'] == 'live-progress' and progress['module'] == 'm-prog', progress
+    assert '进度曲线' in progress['text'], progress['text'][:300]
+    if label == 'kernelbridge':
+        assert 'Fix the parser' in progress['text'] and '当前计划 1/2' in progress['text'] and 'Read parser.py' in progress['text'], progress['text'][:500]
+        assert selected and selected.startswith('T'), selected  # 跳到步骤 selects the update_plan step
+    else:
+        assert '这个会话没有设置 Goal' in progress['text'], progress['text'][:300]
     return f'{label}_branches_render_without_errors'
 
 

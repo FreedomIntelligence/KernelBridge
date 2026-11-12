@@ -3,7 +3,7 @@
 // ctx.sessionManager (getHeader(), getBranch()) plus the live state Pi has not
 // persisted yet: tools that are executing and an assistant reply that is streaming.
 import {
-  MAIN, TRACE_SCHEMA, clip, clipped, contentText, finishSteps, firstLine, recordFileChange, round2, summarize, text, tokens, toolTitle,
+  MAIN, TRACE_SCHEMA, clip, clipped, contentText, finishSteps, progressOf, firstLine, recordFileChange, round2, summarize, text, tokens, toolTitle,
   type Json, type Step, type Trace, type TraceLabels,
 } from './trace-core.ts';
 
@@ -202,7 +202,7 @@ function projectBranch(entries: Json[], options: SessionTraceOptions = {}): Trac
     config: { adapter: 'Pi', thinking, tools: [...tools], execution: '并行工具调用', workspace: 'project', compaction: `剩余 ${Math.round(reserve / 1000)}k 时压缩` },
     agents: { [MAIN]: { branch: 'M', name: '主会话', short: '主会话', tag: 'main', level: 0, sb: '—', ws: '—' }, ...childAgents }, rows: [MAIN, ...childRows],
     branches: { M: { name: '当前分支', variant: model ?? 'Pi' } },
-    steps, commits, files, result: summary.result, labels: labelSet,
+    steps, commits, files, result: summary.result, labels: labelSet, progress: progressOf(steps),
   };
 }
 

@@ -59,7 +59,7 @@ def browser_check(url, expected_steps, output):
         # The viewer catches render errors itself and logs them; they count as failures too.
         page.on('console', lambda message: errors.append(message.text) if message.type == 'error' and 'Failed to load resource' not in message.text else None)
         page.goto(url); page.wait_for_function('typeof STEPS !== "undefined" && STEPS.length > 0', timeout=15000)
-        for tab in ['timeline', 'overview', 'context', 'history', 'workspace', 'decisions', 'files', 'compare', 'agent', 'timeline']:
+        for tab in ['timeline', 'overview', 'context', 'history', 'workspace', 'decisions', 'files', 'compare', 'agent', 'live-progress', 'timeline']:
             page.evaluate(f'setTab({json.dumps(tab)})'); page.wait_for_timeout(250)
         state = page.evaluate('({steps: STEPS.length, rows: ROWS.slice(), live: !!DS.live, title: document.getElementById("sbTitle").textContent, crumbs: document.getElementById("crumbs").innerText})')
         page.screenshot(path=str(output / 'trace-viewer.png'))

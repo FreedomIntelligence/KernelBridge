@@ -199,3 +199,58 @@ test('a /fork from a historical entry shows the abandoned turns as branch B', ()
   const plain = projectTrace(latest, { now_ns: clock + 1e9 });
   assert.equal(plain.fork, null); assert.deepEqual(plain.rows, ['M/main']);
 });
+
+test('progress: Goal, accepted plans and completion review, also from atomic rows', () => {
+  const rows = []; let seq = 0; let clock = S;
+  const at = () => (clock += 500_000_000);
+  const add = row => { rows.push({ seq: seq++, time_ns: at(), ...row }); };
+  // Host writes are compound rows: their events carry no seq of their own.
+  const atomic = (...events) => add({ kind: 'atomic', events: events.map(event => ({ application_session_id: 'application-progress', ...event })) });
+  const goal = { goal_id: 'g1', objective: 'read and check', status: 'active', started_at_ns: S + 1_000_000_000, token_budget: 50000 };
+  const plan = (id, items, outcome = { status: 'completed', data: { result: { isError: false } } }) => {
+    add({ kind: 'admitted', action: { id, tool: 'update_plan', task: TASK, arguments: { plan: items }, parents: [] } });
+    add({ kind: 'started', action_id: id }); add({ kind: 'settled', action_id: id, elapsed_ms: 5, outcome });
+  };
+  add({ kind: 'task', task: { id: TASK, goal: 'g' } });
+  atomic({ kind: 'application/input_accepted', data: { kind: 'prompt', initiator: 'user', text: '/goal read and check' } }, { kind: 'application/goal', data: goal });
+  const model = TASK + '/step/0/model/primary';
+  add({ kind: 'admitted', action: { id: model, tool: '__propose__', task: TASK, arguments: {}, parents: [] } });
+  add({ kind: 'started', action_id: model });
+  add({ kind: 'settled', action_id: model, elapsed_ms: 40, outcome: { status: 'completed', data: { content: [{ type: 'text', text: 'Plan first.' }], usage: { prompt_tokens: 900, completion_tokens: 100 } } } });
+  plan(model + '/call/0', [{ step: 'read', status: 'in_progress' }, { step: 'check', status: 'pending' }]);
+  plan(model + '/call/1', [{ step: 'read', status: 'in_progress' }, { step: 'check', status: 'in_progress' }], { status: 'failed', data: { error: 'one in_progress' } });
+  plan(model + '/call/2', [{ step: 'read', status: 'completed' }, { step: 'check', status: 'in_progress' }]);
+  const review = TASK + '/goal-review/g1/loopx-1';
+  add({ kind: 'admitted', action: { id: review, tool: '__propose__', task: TASK, arguments: {}, parents: [] } });
+  add({ kind: 'started', action_id: review });
+  add({ kind: 'settled', action_id: review, elapsed_ms: 30, outcome: { status: 'completed', data: { content: [{ type: 'text', text: '{"status": "met", "summary": "Read verified."}' }], usage: { prompt_tokens: 300, completion_tokens: 20 } } } });
+  atomic({ kind: 'application/configuration', data: { operation: 'goal_review', goal_id: 'g1', status: 'met', summary: 'Read verified.' } },
+    { kind: 'application/goal', data: { ...goal, status: 'completed', ended_at_ns: S + 9_000_000_000, summary: 'Read verified.' } });
+
+  const trace = projectTrace(rows);
+  const progress = trace.progress;
+  assert.equal(progress.goal.goal_id, 'g1');
+  assert.equal(progress.goal.status, 'completed');
+  assert.equal(progress.goal.objective, 'read and check');
+  assert.equal(progress.goal.token_budget, 50000);
+  assert.equal(progress.goals.length, 2, 'both Goal rows inside atomic rows are read');
+  // The refused update_plan (two in_progress) is not part of the plan history.
+  assert.deepEqual(progress.plans.map(item => `${item.done}/${item.total}`), ['0/2', '1/2']);
+  assert.deepEqual(progress.plans.at(-1).items.map(item => item.status), ['completed', 'in_progress']);
+  assert.ok(progress.plans.every(item => trace.steps.some(step => step.id === item.step)), 'plan entries point at their steps');
+  assert.deepEqual(progress.reviews.map(item => [item.status, item.summary]), [['met', 'Read verified.']]);
+  assert.equal(progress.usage.modelCalls, 2);
+  assert.equal(progress.usage.tokens, 1320);
+  // The review model call reads as a verdict, not as raw JSON.
+  assert.equal(trace.steps.find(step => step.action_id === review).title, '完成审查：达成 · Read verified.');
+  // Atomic events take their compound row's seq and time; the input inside one is projected.
+  assert.ok(trace.steps.some(step => step.kind === 'input' && step.title.includes('/goal read and check')));
+});
+
+test('progress without a Goal is empty but well formed', () => {
+  const progress = projectTrace(parseRows(journal()).rows).progress;
+  assert.equal(progress.goal, null);
+  assert.deepEqual(progress.plans, []);
+  assert.deepEqual(progress.reviews, []);
+  assert.ok(progress.usage.modelCalls > 0);
+});

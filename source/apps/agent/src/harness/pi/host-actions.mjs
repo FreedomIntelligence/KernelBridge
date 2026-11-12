@@ -597,12 +597,12 @@ export function createHostActions(control, effects, { observer = control } = {})
       }
       if (command === '/goal') {
         const { operation, ...values } = parseGoalCommand(text);
-        if (operation === 'status') return { action: 'handled', message: statePresentation(await refresh()) };
+        if (operation === 'status') return { action: 'handled', message: (await refresh(), () => statePresentation(state)) };
         if (operation === 'resume' && governed.controller.failure) return { action: 'handled',
           message: '当前运行时已失败。先 /quit，重新连接并排除原错误后再显式 /goal resume。若历史消息无效，需依据可信回执或有效检查点修复；重新连接不会修复历史，也不会自动重跑原效果。' };
         await control.control(operation, { channel: 'tui', ...values,
           ...(acceptedCommand ? { input_id: acceptedCommand.input_id + '-goal' } : {}) });
-        return { action: 'handled', message: statePresentation(await refresh()) };
+        return { action: 'handled', message: (await refresh(), () => statePresentation(state)) };
       }
       if (command === '/detach') {
         if (governed.session.isStreaming || governed.session.isBashRunning) {
@@ -614,7 +614,7 @@ export function createHostActions(control, effects, { observer = control } = {})
       }
       if (command === '/quit') return { action: 'continue', text: '/quit' };
       if (command === '/settings') {
-        return { action: 'handled', message: statePresentation(await refresh()) };
+        return { action: 'handled', message: (await refresh(), () => statePresentation(state)) };
       }
       if (command === '/name' && arguments_.length) {
         await control.call('configuration', { operation: 'rename', name: arguments_.join(' ').slice(0, 120) });

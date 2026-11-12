@@ -121,7 +121,7 @@ def browser_check(url, output):
         page.on('console', lambda message: errors.append(message.text) if message.type == 'error' and 'Failed to load resource' not in message.text else None)
         page.goto(url); page.wait_for_function('typeof STEPS !== "undefined" && STEPS.length > 0', timeout=15000)
         texts = []
-        for tab in ['timeline', 'overview', 'context', 'history', 'workspace', 'decisions', 'files', 'compare', 'agent', 'timeline']:
+        for tab in ['timeline', 'overview', 'context', 'history', 'workspace', 'decisions', 'files', 'compare', 'agent', 'live-progress', 'timeline']:
             page.evaluate(f'setTab({json.dumps(tab)})'); page.wait_for_timeout(250); texts.append(page.evaluate('document.body.innerText'))
         state = page.evaluate('({steps: STEPS.length, live: !!DS.live, crumbs: document.getElementById("crumbs").innerText, title: document.title})')
         page.screenshot(path=str(output / 'pi-trace-viewer.png'))

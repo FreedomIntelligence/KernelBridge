@@ -24,6 +24,9 @@ const TRANSFORMS: [string, string][] = [
   // Divergence pairs post-fork steps and looks up their model turn; live inputs and markers have none.
   ['  var base = postFork(ROOT), L = postFork(b), i = 0;', '  var base = postFork(ROOT).filter(kbComparable), L = postFork(b).filter(kbComparable), i = 0;'],
   ['  r.sameCtx = ctxSig(r.ma) === ctxSig(r.mx);', '  if (!r.ma || !r.mx) return null;\n  r.sameCtx = ctxSig(r.ma) === ctxSig(r.mx);'],
+  // The live session gets a 进展 page (Goal, plan, reviews, progress over time); the demo
+  // registry only defines progress pages for its kernel and intent studies.
+  ["  ['m-prog', 'progg', '程序图', {kernel:'k-prog'}],\n", "  ['m-prog', 'progg', '程序图', {kernel:'k-prog'}],\n  ['m-prog', 'live', '目标与计划', {invoice:'live-progress'}],\n"],
   // A running subagent has no return step yet (and may have no steps): draw what exists.
   ['    var tA = sp.t1, tB = list[list.length - 1].t1;', '    if (!sp || !list.length) return;\n    var tA = sp.t1, tB = list[list.length - 1].t1;'],
   ["    g += '<path d=\"' + curve(li, tB, mi, rt.t0 + 4) + '\" class=\"graft\" data-id=\"' + rt.id + '\"/>';", "    if (rt) g += '<path d=\"' + curve(li, tB, mi, rt.t0 + 4) + '\" class=\"graft\" data-id=\"' + rt.id + '\"/>';"],

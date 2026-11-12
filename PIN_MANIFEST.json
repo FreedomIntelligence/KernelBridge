@@ -640,8 +640,8 @@
       "sha256": "273bfed2fdbdd95ff4c5bfc26cb1bd2f8240de483aecd55c98a0fd60b317d8b3"
     },
     "docs/tui.md": {
-      "bytes": 27221,
-      "sha256": "c7c71618e98b4258f22a629eb8e3ea8b400dea2aef502fc48b8d619b7b3660b3"
+      "bytes": 27353,
+      "sha256": "aa5e66ef63d02644f32aca460ba7074156f0c44d72938c0da892a60bd49206fd"
     },
     "examples/cann/README.md": {
       "bytes": 10939,
@@ -1572,8 +1572,8 @@
       "sha256": "2bc8835a12f5e1840be77fbdcb3cc2922af46257ba249d42a857487c55861abf"
     },
     "source/apps/agent/src/harness/pi/host-actions.mjs": {
-      "bytes": 45615,
-      "sha256": "4254f969fd79378b82becdcfde24e71ba279486f1bb523cdc7480f40c88c39a0"
+      "bytes": 45660,
+      "sha256": "ef6720ad8ad12b13b8987d58f2edaab142b16507912a9b100cf397a5c6a30138"
     },
     "source/apps/agent/src/harness/pi/input.ts": {
       "bytes": 2101,
@@ -1608,8 +1608,8 @@
       "sha256": "2cbcf09af0cb89f5d89fc81f63f8816208f88e40eaea30fdcb0c5cb804bde88a"
     },
     "source/apps/agent/src/harness/pi/product-ui.mjs": {
-      "bytes": 17163,
-      "sha256": "edb2adb74f2fed2c9fbb9b4c7a602324451f29b5f9a9edbc7f2ea31801660191"
+      "bytes": 18477,
+      "sha256": "1af0e03a653aed14d33189d9eb49b6354a5d1a09fb076ef32b2551629290c381"
     },
     "source/apps/agent/src/harness/pi/replay-context-extension.ts": {
       "bytes": 13755,
@@ -1940,8 +1940,8 @@
       "sha256": "ac4289983ade358b398de6562cb0476dd3afedcde91a5785bb53d48d66fb9f73"
     },
     "source/apps/agent/src/trace/journal-trace.ts": {
-      "bytes": 15794,
-      "sha256": "7d5f20375262f968cdb4019a9a6bbdf51b0cb286a9abe748fb091851cf1f6e3c"
+      "bytes": 17376,
+      "sha256": "8f532e9639ecb37ab5001d524f89fcd91b47fd611d77429fb0ca57b6e178cbaf"
     },
     "source/apps/agent/src/trace/server.ts": {
       "bytes": 3164,
@@ -3960,8 +3960,8 @@
       "sha256": "af5c211c7f5db18fc842c76396d56333d8d768adced3f3e5922f81bfd4441c93"
     },
     "source/packages/pi-lattice-trace/CHANGELOG.md": {
-      "bytes": 1388,
-      "sha256": "2b9b7a905e63954080c205b30b5883d72a87aa95221701f1fd6a2073b10f84bd"
+      "bytes": 1675,
+      "sha256": "a378c77250c387446788caee2c5dd8db5460170bc67d704902db4c0cc0108dc3"
     },
     "source/packages/pi-lattice-trace/README.md": {
       "bytes": 4707,
@@ -3977,11 +3977,11 @@
     },
     "source/packages/pi-lattice-trace/package.json": {
       "bytes": 651,
-      "sha256": "8db520172c53bc10edb09106a1cfa98299ec14b7308345244c433dcdcaca8c4f"
+      "sha256": "26c73d6ecaa812bc0a70fb4cc9caeddb4f77ccfe3240f34567f24fb76f559a4f"
     },
     "source/packages/pi-lattice-trace/src/otlp.ts": {
       "bytes": 12112,
-      "sha256": "d1e1cae1a513cdd1aa53661ba7d714c466b0e4e032cf47084e9482a2ed88391f"
+      "sha256": "4ee9d167e6b71f33901306eddee808d085dbd8db68efb915d97bc965f0522c9d"
     },
     "source/packages/pi-lattice-trace/src/server.ts": {
       "bytes": 4681,
@@ -3992,16 +3992,16 @@
       "sha256": "86bf637c0f5967721573cba05754c490737c2b5a817fcb0458bdc7d0d8ae4945"
     },
     "source/packages/pi-lattice-trace/src/session-trace.ts": {
-      "bytes": 18378,
-      "sha256": "dd216eb2baef047134da4ed47cddfbdb55abc672e8ea1238f21e68dbfde994eb"
+      "bytes": 18419,
+      "sha256": "248048404beb05302c650b42fde4ea2d333c443c17ba8d8883bcb3a25ed83f40"
     },
     "source/packages/pi-lattice-trace/src/trace-core.ts": {
-      "bytes": 9149,
-      "sha256": "1564f1a6b87c804515ade7e4463fc3a79c1e0ecf0628140bb1b376456813addf"
+      "bytes": 11359,
+      "sha256": "00ea84d07dcc27f51be6dde8cc57f05c762e319efa45acb3c0747126fb782e02"
     },
     "source/packages/pi-lattice-trace/src/viewer-page.ts": {
-      "bytes": 6340,
-      "sha256": "156b8cfe74000f722fd6dcd8dccc7981b6756b5fbe631c5106be37763dab0aaa"
+      "bytes": 6703,
+      "sha256": "bf84215d630e571a398cbf1710ee6ae108f3e2ee0a3d482ee71178a12d377772"
     },
     "source/packages/pi-lattice-trace/tsconfig.json": {
       "bytes": 482,
@@ -4012,8 +4012,8 @@
       "sha256": "bc5e28f7fbc2c274a4b9e179cb5f64cc4031159bcc2ecd86ff2dd61c1466742e"
     },
     "source/packages/pi-lattice-trace/viewer/live-adapter.js": {
-      "bytes": 9230,
-      "sha256": "df19192e03a7f5922dcea63ec9f198d338a1b4bbbbf6a8f9733c67156b0e5a46"
+      "bytes": 17595,
+      "sha256": "0b9c1cbb7ca450b977072f57b49fcb90ed7a1ee23984f77581c51685c728794a"
     },
     "source/runtime-resources.json": {
       "bytes": 58358,
@@ -4364,12 +4364,12 @@
       "sha256": "97091eb1dfff452ec79d8de284cf666525104445939a160634b7d57b026c493a"
     },
     "validation/tui/interaction.mjs": {
-      "bytes": 6209,
-      "sha256": "66cab8020e355589692e846e06f20a0c9d257b44b2538f341d512ab955ccbb15"
+      "bytes": 6355,
+      "sha256": "55d4ee739c1c997179952fe5fad2c38ffc3f88245639ff6ad91d28b4aaeec282"
     },
     "validation/tui/interaction_scenario.py": {
-      "bytes": 9950,
-      "sha256": "29d62ce74bcbf5a3c7f84a0a4c98b45806f5d6da6ce81a5a94008c62dfd4a704"
+      "bytes": 10064,
+      "sha256": "65c1ac79801d03dbce43a51887dca78bd4a7e8bc083ab0f0f18f6c20e59719cf"
     },
     "validation/tui/lifecycle-scenario.mjs": {
       "bytes": 4466,

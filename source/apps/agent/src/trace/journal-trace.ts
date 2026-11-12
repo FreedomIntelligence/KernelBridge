@@ -7,6 +7,7 @@ import {
 } from '../../../../packages/pi-lattice-trace/src/trace-core.ts';
 
 export { TRACE_SCHEMA, type Step, type Trace };
+import { progressOf } from '../../../../packages/pi-lattice-trace/src/trace-core.ts';
 
 interface ActionRecord { id: string; tool: string; task: string; args: Json; parents: string[]; admitted: number; started?: number; settled?: number; outcome?: Json; elapsed?: number; gate?: Json }
 
@@ -37,7 +38,16 @@ export function parseRows(buffer: string): { rows: Json[]; rest: string } {
   return { rows, rest: buffer.slice(end + 1) };
 }
 
-export function projectTrace(rows: Json[], options: { now_ns?: number; live?: boolean; title?: string } = {}): Trace {
+const REVIEW_LABEL: Record<string, string> = { met: '达成', continue: '继续', blocked: '受阻' };
+function verdict(said: string): Json | null {
+  try { const value = JSON.parse(said); return value && typeof value.status === 'string' ? value : null; } catch { return null; }
+}
+
+export function projectTrace(journalRows: Json[], options: { now_ns?: number; live?: boolean; title?: string } = {}): Trace {
+  // A compound change (Goal, task version, input transitions) is one "atomic" row
+  // holding several events under one sequence number; read them as events.
+  const rows: Json[] = journalRows.flatMap(row => row?.kind === 'atomic' && Array.isArray(row.events)
+    ? row.events.map((event: Json) => ({ ...event, seq: row.seq, time_ns: event.time_ns ?? row.time_ns })) : [row]);
   const now = options.now_ns ?? Date.now() * 1e6;
   // Executor rows carry no clock; bound each by the neighbouring application rows.
   const known: (number | undefined)[] = rows.map(row => typeof row.time_ns === 'number' ? row.time_ns : undefined);
@@ -59,7 +69,10 @@ export function projectTrace(rows: Json[], options: { now_ns?: number; live?: bo
   const actions = new Map<string, ActionRecord>(); const order: string[] = [];
   const inputs: { index: number; data: Json }[] = []; const transitions: { index: number; data: Json }[] = [];
   let seq = 0; let updated: number | null = null;
+  const goals: { index: number; data: Json }[] = []; const reviews: { index: number; data: Json }[] = [];
   rows.forEach((row, index) => {
+    if (row.kind === 'application/goal' && row.data) goals.push({ index, data: row.data });
+    if (row.kind === 'application/configuration' && row.data?.operation === 'goal_review') reviews.push({ index, data: row.data });
     seq = Math.max(seq, row.seq ?? 0);
     if (typeof row.time_ns === 'number') updated = row.time_ns;
     if (row.application_session_id) session ??= row.application_session_id;
@@ -136,8 +149,11 @@ export function projectTrace(rows: Json[], options: { now_ns?: number; live?: bo
       const turnNo = (turns.get(agent) ?? 0) + 1; turns.set(agent, turnNo);
       const tokIn = usage.prompt_tokens ?? prior; const tokOut = usage.completion_tokens ?? (said ? tokens(said) : 0);
       const names = calls.map((c: Json) => c.name);
+      // The Goal completion review is a model call whose reply is a JSON verdict.
+      const review = /\/goal-review\//.test(a.id) && !span.running && !failed ? verdict(said) : null;
       const step: Step = { id: sid('T', a.admitted), pos: a.admitted, agent, branch: 'M', src: 'model', kind: !span.running && !calls.length && !failed ? 'final' : 'think', t0: span.t0, t1: span.t1,
-        title: span.running ? '生成中…' : failed ? '模型调用失败' : firstLine(said) || (names.length ? '调用 ' + [...new Set(names)].join('、') : '思考'),
+        title: span.running ? '生成中…' : failed ? '模型调用失败' : review ? `完成审查：${REVIEW_LABEL[review.status] ?? review.status}` + (review.summary ? ' · ' + firstLine(review.summary, 60) : '')
+          : firstLine(said) || (names.length ? '调用 ' + [...new Set(names)].join('、') : '思考'),
         status: st, tokIn, tokOut, cacheRead: 0, cacheReal: usage.prompt_cache_hit_tokens ?? usage.prompt_tokens_details?.cached_tokens ?? usage.cached_tokens ?? usage.cache_read_tokens ?? null,
         cacheWrite: usage.cache_creation_input_tokens ?? usage.prompt_tokens_details?.cache_write_tokens ?? usage.cache_write_tokens ?? null,
         reasoningOut: usage.completion_tokens_details?.reasoning_tokens ?? usage.reasoning_tokens ?? null,
@@ -207,7 +223,7 @@ export function projectTrace(rows: Json[], options: { now_ns?: number; live?: bo
     limit, thresh: Math.round(limit * 0.8), budget, config,
     agents, rows: rowsOrder, branches: { M: { name: '当前会话', variant: model ?? 'KernelBridge' },
       ...(fork ? { B: { name: 'fork 前的原分支', variant: model ?? 'KernelBridge' } } : {}) },
-    steps, commits, files, fork,
+    steps, commits, files, fork, progress: progressOf(steps, goals.map(item => ({ ...item.data, t: round2(at(item.index)) })), reviews.map(item => ({ ...item.data, t: round2(at(item.index)) }))),
     result: { ...summary.result, ...(fork ? { B: summarize(steps.filter(step => step.branch === 'B'), 1).result.M } : {}) },
   };
 }
