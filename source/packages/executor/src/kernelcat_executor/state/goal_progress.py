@@ -130,6 +130,40 @@ def plan_text(plan):
     return f"({done}/{len(plan['plan'])} complete) " + "; ".join(f"[{marks[item['status']]}] {item['step']}" for item in plan["plan"])
 
 
+def limits_text(state, decision=None):
+    """The Goal's limits and usage in words, for the automatic continuation.
+
+    A null limit means none is configured. Models read a null field (or a missing
+    one) as an exhausted allowance often enough to stop with "budget exhausted";
+    the continuation therefore states each limit and its usage outright. It is
+    written only when the policy chose to continue or to start a fresh Trial, so
+    the only limit that can have been reached is the Trial's own (trial_limit).
+    """
+    goal = state.get("goal") or {}
+    usage = state.get("goal_usage") or {"model_turns": state.get("model_turns", 0), "tokens": 0}
+    budget = state.get("budget") or {}
+    child = ((usage.get("by_role") or {}).get("child") or {}).get("model_turns", 0)
+
+    def bounded(used, limit, noun):
+        return f"{used} {noun}, no limit set" if limit is None else f"{used} of {limit} {noun} ({max(0, limit - used)} left)"
+    parts = [bounded(usage.get("model_turns", 0), goal.get("max_model_turns"),
+                     "model calls" + (f" ({child} by subagents)" if child else "")),
+             bounded(usage.get("tokens", 0), goal.get("token_budget"), "tokens"),
+             bounded(budget.get("spent", 0) + budget.get("reserved", 0), budget.get("limit"), "credits")]
+    trials = state.get("trials") or []
+    if state.get("max_trial_turns") is not None:
+        used = state.get("model_turns", 0) - (trials[-1].get("start_model_turns", 0) if trials else 0)
+        parts.append(f"{used} of {state['max_trial_turns']} model calls in this Trial")
+    if goal.get("max_trials") is not None:
+        parts.append(f"Trial {max(1, len(trials))} of {goal['max_trials']}")
+    reached = (decision or {}).get("reason") == "trial_limit"
+    return ("Limits for this Goal: " + "; ".join(parts) + ". "
+            + ("This Trial reached its model-call limit, so work continues in a fresh Trial; no other limit has been reached. "
+               if reached else "No limit has been reached. ")
+            + "There is no per-turn budget: the previous turn ended only because it made no tool call. "
+            "Do not report a budget, allowance or turn limit as exhausted unless a limit above says so.")
+
+
 def model_call_progress(store):
     """Read one original Journal snapshot; never reserve or authorize a call.
 

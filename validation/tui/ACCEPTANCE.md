@@ -202,6 +202,12 @@ Checks: `subagent-presentation.mjs` (8), `interaction.mjs` (5), `trace-projectio
 `pty_scenario.py` and `advanced_scenario.py` first failed by timeout, never by assertion, at a different step each run, while unrelated processes held this workstation's load average between 18 and 70 with the data volume full. Both pass when run without contention; the earlier failures are recorded as environmental, not as passes.
 
 Not qualified here: the plan surface (`/plan` or todo) decision, an editor placeholder, a narrow-width sweep of every host-rendered block, and the O(journal) read-only `status` path noted in the plan.
+## Goal continuation limits follow-up (2026-11-12)
+
+Found in a task-mode trial (`hongkong-observe-open-max-01`) with no model-call, token or credit limit: after 47 steps in one input the model ended a turn with "I've exhausted my budget for this turn" and no tool call. The request held no budget wording (no `goal_progress`, credits `limit: null`, no per-Trial limit); the Goal then continued automatically, as designed, with nothing telling the model or the user that no limit had been reached. Each automatic continuation now states every limit and its usage in words, the operator prompt states the no-ceiling case positively, the tool-free continuation stop applies in task mode too (an unlimited task-mode Goal could otherwise keep continuing a text-only model), and the transcript row reads `Goal 自动继续 · 已用 N 次模型调用 · 未设上限`.
+
+Checks: `test_goal_continuation.py` (8: limits text with and without limits and after a Trial limit; continuation text and the no-progress stop in both modes), `interaction.mjs` (continuation label), `operator-task.mjs` (prompt wording), `npm test` 148 passed / 2 skipped, Python authority 87. `acceptance-limit2` on `737f0e3`: **27/27 passed**, none flaky, timeout scale 1.0. A first run (`acceptance-limit`) failed 9 checks at the delivery check because bytecode written by a local preview run sat under `source/`; it is not counted.
+
 ## Industry alignment, trace plugin, 进展 page and acceptance runner (2026-11-12)
 
 Scope: [industry-alignment.md](../../docs/architecture/industry-alignment.md), [pi-trace-plugin-and-tui-plan.md](../../docs/architecture/pi-trace-plugin-and-tui-plan.md) and Phase 4 of [tui-polish-plan.md](../../docs/architecture/tui-polish-plan.md). The runner is `validation/tui/run.py` (schema v2). Each check ends passed, flaky, failed or environmental, and only passed counts.

@@ -197,4 +197,8 @@ test('resource guidance explains real tool scopes without changing limits or sch
   assert.match(OPERATOR_WORKFLOW_PROMPT, /fresh temporary snapshot/);
   assert.match(OPERATOR_WORKFLOW_PROMPT, /driver IDs are pipeline tool arguments/);
   assert.doesNotMatch(OPERATOR_WORKFLOW_PROMPT, /(?:remaining|total)\s+20|scatter_max|scatter_min|MatmulCustom/);
+  // Without goal_progress there is no ceiling and no per-turn budget, stated positively: a trial
+  // model ended a turn with "I've exhausted my budget for this turn" when no limit was set.
+  assert.match(OPERATOR_WORKFLOW_PROMPT, /When this field is absent, no model-call ceiling applies, and no turn ever has its own budget/);
+  assert.match(OPERATOR_WORKFLOW_PROMPT, /never stop or report that a budget, allowance or turn limit is exhausted/);
 });

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { PRODUCT_COMMANDS, parseGoalCommand } from '../../source/apps/agent/src/harness/pi/command-policy.mjs';
 import { createHostActions } from '../../source/apps/agent/src/harness/pi/host-actions.mjs';
 import { loadInteractiveMode } from '../../source/apps/agent/src/harness/pi/interactive-patch.mjs';
-import { installProductUI, statePresentation } from '../../source/apps/agent/src/harness/pi/product-ui.mjs';
+import { continuationLabel, installProductUI, statePresentation } from '../../source/apps/agent/src/harness/pi/product-ui.mjs';
 import { RunController } from '../../source/apps/agent/src/run/controller.mjs';
 import { visibleWidth } from '../../source/apps/agent/node_modules/@earendil-works/pi-tui/dist/index.js';
 
@@ -96,4 +96,23 @@ test('a checkpointed final answer settles without a synthetic stopped assistant 
   finite.active = { proposal_id: 'legacy-1' };
   assert.deepEqual(await finite.finish({ stopReason: 'stop', content: [{ type: 'text', text: 'Done' }] }), { action: 'continue' },
     'the finite compatibility executor still obtains its authoritative stop result');
+});
+
+test('an automatic Goal continuation row says how many calls were used and whether any limit is set', () => {
+  const continuation = (decision, goal, budget = { limit: null, spent: 247, reserved: 0 }) =>
+    'Continue the current task from original receipts.\nLimits for this Goal: …\n' + JSON.stringify({ best: null, budget, decision, goal });
+  assert.equal(continuationLabel(continuation({ model_turns: 67, reason: 'continue_task' }, { max_model_turns: null, token_budget: null })),
+    'Goal 自动继续 · 已用 67 次模型调用 · 未设上限');
+  assert.equal(continuationLabel(continuation({ model_turns: 67, reason: 'continue_task' }, { max_model_turns: 200, token_budget: null })),
+    'Goal 自动继续 · 已用 67/200 次模型调用');
+  // A token or credit limit alone is still a limit.
+  assert.equal(continuationLabel(continuation({ model_turns: 3, reason: 'continue_task' }, { max_model_turns: null, token_budget: 9000 })),
+    'Goal 自动继续 · 已用 3 次模型调用');
+  assert.equal(continuationLabel(continuation({ model_turns: 3, reason: 'continue_task' }, { max_model_turns: null, token_budget: null }, { limit: 50, spent: 1 })),
+    'Goal 自动继续 · 已用 3 次模型调用');
+  assert.equal(continuationLabel(continuation({ model_turns: 40, reason: 'trial_limit' }, { max_model_turns: 200 })),
+    'Goal 自动继续 · 已用 40/200 次模型调用 · 本 Trial 达到调用上限，开始新 Trial');
+  // Older or foreign continuation text keeps the plain label.
+  assert.equal(continuationLabel('Continue with the original receipts.\n{"decision_id":"private-id"}'), 'Goal 自动继续');
+  assert.equal(continuationLabel('no decision'), 'Goal 自动继续');
 });
