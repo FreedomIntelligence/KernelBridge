@@ -521,7 +521,12 @@ class ApplicationHost:
         return {"text": "\n".join(block["text"] for block in blocks), "calls": [], "usage": outcome.data.get("usage", {})}
 
     def status(self):
-        state = self.journal.state()
+        # One shared read serves the application projection, the execution
+        # snapshot, its policy and the event times (previously four transactions).
+        from kernelcat_executor.contracts.models import Policy, canonical
+        from kernelcat_executor.state.application import project
+        store = self.owner.gateway.store
+        state, execution, rows = self.journal.read(lambda rows: (project(rows, self.identity), store._state(rows), rows))
         state["host_pid"] = os.getpid()
         state["workspace_mode"] = self.config.workspace_mode
         state["subagent_config"] = self.config.subagents.model_dump()
@@ -538,9 +543,8 @@ class ApplicationHost:
             if item.get("operation") == "goal_review" and item.get("goal_id") == (state["goal"] or {}).get("goal_id")), None)
         state["fork_policy"] = (state.get("goal") or self.descriptor["goal_defaults"]).get("fork_policy", {})
         state["cwd"] = self.owner.workspace_policy["root"]
-        route = self.owner.gateway.store.policy().routes[0]
+        route = Policy.model_validate_json(canonical(execution["policy"])).routes[0]
         state["model"] = self.config.providers[route].model
-        execution = self.owner.gateway.store.snapshot()
         state["budget"] = {key: execution.get(key) for key in ("limit", "spent", "reserved", "resources")}
         state["pending_effect_ids"] = [key for key, item in execution["actions"].items() if not item.get("terminal")]
         state["model_turns"] = sum(1 for item in execution["actions"].values() if item["action"]["tool"] == "__propose__")
@@ -571,7 +575,7 @@ class ApplicationHost:
                 return execution["actions"].get(key + "/background", {}).get("outcome") or {"status": "running", "data": {"background": True}}
             return outcome
         event_times = {}
-        for event in self.owner.gateway.store._events(self.owner.gateway.store.events()):
+        for event in store._events(rows):
             if event["kind"] == "admitted":
                 event_times.setdefault(event["action"]["id"], {})["start"] = event.get("time_ns")
             elif event["kind"] in {"settled", "cancelled_unstarted"}:

@@ -2,16 +2,26 @@
 
 Linux/macOS local filesystem only. No NFS claim. Each admission reads the ledger
 under an OS lock, preventing concurrent overspend. Crashed reservations stay held.
+
+Reads verify only what was appended since this process last verified the file.
+The verified prefix is anchored by file identity, byte offset and the digest of
+its last record (re-hashed on every transaction); it may only be extended. A
+shorter file, a changed anchor, or a replacement that does not extend the
+verified history is an integrity failure. The whole chain is re-verified on
+first use, on file replacement and every FULL_VERIFY_SECONDS. Callers receive
+fresh row objects, so mutating them cannot alter the verified cache.
 """
 from __future__ import annotations
 
 import fcntl
 import json
+import marshal
 import os
 import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
 
@@ -36,6 +46,23 @@ from kernelcat_executor.state import python_module_observations
 
 T = TypeVar("T")
 
+# Upper bound on how long an edit inside the already-verified prefix that does
+# not touch the last record can go unnoticed by a running process.
+FULL_VERIFY_SECONDS = 300.0
+GENESIS = "0" * 64
+
+
+@dataclass(frozen=True)
+class _Verified:
+    """A verified journal prefix: [0, offset) of the file with this identity."""
+    identity: tuple[int, int]
+    offset: int
+    last_start: int
+    last_digest: str
+    count: int
+    blob: bytes
+    verified_at: float
+
 
 class Journal:
     # Each transaction opens and locks its own descriptor before reading state.
@@ -51,6 +78,8 @@ class Journal:
         # another request's call id into its admitted events.
         self._shared_context: Json = {}
         self._context_local = threading.local()
+        self._verified: _Verified | None = None
+        self._verified_lock = threading.Lock()
 
     @property
     def _application_context(self) -> Json:
@@ -68,7 +97,7 @@ class Journal:
             return None
         from kernelcat_executor.state.application import project
         identity = self._application_lease[0]
-        return self._transaction(lambda rows: (None, project(rows, identity)))
+        return self._transaction(lambda rows: (None, project(rows, identity)), shared=True)
 
     def bind_application_lease(self, application_id: str, worker_id: str, epoch: int) -> None:
         """Bind by the trusted owner before exposing an execution RPC handle."""
@@ -149,40 +178,105 @@ class Journal:
             if not item or not item.get("terminal"):
                 raise Conflict("dependency is missing or unresolved")
 
-    def _transaction(self, fn: Callable[[list[Json]], tuple[Json | None, T]]) -> T:
-        fd = os.open(self.path, os.O_RDWR | os.O_APPEND, 0o600)
-        with os.fdopen(fd, "r+", encoding="utf-8") as stream:
-            fcntl.flock(stream, fcntl.LOCK_EX)
-            rows: list[Json] = []
-            previous = "0" * 64
-            for line in stream:
-                if not line.endswith("\n"):
-                    raise Conflict("torn journal tail; offline repair required, refusing execution")
-                try:
-                    row = json.loads(line)
-                    claimed = row.pop("digest")
-                except (ValueError, KeyError, TypeError, AttributeError):
-                    raise Conflict("malformed journal record") from None
-                try:
-                    valid = row.get("prev") == previous and digest(row) == claimed
-                except (TypeError, ValueError):
-                    valid = False
-                if not valid:
-                    raise Conflict("journal integrity failure")
-                if row.get("seq") != len(rows):
-                    raise Conflict("non-contiguous event sequence")
-                row["digest"] = claimed
-                previous = claimed
-                rows.append(row)
+    def _transaction(self, fn: Callable[[list[Json]], tuple[Json | None, T]], *, shared: bool = False) -> T:
+        """Run fn on the verified rows under the file lock; append its event, if any.
+
+        shared=True takes LOCK_SH for read-only work: readers proceed together
+        and only wait for an appending writer. A shared fn must not return an event.
+        """
+        fd = os.open(self.path, os.O_RDONLY if shared else os.O_RDWR | os.O_APPEND)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+            rows, previous = self._verified_rows(fd)
             event, result = fn(rows)
             if event is not None:
+                if shared:
+                    raise RuntimeError("read-only journal transaction attempted to append")
                 self._check_application_admission(rows, event)
                 event = {**event, "seq": len(rows), "prev": previous}
                 event["digest"] = digest(event)
-                stream.write(canonical(event) + "\n")
-                stream.flush()
-                os.fsync(stream.fileno())
+                pending = memoryview((canonical(event) + "\n").encode("utf-8"))
+                while pending:
+                    pending = pending[os.write(fd, pending):]
+                os.fsync(fd)
             return result
+        finally:
+            os.close(fd)
+
+    @staticmethod
+    def _parse_record(line: bytes, previous: str, seq: int) -> Json:
+        if not line.endswith(b"\n"):
+            raise Conflict("torn journal tail; offline repair required, refusing execution")
+        try:
+            row = json.loads(line)
+            claimed = row.pop("digest")
+        except (ValueError, KeyError, TypeError, AttributeError):
+            raise Conflict("malformed journal record") from None
+        try:
+            valid = row.get("prev") == previous and digest(row) == claimed
+        except (TypeError, ValueError):
+            valid = False
+        if not valid:
+            raise Conflict("journal integrity failure")
+        if row.get("seq") != seq:
+            raise Conflict("non-contiguous event sequence")
+        row["digest"] = claimed
+        return row
+
+    def _verified_rows(self, fd: int) -> tuple[list[Json], str]:
+        """Rows of the locked file, verifying only bytes past the cached verified prefix."""
+        info = os.fstat(fd)
+        identity, size, now = (info.st_dev, info.st_ino), info.st_size, time.monotonic()
+        with self._verified_lock:
+            cache = self._verified
+        incremental = cache is not None and cache.identity == identity and now - cache.verified_at < FULL_VERIFY_SECONDS
+        if incremental:
+            assert cache is not None
+            if size < cache.offset:
+                raise Conflict("journal integrity failure: verified history was truncated")
+            if cache.count:
+                # Re-hash the last verified record: a rewrite that recomputed the chain changes it.
+                anchor = os.pread(fd, cache.offset - cache.last_start, cache.last_start)
+                try:
+                    record = json.loads(anchor)
+                    claimed = record.pop("digest")
+                    unchanged = (anchor.endswith(b"\n") and claimed == cache.last_digest
+                                 and record.get("seq") == cache.count - 1 and digest(record) == claimed)
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    unchanged = False
+                if not unchanged:
+                    raise Conflict("journal integrity failure: verified history changed")
+            rows: list[Json] = marshal.loads(cache.blob)
+            offset, last_start, previous, verified_at = cache.offset, cache.last_start, cache.last_digest, cache.verified_at
+        else:
+            rows, offset, last_start, previous, verified_at = [], 0, 0, GENESIS, now
+        data = b""
+        while offset + len(data) < size:
+            chunk = os.pread(fd, size - offset - len(data), offset + len(data))
+            if not chunk:
+                break
+            data += chunk
+        start = 0
+        while start < len(data):
+            end = data.find(b"\n", start)
+            line = data[start:] if end < 0 else data[start:end + 1]
+            row = self._parse_record(line, previous, len(rows))
+            last_start, previous = offset + start, row["digest"]
+            rows.append(row)
+            start += len(line)
+        offset += len(data)
+        if not incremental and cache is not None and cache.count:
+            # A re-read (interval or replaced file) must extend what this process already trusted.
+            if len(rows) < cache.count or rows[cache.count - 1]["digest"] != cache.last_digest:
+                raise Conflict("journal integrity failure: history does not extend the verified journal")
+        if not incremental or offset != cache.offset:
+            # Serialized before fn sees the rows, so the cache holds only what was read from disk.
+            verified = _Verified(identity, offset, last_start, previous, len(rows), marshal.dumps(rows), verified_at)
+            with self._verified_lock:
+                current = self._verified
+                if current is None or current.identity != identity or current.offset <= offset:
+                    self._verified = verified
+        return rows, previous
 
     @staticmethod
     def _events(rows: list[Json]) -> Iterator[Json]:
@@ -330,7 +424,7 @@ class Journal:
         def read(rows: list[Json]) -> tuple[None, Json | None]:
             self._state(rows)
             return None, next((row for row in rows if row["kind"] == "runtime"), None)
-        return self._transaction(read)
+        return self._transaction(read, shared=True)
 
     def record_python_modules(
         self, expected: object, report: object,
@@ -353,7 +447,7 @@ class Journal:
         def read(rows: list[Json]) -> tuple[None, PythonModuleObservationReceipt | None]:
             state = self._state(rows)
             return None, state.get("python_module_observations", {}).get(observation_id)
-        return self._transaction(read)
+        return self._transaction(read, shared=True)
 
     def requested(self, action: Action) -> None:
         action = Action.model_validate_json(canonical(action))
@@ -378,7 +472,7 @@ class Journal:
         self._transaction(apply)
 
     def events(self) -> list[Json]:
-        return self._transaction(lambda rows: (None, rows))
+        return self._transaction(lambda rows: (None, rows), shared=True)
 
     def cancel_unstarted(self, action: Action) -> None:
         """Release only an original reservation proved never to have started."""
@@ -396,7 +490,7 @@ class Journal:
         self._transaction(apply)
 
     def snapshot(self) -> Json:
-        return self._transaction(lambda rows: (None, self._state(rows)))
+        return self._transaction(lambda rows: (None, self._state(rows)), shared=True)
 
     def policy(self) -> Policy:
         return Policy.model_validate_json(canonical(self.snapshot()["policy"]))

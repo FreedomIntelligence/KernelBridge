@@ -101,7 +101,7 @@ class GoalProgressTests(unittest.TestCase):
         host.capture_source = lambda: {'source_sha256': 'a' * 64, 'snapshot_kind': 'conversation_only', 'files': []}
         def state():
             value = self.app.state(); value['goal']['max_forks'] = 1
-            return dict(value, pending_effect_ids=[], budget={'limit': None, 'spent': 0, 'reserved': 0})
+            return dict(value, pending_effect_ids=[], subagents=[], budget={'limit': None, 'spent': 0, 'reserved': 0})
         host.status = state
         connection = SimpleNamespace(worker=self.lease)
         params = {'operation': 'clone', 'pi_session_id': 'native', 'entry_id': 'entry'}

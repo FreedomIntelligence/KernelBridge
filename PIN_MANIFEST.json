@@ -1984,8 +1984,8 @@
       "sha256": "105b7e735831160ab717d899894198b01273bc089eed95acd4254a1c9579f15e"
     },
     "source/apps/worker/src/kernelcat_worker/application_host.py": {
-      "bytes": 76316,
-      "sha256": "a3d2d9b919b4357dc298985f7db6f34cfe4327717ac318c3f350d6fa6c58b129"
+      "bytes": 76660,
+      "sha256": "1315980f2d19be6a712ea8d5f7ea852eb8f2d72655cf6e1061fefdf6f841e548"
     },
     "source/apps/worker/src/kernelcat_worker/application_measurements.py": {
       "bytes": 5728,
@@ -3372,16 +3372,16 @@
       "sha256": "5cfcfba6d37a978e8e28eafceb96903dc063872c4e6d7c84c1488da1d5e44bf2"
     },
     "source/packages/executor/src/kernelcat_executor/state/application.py": {
-      "bytes": 20444,
-      "sha256": "852e406b55ba34e1ecbd71799ab8dab40204cf06fffd28208db08ede536b147d"
+      "bytes": 20658,
+      "sha256": "66f6b3757b5e463e11d67c38ba499698dbd8801be304c4056f8c92176489a52d"
     },
     "source/packages/executor/src/kernelcat_executor/state/goal_progress.py": {
       "bytes": 2542,
       "sha256": "7c1cee24202d218c19e36161818b82b3d23c7a71505aaaa9111ee36200bc47ba"
     },
     "source/packages/executor/src/kernelcat_executor/state/journal.py": {
-      "bytes": 27619,
-      "sha256": "d286de2da659422da42dc0b5eed3871dc30394430c6cf691ee5dfb09c318033b"
+      "bytes": 32386,
+      "sha256": "1fbc5c4598a5a86a75763e420e4ae42bfdcdf506852ee59085c9c0603616183c"
     },
     "source/packages/executor/src/kernelcat_executor/state/profile_journal.py": {
       "bytes": 7948,
@@ -3392,8 +3392,8 @@
       "sha256": "1d1d8fa701d9d0caa07130f22c6ef9391aba208cd66ef8136b19261f28b980ac"
     },
     "source/packages/executor/src/kernelcat_executor/state/runtime.py": {
-      "bytes": 33895,
-      "sha256": "50342b5d007cf5de6cbe7d61af8c118b3eb86600b65707ab4fd6e326e4584f57"
+      "bytes": 33935,
+      "sha256": "23caac0dec829af708b83094df412c770793c39cce7ffc70b377cb99f6a21ed1"
     },
     "source/packages/executor/src/kernelcat_executor/state/runtime_capture.py": {
       "bytes": 6809,
@@ -4324,8 +4324,8 @@
       "sha256": "fcbe8b9eecd9e9e62629bef453aca0134d3da32479b781c03734ec5209816d8f"
     },
     "validation/tui/subagent_parallel.py": {
-      "bytes": 15084,
-      "sha256": "a4d6c5e72a64982334dcfa72469d0a9366ee1d2c88bccd5ab82f739d67b42f9d"
+      "bytes": 15613,
+      "sha256": "8d1e31fd634e5519b85a430e64559618bf23306ab9f712747f5c8c3bc87a022c"
     },
     "validation/tui/test_authority.py": {
       "bytes": 14216,
@@ -4336,8 +4336,8 @@
       "sha256": "0adb66d4fe85fed3c6c94d0fb8a84c4dbcd4976d21ab5536508ffc5c285e192c"
     },
     "validation/tui/test_goal_progress.py": {
-      "bytes": 6411,
-      "sha256": "e969f891fa7c0ca05d17e9a064530a76d5075adbb9302496a2100210bed3fcf2"
+      "bytes": 6425,
+      "sha256": "048eb889d4968320f159cd49fac1e94376afc8cfd5f7a99cd1bb9858b32d6141"
     },
     "validation/tui/test_goal_review.py": {
       "bytes": 5833,

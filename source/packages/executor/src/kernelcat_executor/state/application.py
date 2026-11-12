@@ -103,7 +103,11 @@ class ApplicationJournal:
         self.journal, self.identity = journal, identity
 
     def state(self) -> dict:
-        return self.journal._transaction(lambda rows: (None, project(rows, self.identity)))
+        return self.journal._transaction(lambda rows: (None, project(rows, self.identity)), shared=True)
+
+    def read(self, fn):
+        """One shared read of the Journal: fn(rows) -> value, for combined projections."""
+        return self.journal._transaction(lambda rows: (None, fn(rows)), shared=True)
 
     def command(self, method: str, data: dict) -> dict:
         data = json.loads(json.dumps(data, allow_nan=False))
