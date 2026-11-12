@@ -610,6 +610,8 @@ class Pipeline:
         last = state.get('last_attempt') or {}
         observed = pending[0].get('observation', {}).get('observation_state', {}) if pending else {}
         live = (observed.get('status') == 'running' and observed.get('alive') is True
+                or observed.get('status') == 'settling' and observed.get('alive') is False
+                    and observed.get('supervisor_identity_verified') is True and observed.get('supervisor_alive') is True
                 or retained and not retained.get('collected') and retained.get('job_status') == 'running')
         waiting = bool(unresolved or not live and (pending or retained and not retained.get('collected')
                        or result.get('evaluation_status') == 'pending' and result.get('pending_kind') != 'phase_ready'

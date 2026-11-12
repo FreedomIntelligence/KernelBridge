@@ -48,6 +48,27 @@ def supervised_original(folder, intent):
     return request, handle, observation
 
 
+def original_failed_exit(folder, intent, handle, observation):
+    """Synthetic original supervisor bytes, accepted only by the real validator."""
+    receipt = {'schema_version': 'kernelbridge.native-execution-exit/v1',
+        'intent': {key: intent[key] for key in ('action_id', 'attempt', 'source_sha256')} | {'mode': 'max', 'device': 0},
+        'handle': handle, 'supervisor': handle['supervisor'], 'process_birth': handle['process_birth'],
+        **{key: handle[key] for key in ('remote_root', 'canonical_root', 'remote_attempt', 'execution_request_sha256')},
+        'returncode': -9, 'signal': 9, 'finished_ns': '1794401505504640402'}
+    raw = (json.dumps(receipt, indent=2) + '\n').encode(); hashed = hashlib.sha256(raw).hexdigest()
+    (folder / 'execution-exit.json').write_bytes(raw)
+    observed = {**observation, 'execution_exit': receipt, 'execution_exit_sha256': hashed,
+                'execution_exit_bytes': base64.b64encode(raw).decode()}
+    (folder / 'observation.json').write_text(json.dumps(observed))
+    failure = {'status': 'failed', 'correct': False, 'nonqualifying': True, 'result_origin': 'supervisor_exit',
+        'failure_stage': 'process_exit', 'source_sha256': intent['source_sha256'], 'action_id': intent['action_id'],
+        'attempt': intent['attempt'], 'remote_attempt': intent['remote_attempt'], 'remote_result_sha256': None,
+        'original_handle': handle, 'execution_exit_sha256': hashed, 'execution_exit_path': str(folder / 'execution-exit.json'),
+        'returncode': -9, 'signal': 9, 'error': 'Original process exited with return code -9'}
+    for name in ('execution-failure.json', 'result.json'): (folder / name).write_text(json.dumps(failure))
+    return raw
+
+
 DRIVER = '''import json,sys
 from pathlib import Path
 sys.path.insert(0,sys.argv[6])
@@ -67,6 +88,12 @@ if gate.exists():
  handle=documents.get('observed-launch.json') or documents['launch.json']['handle']
  value={'status':'completed','phase':'complete','job_status':'completed','handle':handle}
  if tamper.exists() and tamper.read_text()=='terminal_handle':value['handle']=dict(handle,pid=999)
+ if tamper.exists() and tamper.read_text()=='native_adapter':
+  sys.path.insert(0,str(Path(sys.argv[7]).parent))
+  from npu_pipeline_driver import execute
+  contract=json.loads(json.dumps(r['contract']));oracle=contract['oracle']['files']
+  contract['oracle']['files']={name:str(Path(oracle['root'])/name) for name in oracle['files']}
+  value=execute({'state':str(native.parent),'contract':contract,'mode':'max','device':0},kind,r)
 else:
  original=r.get('recovery',{}).get('action_id',r['action_id'])
  validator=Path(sys.argv[7]);validator_sha=__import__('hashlib').sha256(validator.read_bytes()).hexdigest()
@@ -215,6 +242,79 @@ class PendingObservationTests(unittest.TestCase):
         self.assertEqual(reply['continuation_progress']['state'], 'waiting')
         self.assertEqual(self.h.calls('check'), [])
         self.assertFalse((self.native / 'device-result.json').exists())
+
+
+    def test_verified_settling_window_preserves_fence_then_settles_only_original_exit(self):
+        self.tamper.write_text('noack'); first = self.first()
+        intent = json.loads((self.native / 'intent.json').read_bytes())
+        _, handle, observed = supervised_original(self.native, intent)
+        observed.update(lifecycle_state='settling', alive=False, supervisor_alive=True)
+        (self.native / 'observation.json').write_text(json.dumps(observed)); self.tamper.write_text('native_adapter')
+        settling = self.resume(first); result = self.h.result(settling)
+        projection = result['pending_observation']['observation_state']
+        self.assertEqual(projection['status'], 'settling')
+        self.assertTrue(projection['supervisor_alive']); self.assertTrue(projection['supervisor_identity_verified'])
+        self.assertEqual(settling['continuation_progress']['state'], 'progress')
+        self.assertEqual(settling['continuation_progress']['identity'], first['continuation_progress']['identity'])
+        ReadyBoundaryTests.assert_consumer_can_continue(self, settling, previous=first)
+        observed['observer_timestamp_ns'] = '9999999999999999999'
+        (self.native / 'observation.json').write_text(json.dumps(observed))
+        again = self.resume(settling)
+        self.assertEqual(again['continuation_progress']['fingerprint'], settling['continuation_progress']['fingerprint'])
+        state = Pipeline(self.h.config); launch_run = state.pending_launches()[0]['run']
+        self.assertEqual(state.state['handles'], []); self.assertEqual(len(state.pending_launches()), 1)
+        self.assertEqual(len(self.h.calls('launch')), 1); self.assertEqual(self.h.calls('check'), [])
+        raw = original_failed_exit(self.native, intent, handle, observed); self.h.gate.touch()
+        terminal = self.h.call('pipeline_run', stage='E', driver='collect', recover_run=launch_run, identity='settling-terminal')
+        self.assertEqual(terminal['continuation_progress']['identity'], settling['continuation_progress']['identity'])
+        self.assertEqual(terminal['continuation_progress']['state'], 'progress')
+        self.assertEqual(terminal['result']['result']['job_status'], 'failed')
+        state = Pipeline(self.h.config)
+        self.assertEqual(state.pending_launches(), []); self.assertEqual(len(state.state['handles']), 1)
+        self.assertTrue(state.state['handles'][0]['collected'])
+        self.assertEqual(state.state['handles'][0]['handle'], handle)
+        self.assertEqual((self.native / 'execution-exit.json').read_bytes(), raw)
+        self.assertFalse((self.native / 'device-result.json').exists())
+        calls = list(self.h.calls('collect'))
+        with self.assertRaises(FileExistsError):
+            self.h.call('pipeline_run', stage='E', driver='collect', recover_run=launch_run, identity='settling-terminal')
+        self.assertEqual(self.h.calls('collect'), calls); self.assertEqual(len(self.h.calls('launch')), 1)
+
+    def test_settling_requires_original_supervisor_proof_and_liveness(self):
+        self.tamper.write_text('noack'); first = self.first()
+        intent = json.loads((self.native / 'intent.json').read_bytes())
+        _, handle, base = supervised_original(self.native, intent)
+        base.update(lifecycle_state='settling', alive=False, supervisor_alive=True)
+        originals = {name: (self.native / name).read_bytes() for name in
+                     ('observed-launch.json', 'observed-execution-request.json')}
+        self.tamper.write_text('native_adapter')
+        for mutation in ('dead', 'lost', 'identity', 'birth', 'request_proof'):
+            with self.subTest(mutation=mutation):
+                for name, raw in originals.items(): (self.native / name).write_bytes(raw)
+                observed = copy.deepcopy(base)
+                if mutation == 'dead': observed['supervisor_alive'] = False
+                elif mutation == 'lost': observed.pop('supervisor_alive')
+                elif mutation == 'identity': observed['identity_verified'] = False
+                elif mutation == 'birth': observed['handle']['supervisor']['birth']['start_seconds'] = '0'
+                else: (self.native / 'observed-execution-request.json').unlink()
+                (self.native / 'observation.json').write_text(json.dumps(observed))
+                reply = self.resume(first)
+                self.assertEqual(reply['continuation_progress']['state'], 'waiting')
+                state = Pipeline(self.h.config)
+                self.assertEqual(state.state['handles'], []); self.assertEqual(len(state.pending_launches()), 1)
+        self.assertEqual(len(self.h.calls('launch')), 1); self.assertEqual(self.h.calls('check'), [])
+
+    def test_legacy_dead_child_cannot_claim_settling_with_a_liveness_boolean(self):
+        first = self.first()
+        path = self.native / 'observation.json'; observed = json.loads(path.read_bytes())
+        observed.update(alive=False, lifecycle_state='settling', supervisor_alive=True, identity_verified=True)
+        path.write_text(json.dumps(observed))
+        reply = self.resume(first)
+        projection = self.h.result(reply)['pending_observation']['observation_state']
+        self.assertNotEqual(projection['status'], 'settling')
+        self.assertNotIn('supervisor_identity_verified', projection)
+        self.assertEqual(reply['continuation_progress']['state'], 'waiting')
+        self.assertEqual(Pipeline(self.h.config).state['handles'], [])
 
     def test_forged_terminal_handle_cannot_clear_observed_original_launch_fence(self):
         first = self.first(); self.h.gate.touch(); self.tamper.write_text('terminal_handle')
@@ -423,7 +523,7 @@ class ReadyBoundaryTests(unittest.TestCase):
         self.h = evaluation_fixture.EvaluatePipelineTests(methodName='runTest'); self.h.setUp()
         self.addCleanup(self.h.doCleanups)
 
-    def assert_consumer_can_continue(self, reply):
+    def assert_consumer_can_continue(self, reply, previous=None):
         for path in ROOT.glob('source/packages/*/src'): sys.path.insert(0, str(path))
         from kernelcat_executor.state.continuation_progress import continuation_activity
         events = [
@@ -431,7 +531,14 @@ class ReadyBoundaryTests(unittest.TestCase):
              'application_context': {'input_id': 'input', 'goal_id': 'goal'}},
             {'seq': 3, 'kind': 'settled', 'action_id': 'evaluate', 'outcome': {'status': 'completed', 'data': reply}},
         ]
-        actual = continuation_activity(events, {'input_id': 'input', 'accepted_seq': 1, 'completed_seq': 4},
+        if previous is not None:
+            events = [
+                {'seq': 2, 'kind': 'admitted', 'action': {'id': 'original-wait', 'tool': 'pipeline_evaluate', 'task': 'task', 'arguments': {}},
+                 'application_context': {'input_id': 'input', 'goal_id': 'goal'}},
+                {'seq': 3, 'kind': 'settled', 'action_id': 'original-wait', 'outcome': {'status': 'completed', 'data': previous}},
+                *[{**event, 'seq': event['seq'] + 2} for event in events],
+            ]
+        actual = continuation_activity(events, {'input_id': 'input', 'accepted_seq': 1, 'completed_seq': 6 if previous is not None else 4},
             task_id='task', goal_id='goal', start_seq=0)
         self.assertFalse(actual['waiting']); self.assertTrue(actual['progress']); self.assertFalse(actual['invalid_signal'])
 

@@ -282,7 +282,9 @@ def observe(folder, expected=None):
     if (type(handle.get('pid')) is not int or handle['pid'] <= 0 or not _valid_birth(handle.get('process_birth'))
             or type(supervisor.get('pid')) is not int or supervisor['pid'] <= 0 or not _valid_birth(supervisor.get('birth'))):
         raise ValueError('Original process birth binding is invalid')
-    if _present(folder / 'execution-exit.json'):
+    def terminal_receipt():
+        if not _present(folder / 'execution-exit.json'):
+            return None
         raw = _read(folder / 'execution-exit.json')
         record = validate_exit_receipt(raw, handle=handle, intent=request['intent'])
         return {'handle': handle, 'alive': False, 'lifecycle_state': 'exited', 'identity_verified': True,
@@ -290,12 +292,26 @@ def observe(folder, expected=None):
                 'execution_request_bytes': base64.b64encode(request_raw).decode(), 'execution_request_sha256': request_sha,
                 'execution_exit': record, 'execution_exit_sha256': _sha(raw),
                 'execution_exit_bytes': base64.b64encode(raw).decode()}
-    child_alive = process_birth(handle['pid'], require_live=True) == handle.get('process_birth')
+    terminal = terminal_receipt()
+    if terminal is not None:
+        return terminal
+    child_birth = process_birth(handle['pid'], require_live=True)
+    child_alive = child_birth == handle.get('process_birth')
     supervisor_alive = process_birth(supervisor['pid'], require_live=True) == supervisor.get('birth')
+    if not supervisor_alive:
+        # The supervisor may have persisted its exit between the first receipt
+        # read and this process snapshot. Prefer those original terminal bytes.
+        terminal = terminal_receipt()
+        if terminal is not None:
+            return terminal
+    # A matching supervisor may still be persisting the real wait receipt.
+    # A different live PID birth is an identity mismatch, never settling.
+    lifecycle = ('running' if child_alive and supervisor_alive else
+                 'settling' if child_birth is None and supervisor_alive else 'unknown')
     return {'handle': handle, 'alive': child_alive, 'supervisor_alive': supervisor_alive, 'identity_verified': True,
             'original_launch_bytes': base64.b64encode(launch_raw).decode(), 'original_launch_sha256': _sha(launch_raw),
             'execution_request_bytes': base64.b64encode(request_raw).decode(), 'execution_request_sha256': request_sha,
-            'lifecycle_state': 'running' if child_alive and supervisor_alive else 'unknown'}
+            'lifecycle_state': lifecycle}
 
 
 def launch(request, argv):

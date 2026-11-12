@@ -76,6 +76,23 @@ test('trace shows a plan update as a titled checklist', () => {
   assert.equal(step.out, '拆成三步\n\n✔ 复现失败的测试\n■ 修复 parser 的边界条件并补充回归测试用例\n□ 跑全量测试');
 });
 
+test('Goal elapsed preserves exact nanosecond boundaries on a fixed millisecond clock', t => {
+  const now = 1_794_441_600_006;
+  t.mock.method(Date, 'now', () => now);
+  const nowNs = BigInt(now) * 1_000_000n;
+  const started = nowNs - 65_000_000_000n;
+  const usage = { elapsed_seconds: 42 };
+  // This phase rounds up by 128 ns if converted to Number before subtraction.
+  assert.equal(goalElapsed({ started_at_ns: String(started) }, usage), '1m05s');
+  assert.equal(goalElapsed({ started_at_ns: String(started + 1n) }, usage), '1m04s');
+  assert.equal(goalElapsed({ started_at_ns: String(started - 1n) }, usage), '1m05s');
+  assert.equal(goalElapsed({ started_at_ns: String(nowNs + 1n) }, usage), '0s');
+  assert.equal(goalElapsed({ started_at_ns: String(started), ended_at_ns: String(nowNs) }, usage), '42s');
+  for (const invalid of [undefined, null, '', 'invalid', 'Infinity', '1.5', '0', '-1']) {
+    assert.equal(goalElapsed({ started_at_ns: invalid }, usage), '42s', String(invalid));
+  }
+});
+
 test('/goal status is live: elapsed follows the clock, counters follow refreshed state', async () => {
   const now = Date.now();
   const started = String(BigInt(now - 65_000) * 1_000_000n);

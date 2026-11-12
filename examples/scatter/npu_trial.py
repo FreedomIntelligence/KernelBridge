@@ -454,7 +454,10 @@ def collect(config, folder, run):
                 if receipt['returncode'] != 0 or observation['result'] is None:
                     return execution_failure(config, folder, intent, observation, run)
             else:
-                if observation.get('lifecycle_state') == 'unknown' or not observation['alive'] or time.monotonic() >= deadline:
+                awaiting_original_exit = observation.get('supervisor_alive') is True and (
+                    observation.get('lifecycle_state') == 'running' and observation.get('alive') is True
+                    or observation.get('lifecycle_state') == 'settling' and observation.get('alive') is False)
+                if not awaiting_original_exit or time.monotonic() >= deadline:
                     return unknown_observation(folder, intent, 'Original supervised job has no verified exit receipt; recover its existing identity', observation=observation)
                 time.sleep(config.get('poll_seconds', 5))
                 continue

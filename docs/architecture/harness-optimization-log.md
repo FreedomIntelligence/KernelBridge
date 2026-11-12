@@ -1064,3 +1064,66 @@ lifecycle qualification, not a new NPU optimization trial or performance claim.
 Full details and retained failure logs are indexed in
 `validation/tui/ACCEPTANCE.md`. Min, Cube and stable fresh repetition remain
 incomplete; no unknown original job was settled or replaced during these fixes.
+
+### Main rebase and persistence-window qualification
+
+The recovery branch was rebased onto main `c8a2e45`. Full Python discovery
+passed 470/470 with no skips in
+`.validation/rebase-main/python-full.log`. The subsequent full TUI run passed
+26/27 groups, with only the JavaScript group failing: an exact 65-second Goal
+interval displayed as `1m04s` after epoch-nanosecond conversion lost precision.
+The failure remains recorded in `.validation/rebase-main/tui-full/`; it is not
+an environmental timeout or a passing full run. The repair keeps subtraction
+and division in `BigInt`, preserves the existing live-clock assertions and
+passes all six plan-presentation tests. This changes display arithmetic, not
+host usage accounting, budgets or measurement timing.
+
+Independent recovery review identified a second distinction between waiting
+for external evidence and executing an available observation. The original
+child may exit just before its still-live supervisor persists the actual wait
+receipt. The new `settling` state is permitted only after original
+launch/request bytes, pinned code and supervisor birth are verified. The
+pipeline remains unknown and fenced while collecting that original receipt;
+it does not insert an observed handle into settled executions. A repeated
+unchanged observation retains the same semantic fingerprint. Missing proof,
+supervisor loss and legacy liveness claims do not grant continued execution.
+The actual original exit, once present and verified, settles only that identity.
+This is a generic asynchronous-process boundary, not an operator-specific hint.
+
+Native local tests passed 45/45, pipeline/consumer boundary tests passed 37/37,
+and an independent Linux CPU lifecycle probe passed 7/7. The Linux probe used
+its own namespace and lease. Its first six checks used unchanged production
+code; the seventh used a separate instrumented test copy to hold the real
+child-wait/persist boundary. No production delay, NPU job or original-trial
+mutation was involved. Source hashes and original logs are retained under
+`.validation/supervisor-settling/` and `.validation/terminal-recovery/`.
+
+The final focused TUI validation passed 7/7 at timeout scale 1.0, with no
+failed, flaky or environmental group. It covers deployment, full JavaScript,
+authority, interaction, advanced, Goal review and Goal plan. Full npm passed
+225 tests with one case-sensitive-filesystem skip and no failure; authority
+passed 162/162 and advanced passed all 11 checks. All 30 referenced evidence
+files matched their recorded lengths and hashes in
+`.validation/rebase-main/tui-final-focused/acceptance.json` (SHA256
+`fa1b001605f3dd92423f76743d52c951dc261eb53eab525da70dfd292fb754ae`).
+The qualification is the earlier full run's 26 passing groups plus this focused
+follow-up, not another full 27/27 invocation. The failed full-run log and all
+earlier failures remain retained.
+
+There was no new optimization trial during these repairs. Max still represents
+one accepted six-case 5.250296× paired result, not independent stable
+reproduction or E4. Min remains paused with its third original attempt unknown
+and no E1/E3/H; Cube has not started in that batch. The prior call-52 replay is
+still an offline counterfactual, not a measured reduction in model calls. These
+separate fixes must not be presented as evidence for a single causal explanation
+of a later optimization result.
+
+The last original-min identity recheck is retained in
+`.validation/original-min-final-recheck/recheck-report.md`. It found the original
+PID absent, no matching lease lock, no final benchmark or exit bytes, and
+unchanged original source/intent/launch/intermediate-status evidence. Those
+facts still mean unknown, not a reconstructed failure verdict. A new supervisor
+cannot supply an old process's missing exit retroactively. The next clean batch
+is planned independently, preserving the old unresolved session and artifacts;
+it is not a retry of that original handle. No new clean batch is reported as
+started by this entry.

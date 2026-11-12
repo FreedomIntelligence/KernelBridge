@@ -381,3 +381,79 @@ These results qualify local behavior and recovery contracts. The previous
 clean max result is not a new trial of this revision. The original min job
 still has no terminal receipt, Cube has not started in that batch, and stable
 fresh device repetition remains outstanding.
+
+## Rebase qualification and terminal-persistence follow-up (2026-11-12)
+
+After rebasing the recovery branch onto main `c8a2e45`, full Python discovery
+passed **470/470**, zero skips, in 270.806 seconds
+(`.validation/rebase-main/python-full.log`). The earlier 469-test legacy-ACK
+failure and subsequent successful 470-test run remain retained under
+`.validation/acceptance/`; the rebase run is a separate full invocation.
+
+The post-rebase full TUI run in
+`.validation/rebase-main/tui-full/acceptance.json` passed **26/27** groups at
+timeout scale 1.0, with one failed group and no flaky or environmental outcomes.
+The sole failure was the full JavaScript check: 223 passed, one failed and one
+case-sensitive-filesystem skip (225 total). Its live Goal elapsed assertion
+observed `1m04s` for an exact 65-second interval. This failed full run is retained
+and is not reported as passing.
+
+The defect was production display arithmetic: converting epoch nanoseconds to
+`Number` before subtraction could round a whole-second boundary downward.
+The repair subtracts and divides using `BigInt`, converting only the small
+elapsed-seconds result to `Number`. The old live-clock/widget assertions remain
+unchanged; a fixed-clock regression was added. Deterministic probes found 125
+wrong values in 1,000 timestamp phases with the old code and none with the
+repair. The applied `plan-presentation.mjs` follow-up passed **6/6**, no skips,
+in `.validation/goal-elapsed-draft/applied-targeted.log`. Host accounting,
+budgets, layout and device timing did not change.
+
+A separately identified process-persistence window is also repaired. When the
+original child has exited but its original supervisor is still persisting the
+wait receipt, verified `settling` permits collection of that same receipt.
+It remains unknown and fenced; no replacement launch or early qualification is
+authorized. Original launch/request bytes, pinned code and process birth must
+match. Missing proof, a lost/dead supervisor or legacy liveness claims still wait.
+The native lifecycle regression passed **45/45**
+(`.validation/supervisor-settling/targeted-final.log`); projection, continuation
+and original-identity regression passed **37/37**
+(`.validation/terminal-recovery/settling-focused-final.log`). These are focused
+checks after the full Python run, not a claim that an enlarged full suite ran.
+
+The independent CPU-only Linux probe passed **7/7**, with terminal return code
+zero and retained original output/source hashes in
+`.validation/supervisor-settling/linux-collection.json`. Six checks use the
+unmodified production module. The seventh uses an isolated test copy with a
+file latch after the actual child wait to observe `settling`, then the validated
+original exit receipt. No persistence delay was added to production. The probe
+used its own temporary namespace and lease, without Torch, CANN, a compiler,
+an NPU kernel or the original min deployment.
+
+The final focused TUI run passed **7/7**, with zero failed, flaky or
+environmental groups at timeout scale 1.0. It covers deployment, full JavaScript,
+authority, interaction, advanced, Goal review and Goal plan. Its full npm run
+passed **225 tests**, with one case-sensitive-filesystem skip and zero failures
+(226 total); authority passed **162/162**, and advanced passed all 11 checks.
+All 30 referenced evidence files matched their recorded lengths and hashes.
+The acceptance file is
+`.validation/rebase-main/tui-final-focused/acceptance.json`, SHA256
+`fa1b001605f3dd92423f76743d52c951dc261eb53eab525da70dfd292fb754ae`.
+The earlier pre-rebase full run's 145 evidence files were also checked and remain
+retained. This qualification combines the post-rebase full run's 26 passing
+groups with the focused follow-up; it is **not** a new full 27/27 invocation.
+
+These checks qualify harness behavior. Max remains the single previously
+accepted paired result; min's original job remains unknown, Cube has not started
+in that batch, and fresh stable device repetition remains outstanding.
+
+The final original-min read-only identity check at
+`.validation/original-min-final-recheck/recheck-report.md` still found no
+benchmark result or actual exit receipt. Original source, intent, launch,
+intermediate status and local receipt bytes remained unchanged. An absent PID
+and free lease do not establish an exit code or benchmark verdict; the old
+persisted `running` checkpoint is not evidence of current liveness. The original
+attempt remains unknown, and the new supervisor cannot retroactively provide
+its missing exit evidence. A subsequent clean batch is planned with an
+independent session and namespace while preserving that unresolved original;
+it must not redispatch the old handle. This entry records no new batch launch
+or optimization result.

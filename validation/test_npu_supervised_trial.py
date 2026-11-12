@@ -193,4 +193,67 @@ if mode in ('sleep','early-result'):time.sleep(30)
         self.assertEqual(self.calls.count(npu_trial.LAUNCH), 1)
 
 
+    def delayed_exit_fixture(self):
+        # Instrument only this test's copied supervisor. Production code has no
+        # sleep or testing hook, and the test host pins the copied module bytes.
+        path = self.deployment / 'tools/npu_job_supervisor.py'
+        code = path.read_text()
+        original = '    rc = child.wait()\n'
+        replacement = (original + "    (folder / 'test-settling-ready').write_text('wait returned')\n"
+                       + "    while not (folder / 'test-settling-release').exists(): time.sleep(.01)\n")
+        self.assertEqual(code.count(original), 1)
+        path.write_text(code.replace(original, replacement))
+        return patch.object(npu_trial, '__file__', str(path.with_name('npu_trial.py')))
+
+    def test_dead_child_waits_for_original_supervisor_exit_without_redispatch(self):
+        states = []
+        def settling_transport(argv, **kwargs):
+            if argv[3] == npu_trial.COLLECT and not states:
+                remote = Path(self.handles[0]['attempt'])
+                deadline = time.monotonic() + 3
+                while not (remote / 'test-settling-ready').exists() and time.monotonic() < deadline:
+                    time.sleep(.01)
+                self.assertTrue((remote / 'test-settling-ready').exists())
+            reply = self.transport(argv, **kwargs)
+            if argv[3] == npu_trial.COLLECT:
+                observed = json.loads(reply['stdout']); states.append(observed['lifecycle_state'])
+                if observed['lifecycle_state'] == 'settling':
+                    self.assertFalse(observed['alive']); self.assertTrue(observed['supervisor_alive'])
+                    self.assertFalse((self.folder / 'result.json').exists())
+                    self.assertNotIn('execution_exit', observed)
+                    (Path(self.handles[0]['attempt']) / 'test-settling-release').touch()
+            return reply
+        with self.delayed_exit_fixture():
+            result = self.run_trial(settling_transport)
+        self.assertEqual(states[0], 'settling'); self.assertEqual(states[-1], 'exited')
+        self.assertEqual(result['status'], 'completed', result)
+        self.assertEqual(result['data']['result_origin'], 'benchmark')
+        self.assertEqual(self.calls.count(npu_trial.LAUNCH), 1)
+
+    def test_settling_deadline_stays_unknown_until_original_exit_arrives(self):
+        self.config['wait_seconds'] = 0
+        def after_child_exit(argv, **kwargs):
+            if argv[3] == npu_trial.COLLECT:
+                remote = Path(self.handles[0]['attempt'])
+                deadline = time.monotonic() + 3
+                while not (remote / 'test-settling-ready').exists() and time.monotonic() < deadline:
+                    time.sleep(.01)
+                self.assertTrue((remote / 'test-settling-ready').exists())
+            return self.transport(argv, **kwargs)
+        with self.delayed_exit_fixture():
+            first = self.run_trial(after_child_exit)
+            observed = json.loads((self.folder / 'observation.json').read_bytes())
+            self.assertEqual(observed['lifecycle_state'], 'settling')
+            self.assertTrue(observed['supervisor_alive']); self.assertFalse(observed['alive'])
+            self.assertEqual(first['status'], 'unknown', first)
+            self.assertEqual(first['data']['original_handle'], self.handles[0])
+            self.assertFalse((self.folder / 'result.json').exists())
+            self.assertFalse((self.folder / 'device-result.json').exists())
+            (Path(self.handles[0]['attempt']) / 'test-settling-release').touch()
+            self.config['wait_seconds'] = 5
+            final = self.run_trial()
+        self.assertEqual(final['status'], 'completed', final)
+        self.assertEqual(final['data']['original_handle'], first['data']['original_handle'])
+        self.assertEqual(self.calls.count(npu_trial.LAUNCH), 1)
+
 if __name__ == '__main__': unittest.main()

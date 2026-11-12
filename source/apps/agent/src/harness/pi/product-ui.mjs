@@ -62,9 +62,16 @@ export function goalSummary(state) {
 /** A running Goal's age from its start time on the UI clock, in whole seconds (the host's
     own measure); an ended Goal, and a deterministic screen, keep the host's figure. */
 export function goalElapsed(goal, usage) {
-  const started = Number(goal?.started_at_ns);
-  const seconds = !DETERMINISTIC && !goal?.ended_at_ns && Number.isFinite(started) && started > 0
-    ? Math.max(0, Math.floor((clock() - started / 1e6) / 1000)) : Math.max(0, Math.floor(usage?.elapsed_seconds ?? 0));
+  let seconds = Math.max(0, Math.floor(usage?.elapsed_seconds ?? 0));
+  if (!DETERMINISTIC && !goal?.ended_at_ns) {
+    try {
+      const started = BigInt(goal?.started_at_ns);
+      if (started > 0n) {
+        const elapsed = BigInt(clock()) * 1_000_000n - started;
+        seconds = elapsed > 0n ? Number(elapsed / 1_000_000_000n) : 0;
+      }
+    } catch { /* Missing or invalid start timestamps keep the host's figure. */ }
+  }
   const pad = value => String(value).padStart(2, '0');
   return seconds < 60 ? `${seconds}s` : seconds < 3600 ? `${Math.floor(seconds / 60)}m${pad(seconds % 60)}s`
     : `${Math.floor(seconds / 3600)}h${pad(Math.floor(seconds / 60) % 60)}m`;

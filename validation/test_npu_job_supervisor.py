@@ -173,6 +173,56 @@ class NativeJobSupervisorTests(unittest.TestCase):
             value = self.observe(handle)
         self.assertEqual(value['lifecycle_state'], 'unknown'); self.assertFalse(value['alive'])
 
+    def test_dead_child_with_original_live_supervisor_settles_until_real_exit_receipt(self):
+        # Only this isolated module copy pauses receipt persistence. Production
+        # has no delay/hook; the child and supervisor remain real CPU processes.
+        copied = self.root / 'tools/npu_job_supervisor.py'; copied.parent.mkdir()
+        original = Path(supervisor.__file__).read_text()
+        needle = '    rc = child.wait()\n'
+        self.assertEqual(original.count(needle), 1)
+        paused = original.replace(needle, needle +
+            "    (Path(request['remote_root']) / 'child-waited').write_text('wait completed')\n"
+            "    while not (Path(request['remote_root']) / 'release-exit').exists():\n"
+            "        time.sleep(.01)\n")
+        copied.write_text(paused)
+        request = dict(self.request, supervisor_sha256=hashlib.sha256(copied.read_bytes()).hexdigest())
+        with patch.object(supervisor, '__file__', str(copied)):
+            handle, _ = self.start(request=request)
+            self.wait(lambda: (self.root / 'child-waited').exists())
+            value = self.observe(handle, request)
+            self.assertFalse(value['alive']); self.assertTrue(value['supervisor_alive'])
+            self.assertEqual(value['lifecycle_state'], 'settling')
+            self.assertNotIn('execution_exit', value)
+            self.assertFalse((self.folder / 'execution-exit.json').exists())
+            (self.root / 'release-exit').write_text('release fixture wait')
+            value = self.exited(handle, request)
+            self.assertEqual(value['lifecycle_state'], 'exited')
+            self.assertEqual(value['execution_exit']['returncode'], 0)
+
+    def test_exit_persisted_during_dead_process_snapshot_is_revalidated(self):
+        handle, _ = self.start(); original = self.exited(handle)
+        path = self.folder / 'execution-exit.json'; raw = path.read_bytes()
+        birth = supervisor.process_birth
+        for changed in (False, True):
+            with self.subTest(changed=changed):
+                path.unlink()
+                value = json.loads(raw)
+                if changed: value['intent']['action_id'] = 'other-action'
+                payload = json.dumps(value).encode() if changed else raw
+                def publish_on_supervisor_snapshot(pid, **kwargs):
+                    if pid == handle['supervisor']['pid']:
+                        path.write_bytes(payload)
+                    return birth(pid, **kwargs)
+                try:
+                    with patch.object(supervisor, 'process_birth', side_effect=publish_on_supervisor_snapshot):
+                        if changed:
+                            with self.assertRaisesRegex(ValueError, 'intent differs'):
+                                self.observe(handle)
+                        else:
+                            self.assertEqual(self.observe(handle), original)
+                finally:
+                    path.write_bytes(raw)
+
     def test_historical_exit_is_valid_even_after_pid_reuse(self):
         handle, _ = self.start()
         value = self.exited(handle)

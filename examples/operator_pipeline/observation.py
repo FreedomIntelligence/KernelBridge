@@ -123,8 +123,18 @@ def envelope(request, operation, launch_action_id, documents, hashes, *, raw_fil
                 raise ValueError('Provisional benchmark observation is not bound to its original supervised job')
             state['provisional_result'] = {'authority': 'observation_only', 'payload_sha256': digest(provisional),
                 'reported_bytes_sha256': reported_sha, 'bytes_hash_verified_locally': False}
-        if handle and 'supervisor' in handle and observed.get('lifecycle_state') == 'unknown':
-            state['status'] = 'missing_exit'
+        if handle and 'supervisor' in handle:
+            # Only the original launch/request bytes prove the supervisor's
+            # identity. A later liveness boolean alone never permits polling.
+            verified_supervisor = bool(recovered) and observed.get('identity_verified') is True
+            if verified_supervisor and type(observed.get('supervisor_alive')) is bool:
+                state.update(supervisor_alive=observed['supervisor_alive'], supervisor_identity_verified=True)
+            lifecycle = observed.get('lifecycle_state')
+            if lifecycle == 'settling':
+                state['status'] = ('settling' if verified_supervisor and observed.get('supervisor_alive') is True
+                    and observed['alive'] is False else 'missing_exit')
+            elif lifecycle == 'unknown':
+                state['status'] = 'missing_exit'
         state['alive'] = observed['alive']
         log = observed.get('log')
         if isinstance(log, dict):
