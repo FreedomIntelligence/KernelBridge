@@ -2,9 +2,6 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { codegenSettings } from './codegen.mjs';
-import { parseGoalCommand } from '../harness/pi/command-policy.mjs';
-import { loadInteractiveMode } from '../harness/pi/interactive-patch.mjs';
-import { installProductUI, showProductFeedback } from '../harness/pi/product-ui.mjs';
 
 const commands = [
   { name: 'help', description: '命令与快捷键' }, { name: 'config', description: '加载模型配置', argumentHint: 'PATH' },
@@ -15,11 +12,15 @@ const commands = [
 const help = '输入任务后开始执行；完成后等待下一条输入。\n/config PATH：加载配置 · /model MODEL：选择模型 · /resume：恢复会话\n/goal 目标内容：显式开启持续执行 · /quit：退出\nEnter：发送 · Shift+Enter：换行 · Ctrl+C：清空，再按退出 · Ctrl+D：空输入时退出';
 
 /** Configured sessions open the real governed Pi UI immediately, with no prompt. */
-export async function startScreen(options) {
+export async function startScreen(options, beforeSetup = () => {}) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('交互模式需要终端；脚本调用请使用 run 或 SDK。');
   let settings = await codegenSettings(options);
   if (!settings.problem) return { settings, submission: { prompt: options.prompt, goal: options.goal } };
   if (options.prompt || options.goal) throw new Error(settings.problem);
+  beforeSetup();
+  // The setup UI loads Pi's interface (about 0.5 s); a configured start never needs it.
+  const [{ parseGoalCommand }, { loadInteractiveMode }, { installProductUI, showProductFeedback }] = await Promise.all([
+    import('../harness/pi/command-policy.mjs'), import('../harness/pi/interactive-patch.mjs'), import('../harness/pi/product-ui.mjs')]);
   // Model setup also uses InteractiveMode. Its in-memory session cannot execute.
   const directory = await mkdtemp(join(tmpdir(), 'kernelbridge-setup-'));
   let runtime, mode, context, finish;

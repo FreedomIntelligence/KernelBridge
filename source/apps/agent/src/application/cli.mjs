@@ -1,10 +1,8 @@
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { attachApplication, startApplication, prepareApplication, sessions } from './host.mjs';
 import { startCodegen, resumeCodegen } from './codegen.mjs';
 import { startScreen } from './start-screen.mjs';
-import { traceCommand, traceHost } from './trace.mjs';
+import { prewarmWorker, startupStatus } from './prewarm.mjs';
 
 export const HELP = `KernelBridge
   kernelagent                              Open codegen in the current project; wait for input
@@ -32,8 +30,8 @@ Explicit task / experiment mode:
   kernelagent run --help                   Headless execution and managed-runtime commands
 `;
 
-export async function applicationMain(args) {
-  if (args[0] === 'trace') return traceCommand(args.slice(1));
+export async function applicationMain(args, early = {}) {
+  if (args[0] === 'trace') return (await import('./trace.mjs')).traceCommand(args.slice(1));
   if (args.includes('--help') || args.includes('-h')) { process.stdout.write(HELP); return 0; }
   if (args[0] === 'sessions') { process.stdout.write(JSON.stringify(await sessions(), null, 2) + '\n'); return 0; }
   if (args[0] === 'session') {
@@ -87,20 +85,25 @@ export async function applicationMain(args) {
   if (options.task && (!options.output || !(options.config || options.profile))) throw new Error('--task requires --output and --config or --profile');
   if (options.goal && options.prompt) throw new Error('Choose an initial prompt or --goal, not both');
   if (options.onDetach && !['pause', 'continue'].includes(options.onDetach)) throw new Error('--on-detach must be pause or continue');
+  // The interface process loads Pi (most of a second) while the host starts; it
+  // receives its one-use ticket over IPC once the host has issued one. main.ts
+  // usually started it already (early.worker).
+  let worker = early.worker ?? (process.stdin.isTTY && process.stdout.isTTY ? prewarmWorker() : undefined);
+  const status = early.status ?? startupStatus();
   let client;
+  try {
   if (options.attach) client = await attachApplication(options.attach, { restart: options.restart });
-  else if (options.resume) client = await resumeCodegen(options);
+  else if (options.resume) { status.clear(); client = await resumeCodegen(options); }  // may show the session picker
   else if (options.task) {
     options.sessionOnly ??= true;
     client = options.profile ? await prepareApplication(options) : await startApplication(options);
   } else {
-    const start = await startScreen(options);
+    const start = await startScreen(options, status.clear);
     if (!start) return 0;
     client = start.resume ? await resumeCodegen({ ...options, resume: start.resume })
       : await startCodegen(options, start.settings, start.submission);
   }
   if (!client) return 0;
-  try {
     while (true) {
     if (options.onDetach) await client.control('on-detach', { value: options.onDetach, channel: 'cli' });
     await client.call('takeover');
@@ -112,18 +115,14 @@ export async function applicationMain(args) {
     const { ticket } = await client.call('ticket', { mode: 'interactive' });
     // The front-end inherits the TTY directly and receives no model/device secrets.
     let resumeIdentity;
-    const child = spawn(process.execPath, [fileURLToPath(new URL('./worker.mjs', import.meta.url)),
-      '--host', client.directory, '--ticket', ticket], {
-      stdio: ['inherit', 'inherit', 'inherit', 'ipc'], env: Object.fromEntries(Object.entries({
-        PATH: process.env.PATH ?? '/usr/bin:/bin', LANG: process.env.LANG ?? 'en_US.UTF-8', TERM: process.env.TERM ?? 'xterm-256color',
-        KERNELBRIDGE_SESSIONS: dirname(client.directory), KERNELBRIDGE_HOME: process.env.KERNELBRIDGE_HOME,
-        COLORTERM: process.env.COLORTERM, TERM_PROGRAM: process.env.TERM_PROGRAM, PI_OFFLINE: '1',
-        KERNELBRIDGE_DEMO: process.env.KERNELBRIDGE_DEMO === '1' ? '1' : undefined,
-        KERNELBRIDGE_TUI_MODE: options.tuiMode ?? process.env.KERNELBRIDGE_TUI_MODE,
-      }).filter(([, value]) => value !== undefined)),
-    });
+    const environment = Object.fromEntries(Object.entries({ KERNELBRIDGE_SESSIONS: dirname(client.directory),
+      KERNELBRIDGE_TUI_MODE: options.tuiMode ?? process.env.KERNELBRIDGE_TUI_MODE }).filter(([, value]) => value !== undefined));
+    const child = await (worker ?? prewarmWorker()).start({ host: client.directory, ticket, environment }, status.clear);
+    worker = undefined;
     // /trace: this trusted process serves the viewer; the worker only receives the URL.
-    const trace = traceHost(client.directory);
+    let traceHost;
+    const traceOf = directory => traceHost ??= import('./trace.mjs').then(module => module.traceHost(directory));
+    const trace = { open: () => traceOf(client.directory).then(host => host.open()), close: () => traceHost?.then(host => host.close()) };
     child.on('message', message => {
       if (message?.type === 'resume_application' && typeof message.identity === 'string') resumeIdentity = message.identity;
       if (message?.type === 'open_trace') trace.open().then(reply => reply, error => ({ error: error.message }))
@@ -138,5 +137,9 @@ export async function applicationMain(args) {
     process.stdout.write('\n正在恢复会话…\n');
     client = await attachApplication(resumeIdentity, { restart: true });
     }
-  } finally { client.close(); }
+  } finally {
+    worker?.cancel();
+    if (!early.status) status.restore();
+    client?.close();
+  }
 }

@@ -1344,16 +1344,16 @@
       "sha256": "fe58eba5def3f97321dc81f2087c56995ea8c457571c429be12de5287746b185"
     },
     "source/apps/agent/src/application/cli.d.mts": {
-      "bytes": 102,
-      "sha256": "ca01c721f4559885750bf1f1a93d81741b55f0af192603fcad247c0226de4380"
+      "bytes": 233,
+      "sha256": "30c8c09cfb76417c9b592d615c630dfe5bcc65cefa99501d15a7f8b58a5b9ea3"
     },
     "source/apps/agent/src/application/cli.mjs": {
-      "bytes": 9182,
-      "sha256": "ba148fa4d03d3b6905ef8d603483ba167b5847a99a378054b339ab1937a79491"
+      "bytes": 9432,
+      "sha256": "e0010b5cb4dcb1df0a67d9d260c999fc49f397139136a1f36191c1e951eeef49"
     },
     "source/apps/agent/src/application/client.mjs": {
-      "bytes": 4961,
-      "sha256": "a6074b15632348178f376e99581ffa9dd358dba7c972d8e2c24a5d4f3a4d4057"
+      "bytes": 4959,
+      "sha256": "249103d38f569e875c856dadcb396480169772407d36558749796dae12248298"
     },
     "source/apps/agent/src/application/codegen.mjs": {
       "bytes": 8941,
@@ -1375,6 +1375,14 @@
       "bytes": 10518,
       "sha256": "f770c87f8f2d293b9863dd9149ca4697b3d006f79daaf312476f77ade1a46fbd"
     },
+    "source/apps/agent/src/application/prewarm.d.mts": {
+      "bytes": 577,
+      "sha256": "ada961f4739db6f2e154bffb58bc43d8b843ff4877bed631128230a12b85bf96"
+    },
+    "source/apps/agent/src/application/prewarm.mjs": {
+      "bytes": 4271,
+      "sha256": "6219e1f42d03564124984df68a79e459c87956db0424c145112c5cf45cb28d06"
+    },
     "source/apps/agent/src/application/project-info.mjs": {
       "bytes": 844,
       "sha256": "70b760407709e43a5b54b74f5e871808cdcaee48d17b29d793bd8d3b38aff9c3"
@@ -1388,8 +1396,8 @@
       "sha256": "7d4fe1c924a939368d568087f07e10a5bc2b8dbd681a677bd73ac13b2a4edb19"
     },
     "source/apps/agent/src/application/start-screen.mjs": {
-      "bytes": 6258,
-      "sha256": "2ae5a477ab93dcaca1e45eb5c4222a6f9bd7286428d82fff917e89ec79a314dc"
+      "bytes": 6416,
+      "sha256": "2b29989b38f117e81ba879d1166dade16bd832eaa2164306b885bc8d9f94f93b"
     },
     "source/apps/agent/src/application/trace.mjs": {
       "bytes": 3587,
@@ -1400,8 +1408,8 @@
       "sha256": "4288b1fe92f678367af64ced1e8e836cd54d9ea4baca4e1e99c31a509644a5ba"
     },
     "source/apps/agent/src/application/worker.mjs": {
-      "bytes": 3372,
-      "sha256": "f94d0d0d38c0f498b6eebf5acc5eb0f32df9f973f52fcb63d4e4ed594b1a3a97"
+      "bytes": 4483,
+      "sha256": "296606cba18ca2b79638af9d9808a7628815b30b60cfc9afd1562204749c7be3"
     },
     "source/apps/agent/src/bootstrap.ts": {
       "bytes": 7393,
@@ -1415,13 +1423,17 @@
       "bytes": 656,
       "sha256": "8cd34d1ac4e3299d68149039e3bf44b84ec5e2d5c3920348b8821fcc4853c015"
     },
+    "source/apps/agent/src/clients/frames.mjs": {
+      "bytes": 1138,
+      "sha256": "a5d6e8d46e4e7ae7935f1837c907d552f25259a27b6abb00907be2a3f6e59b67"
+    },
     "source/apps/agent/src/clients/protocol.d.mts": {
       "bytes": 514,
       "sha256": "1a23a0c935401b90dccbf5a2660cb131f2222bcb5297a89152b230d06b453866"
     },
     "source/apps/agent/src/clients/protocol.mjs": {
-      "bytes": 6619,
-      "sha256": "8b2182e32df35aa47a605a570a5a9963ae96b338285fa1bd8af16ad34682418d"
+      "bytes": 5763,
+      "sha256": "4dcd254f964c6f7ca499bb458778ebae6ef8d104adef0d785943b622921fd47f"
     },
     "source/apps/agent/src/clients/rpc-payload.ts": {
       "bytes": 8050,
@@ -1720,8 +1732,8 @@
       "sha256": "c8fa51a324e4cbfcd339277c3e39949d46187fa2ebf30d8dde47b69b01fb5157"
     },
     "source/apps/agent/src/main.ts": {
-      "bytes": 1866,
-      "sha256": "d6eccf0623f76536efef1bb738459a2ebb61c5256359185b0a7cd9ff5f7f39e1"
+      "bytes": 2575,
+      "sha256": "25ef3e27ee508f47c7c93480acb4b251d9c6f3e624b9c56e78588e1043b0169b"
     },
     "source/apps/agent/src/replay/context-cleanup.ts": {
       "bytes": 11684,

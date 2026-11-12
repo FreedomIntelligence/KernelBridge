@@ -2,7 +2,7 @@ import { connect } from 'node:net';
 import { lstat, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { frames } from '../clients/protocol.mjs';
+import { frames } from '../clients/frames.mjs';
 
 /** Durable boundary operations queue behind the original finite effects.
  * snapshot also prepares fork/reset/clone transitions; select_session(path)
