@@ -567,7 +567,7 @@ class Journal:
         prior = state["actions"].get(action.id)
         if prior:
             if prior["action_digest"] != digest(action):
-                raise Conflict("action ID reused with different inputs")
+                raise Conflict(f"action ID reused with different inputs: {action.id}")
             if not prior.get("terminal"):
                 raise InDoubt(f"{action.id}: reservation unresolved; do not retry")
             return None, prior["outcome"]

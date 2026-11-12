@@ -3,6 +3,7 @@ import re
 import json
 from pathlib import Path
 
+from kernelcat_executor.operations.recovery import _root_attempt
 from kernelcat_executor.contracts.messages import AssistantTurn, turn_actions
 from kernelcat_executor.contracts.models import Action, Conflict, InDoubt, Outcome, canonical, digest
 from kernelcat_executor.operations.control import SessionControl
@@ -72,14 +73,27 @@ def recovery_plan(host, *, cancel_unstarted=False):
     ended = {item["outcome"]["data"]["proposal_id"] for item in actions.values()
              if item["action"]["tool"] == "__turn_end__" and item.get("terminal")}
     turns = {}
+    snapshot = store.snapshot()
     for identity, item in actions.items():
         action, outcome = item["action"], item.get("outcome", {})
         if action["task"] != host.task.id or action["tool"] != "__propose__" or identity in ended or not item.get("terminal"):
             continue
-        match = re.search(r"/step/(\d+)/model/", identity)
+        # An automatic retry is the deterministic successor of its step's attempt;
+        # follow the hash links back to that step rather than guessing from the ID.
+        base = identity
+        if identity.startswith("__model_retry__/"):
+            try:
+                base = _root_attempt(snapshot, identity, host.task.id)
+            except Conflict:
+                continue
+        match = re.search(r"/step/(\d+)/model/", base)
         if not match:
             continue  # Compaction is metered but is not a conversational turn.
         step = int(match[1])
+        # A step with a turn-end record is closed, whichever attempt it names
+        # (a retry chain leaves earlier failed attempts behind).
+        if f"{host.task.id}/step/{step}/end" in actions:
+            continue
         if outcome.get("status") != "completed":
             if step not in turns or turns[step]["model_receipt"].get("status") != "completed":
                 turns[step] = {"step": step, "proposal_id": identity, "model_receipt": outcome,

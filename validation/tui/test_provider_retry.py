@@ -166,5 +166,42 @@ class GoalOutageTests(unittest.TestCase):
         self.assertEqual(host.next_input(SimpleNamespace(worker={"worker_id": "w"}))["action"], "continue")
 
 
+
+class RecoveryWithRetryChainTests(unittest.TestCase):
+    """Resume after automatic retries: a step whose turn ended names whichever
+    attempt closed it; recovery must not try to close it again (it raised
+    "action ID reused with different inputs: …/step/45/end" before)."""
+
+    def test_recovery_follows_retry_chains_to_their_step(self):
+        from kernelcat_worker.application_recovery import recovery_plan
+        task = "t"
+        def propose(identity, status, parents=()):
+            data = ({"schema_version": "kernelcat.assistant-turn/v1", "content": [{"type": "text", "text": "ok"}], "stop_reason": "stop"}
+                    if status == "completed" else {"error": "provider HTTP 503", "failure_details": {"category": "server"}})
+            return identity, {"action": {"id": identity, "task": task, "tool": "__propose__", "arguments": {}, "parents": list(parents)},
+                              "terminal": True, "outcome": {"status": status, "data": data}}
+        def end(step, proposal):
+            identity = f"{task}/step/{step}/end"
+            return identity, {"action": {"id": identity, "task": task, "tool": "__turn_end__", "arguments": {}, "parents": [proposal]},
+                              "terminal": True, "outcome": {"status": "completed", "data": {"proposal_id": proposal, "step": step}}}
+        rows = []
+        # Step 1: a retry succeeded and the turn ended on it.
+        b1 = f"{task}/step/1/model/ds"; s1 = _successor(b1)
+        rows += [propose(b1, "failed"), propose(s1, "completed", (b1,)), end(1, s1)]
+        # Step 2: every attempt failed; the failed turn was closed on the last one.
+        b2 = f"{task}/step/2/model/ds"; s2 = _successor(b2); s2b = _successor(s2)
+        rows += [propose(b2, "failed"), propose(s2, "failed", (b2,)), propose(s2b, "failed", (s2,)), end(2, s2b)]
+        # Step 3: the worker was lost after a successful retry, before its turn ended.
+        b3 = f"{task}/step/3/model/ds"; s3 = _successor(b3)
+        rows += [propose(b3, "failed"), propose(s3, "completed", (b3,))]
+        actions = dict(rows)
+        store = SimpleNamespace(snapshot=lambda: {"actions": actions})
+        host = SimpleNamespace(task=SimpleNamespace(id=task),
+            owner=SimpleNamespace(gateway=SimpleNamespace(store=store), workspace_policy={"root": "/w"}, replay=SimpleNamespace(directory="/r"), rsi=None),
+            journal=SimpleNamespace(state=lambda: {"checkpoint": None, "pending_transition": None, "inputs": {}, "calls": {}}))
+        plan = recovery_plan(host)
+        self.assertEqual([(turn["step"], turn["proposal_id"]) for turn in plan["turns"]], [(3, s3)])
+
+
 if __name__ == "__main__":
     unittest.main()

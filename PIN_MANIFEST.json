@@ -2068,8 +2068,8 @@
       "sha256": "538a4612672826ce85654c3e1d474619064503033ae48af1c85cc4f3f0626093"
     },
     "source/apps/worker/src/kernelcat_worker/application_recovery.py": {
-      "bytes": 9272,
-      "sha256": "3b4e7b6b5f114db1c99ff00055b87b32d312b15c352b0494d4a4efd8a04e55e6"
+      "bytes": 9971,
+      "sha256": "0335f9437348475f9eb5ee4e59f2603c51117dbe3953e828f7942bd0b72185c5"
     },
     "source/apps/worker/src/kernelcat_worker/bindings.py": {
       "bytes": 22020,
@@ -3464,8 +3464,8 @@
       "sha256": "d0166e5f8c47f1dbe9abaf07aa7f824a617a1a3a992d96a8f7a29ee21023364d"
     },
     "source/packages/executor/src/kernelcat_executor/state/journal.py": {
-      "bytes": 34517,
-      "sha256": "a6eb4cdc3b3c8e98cec7ab558f63f6dc6cfcc40b4ff0b52849c7d554ea96c6ca"
+      "bytes": 34531,
+      "sha256": "85e855aebf6f1514efdf75f475ca9ccf826fc567a89063ea20b61dbf1a1c1c0f"
     },
     "source/packages/executor/src/kernelcat_executor/state/profile_journal.py": {
       "bytes": 7948,
