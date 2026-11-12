@@ -4,12 +4,18 @@ Linux/macOS local filesystem only. No NFS claim. Each admission reads the ledger
 under an OS lock, preventing concurrent overspend. Crashed reservations stay held.
 
 Reads verify only what was appended since this process last verified the file.
-The verified prefix is anchored by file identity, byte offset and the digest of
-its last record (re-hashed on every transaction); it may only be extended. A
-shorter file, a changed anchor, or a replacement that does not extend the
-verified history is an integrity failure. The whole chain is re-verified on
-first use, on file replacement and every FULL_VERIFY_SECONDS. Callers receive
-fresh row objects, so mutating them cannot alter the verified cache.
+The verified prefix (including this process's own appends) is anchored by file
+identity, byte offset and the digest of its last record (re-hashed on every
+transaction); it may only be extended. A shorter file, a changed anchor, or a
+replacement that does not extend the verified history is an integrity failure.
+The whole chain is re-verified on first use, on file replacement and every
+FULL_VERIFY_SECONDS; until then an edit inside the prefix that keeps the file
+size and the last record unchanged is not noticed. Callers receive fresh row
+objects, so mutating them cannot alter the verified cache.
+
+Every transaction takes LOCK_EX. flock gives a waiting writer no priority, so
+shared readers polling status could hold admissions off for tens of seconds;
+with the cache an exclusive read is short.
 """
 from __future__ import annotations
 
@@ -21,7 +27,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TypeVar
 
@@ -50,6 +56,8 @@ T = TypeVar("T")
 # not touch the last record can go unnoticed by a running process.
 FULL_VERIFY_SECONDS = 300.0
 GENESIS = "0" * 64
+COMPACT_ROWS = 64
+READ_CHUNK = 1 << 26  # macOS pread rejects reads of 2 GiB or more
 
 
 @dataclass(frozen=True)
@@ -60,8 +68,23 @@ class _Verified:
     last_start: int
     last_digest: str
     count: int
-    blob: bytes
+    blob: bytes            # marshal of the first rows
+    tail: tuple[bytes, ...]  # marshal of each later row, compacted into blob in batches
     verified_at: float
+
+    def rows(self) -> list[Json]:
+        rows: list[Json] = marshal.loads(self.blob)
+        rows.extend(marshal.loads(item) for item in self.tail)
+        return rows
+
+    def extended(self, rows: list[Json], offset: int, last_start: int, last_digest: str) -> "_Verified":
+        """This prefix plus rows (serialized now, before any caller can mutate them)."""
+        tail = self.tail + tuple(marshal.dumps(row) for row in rows)
+        blob = self.blob
+        if len(tail) > COMPACT_ROWS:
+            blob, tail = marshal.dumps(self.rows() + rows), ()
+        return replace(self, offset=offset, last_start=last_start, last_digest=last_digest,
+                       count=self.count + len(rows), blob=blob, tail=tail)
 
 
 class Journal:
@@ -181,13 +204,13 @@ class Journal:
     def _transaction(self, fn: Callable[[list[Json]], tuple[Json | None, T]], *, shared: bool = False) -> T:
         """Run fn on the verified rows under the file lock; append its event, if any.
 
-        shared=True takes LOCK_SH for read-only work: readers proceed together
-        and only wait for an appending writer. A shared fn must not return an event.
+        shared=True marks read-only work: the descriptor is read-only and an
+        event from fn is refused. The lock is LOCK_EX either way (see module doc).
         """
         fd = os.open(self.path, os.O_RDONLY if shared else os.O_RDWR | os.O_APPEND)
         try:
-            fcntl.flock(fd, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
-            rows, previous = self._verified_rows(fd)
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            rows, previous, verified = self._verified_rows(fd)
             event, result = fn(rows)
             if event is not None:
                 if shared:
@@ -195,10 +218,16 @@ class Journal:
                 self._check_application_admission(rows, event)
                 event = {**event, "seq": len(rows), "prev": previous}
                 event["digest"] = digest(event)
-                pending = memoryview((canonical(event) + "\n").encode("utf-8"))
+                data = (canonical(event) + "\n").encode("utf-8")
+                pending = memoryview(data)
                 while pending:
                     pending = pending[os.write(fd, pending):]
                 os.fsync(fd)
+                # The durable append is part of what this process has verified, so a
+                # later replacement that drops it is caught as not extending history.
+                with self._verified_lock:
+                    if self._verified is verified:
+                        self._verified = verified.extended([event], verified.offset + len(data), verified.offset, event["digest"])
             return result
         finally:
             os.close(fd)
@@ -223,7 +252,7 @@ class Journal:
         row["digest"] = claimed
         return row
 
-    def _verified_rows(self, fd: int) -> tuple[list[Json], str]:
+    def _verified_rows(self, fd: int) -> tuple[list[Json], str, _Verified]:
         """Rows of the locked file, verifying only bytes past the cached verified prefix."""
         info = os.fstat(fd)
         identity, size, now = (info.st_dev, info.st_ino), info.st_size, time.monotonic()
@@ -246,37 +275,39 @@ class Journal:
                     unchanged = False
                 if not unchanged:
                     raise Conflict("journal integrity failure: verified history changed")
-            rows: list[Json] = marshal.loads(cache.blob)
-            offset, last_start, previous, verified_at = cache.offset, cache.last_start, cache.last_digest, cache.verified_at
+            base = cache
+            rows: list[Json] = cache.rows()
         else:
-            rows, offset, last_start, previous, verified_at = [], 0, 0, GENESIS, now
-        data = b""
+            base = _Verified(identity, 0, 0, GENESIS, 0, marshal.dumps([]), (), now)
+            rows = []
+        offset, last_start, previous = base.offset, base.last_start, base.last_digest
+        data = bytearray()
         while offset + len(data) < size:
-            chunk = os.pread(fd, size - offset - len(data), offset + len(data))
+            chunk = os.pread(fd, min(READ_CHUNK, size - offset - len(data)), offset + len(data))
             if not chunk:
                 break
             data += chunk
+        fresh: list[Json] = []
         start = 0
         while start < len(data):
             end = data.find(b"\n", start)
-            line = data[start:] if end < 0 else data[start:end + 1]
-            row = self._parse_record(line, previous, len(rows))
+            line = bytes(data[start:] if end < 0 else data[start:end + 1])
+            row = self._parse_record(line, previous, len(rows) + len(fresh))
             last_start, previous = offset + start, row["digest"]
-            rows.append(row)
+            fresh.append(row)
             start += len(line)
-        offset += len(data)
         if not incremental and cache is not None and cache.count:
             # A re-read (interval or replaced file) must extend what this process already trusted.
-            if len(rows) < cache.count or rows[cache.count - 1]["digest"] != cache.last_digest:
+            if len(fresh) < cache.count or fresh[cache.count - 1]["digest"] != cache.last_digest:
                 raise Conflict("journal integrity failure: history does not extend the verified journal")
-        if not incremental or offset != cache.offset:
-            # Serialized before fn sees the rows, so the cache holds only what was read from disk.
-            verified = _Verified(identity, offset, last_start, previous, len(rows), marshal.dumps(rows), verified_at)
+        verified = base if not fresh and incremental else base.extended(fresh, offset + len(data), last_start, previous)
+        if verified is not cache:
             with self._verified_lock:
                 current = self._verified
-                if current is None or current.identity != identity or current.offset <= offset:
+                if current is None or current.identity != identity or current.offset <= verified.offset:
                     self._verified = verified
-        return rows, previous
+        rows.extend(fresh)
+        return rows, previous, verified
 
     @staticmethod
     def _events(rows: list[Json]) -> Iterator[Json]:

@@ -619,7 +619,7 @@ class ApplicationHost:
             for key, item in execution["actions"].items() if item["action"]["tool"] == "delegate"]
         if state["goal"]:
             from kernelcat_executor.state.goal_progress import goal_usage
-            state["goal_usage"] = goal_usage(list(self.owner.gateway.store._events(self.owner.gateway.store.events())), state["goal"])
+            state["goal_usage"] = goal_usage(list(store._events(rows)), state["goal"])
             goal = state["goal"]
             state["goal_usage"]["elapsed_seconds"] = max(0, (goal.get("ended_at_ns", time.time_ns()) - goal.get("started_at_ns", time.time_ns())) // 1_000_000_000)
         state["calls"] = {key: {field: item[field] for field in ("method", "status", "intent_seq") if field in item}

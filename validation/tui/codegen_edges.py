@@ -20,6 +20,7 @@ import pyte
 from codegen_fixture import CodegenProvider
 from product_scenario import ROOT, cleanup_fixture_hosts
 from pty_scenario import Client, stop_child
+from timing import SCALE, StepTimeout, slow
 
 
 class Terminal:
@@ -38,12 +39,19 @@ class Terminal:
             self.transcript.extend(data); self.stream.feed(data)
             if b'\x1b[6n' in data: os.write(self.master, b'\x1b[1;1R')
     def until(self, predicate, timeout=90):
-        deadline = time.monotonic() + timeout
+        """Wait for predicate; the base timeout is scaled by KB_TIMEOUT_SCALE and reported as SLOW, then TIMEOUT."""
+        start = last_output = time.monotonic(); deadline = start + timeout * SCALE; warned = False
         while time.monotonic() < deadline:
+            before = len(self.transcript)
             self.pump()
+            now = time.monotonic()
+            if len(self.transcript) != before: last_output = now
             if predicate(): return
             if self.child.poll() is not None: raise AssertionError(self.text())
-        raise AssertionError(self.text())
+            if not warned and now - start > timeout:
+                warned = True; slow(f'step past its {timeout}s base deadline (scale {SCALE}); last PTY output {now - last_output:.1f}s ago')
+        raise StepTimeout(f'TIMEOUT after {timeout * SCALE:.0f}s (base {timeout}s x scale {SCALE}); '
+                          f'last PTY output {time.monotonic() - last_output:.1f}s ago\n' + self.text())
     def close(self, output):
         stop_child(self.child)
         output.write_bytes(self.transcript)

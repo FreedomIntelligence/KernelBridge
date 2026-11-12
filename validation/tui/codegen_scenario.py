@@ -21,6 +21,7 @@ import pyte
 from codegen_fixture import CodegenProvider
 from product_scenario import ROOT, cleanup_fixture_hosts
 from pty_scenario import Client, stop_child
+from timing import SCALE, StepTimeout
 
 
 def main():
@@ -71,12 +72,12 @@ def main():
             if b'\x1b[6n' in data: os.write(master, b'\x1b[1;1R')
     def until(predicate, timeout=None):
         timeout = timeout or args.timeout_seconds
-        deadline = time.monotonic() + timeout
+        deadline = time.monotonic() + timeout * SCALE
         while time.monotonic() < deadline:
             pump()
             if predicate(): return
             if child.poll() is not None: raise AssertionError(f'CLI exited {child.returncode}\n{text()}')
-        raise AssertionError(f'condition timed out\n{text()}')
+        raise StepTimeout(f'TIMEOUT after {timeout * SCALE:.0f}s (base {timeout}s x scale {SCALE})\n{text()}')
     def idle(duration=1):
         deadline = time.monotonic() + duration
         while time.monotonic() < deadline: pump()

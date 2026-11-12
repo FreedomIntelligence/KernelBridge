@@ -19,12 +19,13 @@ import threading
 import time
 from http.server import ThreadingHTTPServer
 from product_scenario import ROOT, Provider, prepare
+from timing import SCALE, StepTimeout
 
 
 class Client:
     def __init__(self, directory):
         self.socket = socket.socket(socket.AF_UNIX)
-        self.socket.settimeout(10)
+        self.socket.settimeout(10 * SCALE)
         self.socket.connect(str(directory / 'host.sock'))
         self.file = self.socket.makefile('rwb', buffering=0)
         self.counter = 0
@@ -47,10 +48,10 @@ def stop_child(child):
     if child.poll() is None:
         os.killpg(child.pid, signal.SIGTERM)
     try:
-        child.wait(timeout=10)
+        child.wait(timeout=10 * SCALE)
     except subprocess.TimeoutExpired:
         os.killpg(child.pid, signal.SIGKILL)
-        child.wait(timeout=10)
+        child.wait(timeout=10 * SCALE)
 
 
 def main():
@@ -85,12 +86,12 @@ def main():
                 if b'\x1b[6n' in data: os.write(master, b'\x1b[1;1R')
             except OSError: pass
     def until(predicate, timeout=30):
-        deadline = time.monotonic() + timeout
+        deadline = time.monotonic() + timeout * SCALE
         while time.monotonic() < deadline:
             drain()
             if predicate(): return
             if child.poll() is not None: raise AssertionError(f'CLI exited {child.returncode}: {transcript[-4000:]!r}')
-        raise AssertionError(f'PTY condition timed out: {transcript[-4000:]!r}')
+        raise StepTimeout(f'TIMEOUT after {timeout * SCALE:.0f}s (base {timeout}s x scale {SCALE}): {transcript[-4000:]!r}')
     def completed(text):
         return any(item['text'] == text and item['status'] == 'completed' for item in client.call('status')['inputs'].values())
     def send(text):

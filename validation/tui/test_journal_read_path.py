@@ -166,6 +166,32 @@ class JournalReadPathTests(unittest.TestCase):
         self.assertEqual(len(self.journal.events()), 41 + 150)
         self.assertEqual(self.journal.snapshot(), AgentJournal(self.path).snapshot())
 
+    def test_own_append_lost_by_replacement_is_refused(self):
+        self.journal.events()
+        stale = self.path.with_name("stale.jsonl"); stale.write_bytes(self.path.read_bytes())
+        self.journal._transaction(note(800))  # this process appended and was told it succeeded
+        os.replace(stale, self.path)          # a copy taken before that append replaces the file
+        with self.assertRaisesRegex(Conflict, "does not extend|truncated|verified history"):
+            self.journal.events()
+
+    def test_polling_readers_do_not_starve_a_writer(self):
+        """flock gives waiting writers no priority; shared readers once held an admission for 23 s."""
+        paths = [str(p) for p in [*ROOT.glob("source/packages/*/src"), ROOT / "source/apps/worker/src"]]
+        reader = ("import sys, time; sys.path[:0] = %r\n"
+                  "from pathlib import Path\nfrom kernelcat_executor.profiles.store import AgentJournal\n"
+                  "j = AgentJournal(Path(%r)); end = time.monotonic() + 6\n"
+                  "while time.monotonic() < end: j.snapshot()\n") % (paths, str(self.path))
+        readers = [subprocess.Popen([sys.executable, "-B", "-c", reader]) for _ in range(4)]
+        try:
+            import time
+            time.sleep(1.0)
+            waits = []
+            for index in range(5):
+                started = time.monotonic(); self.journal._transaction(note(900 + index)); waits.append(time.monotonic() - started)
+        finally:
+            for process in readers: process.wait(timeout=60)
+        self.assertLess(max(waits), 5.0, waits)
+
     def test_incremental_state_equals_a_full_rebuild(self):
         rng = random.Random(7)
         writer = AgentJournal(self.path)
