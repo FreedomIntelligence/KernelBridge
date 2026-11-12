@@ -223,6 +223,9 @@ export function createHostActions(control, effects) {
         governed.controller.stopped = true;
         await stop();
       }
+      // Claude Code leaves a visible mark where a turn stopped; otherwise the
+      // transcript ends mid-thought with no explanation.
+      if (event.aborted && runningInputs.size) showProductFeedback(context, '已中断。工具调用的回执已保留，可以继续输入。');
       for (const inputId of [...runningInputs]) {
         await control.call('transition', { input_id: inputId,
           status: event.aborted ? 'interrupted' : governed?.controller.failure || providerFailed || setupFailed || limitReached ? 'failed' : 'completed' });

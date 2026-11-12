@@ -50,9 +50,9 @@ D7 and D8 shipped with Phase 1: they live in the same footer renderer.
 - [ ] D5 Placeholder in the empty editor (`试试：修复 … · / 命令 · ! shell · @ 文件`), cleared on first keystroke.
 - [x] D7 Footer: drop zero-valued reserved and pending; budget only when configured.
 - [x] D8 Footer path: elide the middle, keep the last segment and the branch.
-- [ ] D9 Queued-input row above the editor while a turn runs; count from host input receipts, not local state.
-- [ ] D10 Record an interrupt row in the transcript when Esc settles a turn.
-- [ ] Checks: screen assertions in `interaction_scenario.py` and `codegen_scenario.py`.
+- [x] D9 Queued input is counted from host receipts and shown in the working row (`执行中… (12s · 2 条排队 · esc 中断)`).
+- [x] D10 An interrupted turn leaves a visible row instead of ending mid-thought.
+- [x] Checks: `subagent-presentation.mjs` covers the queued count and its absence when nothing is queued; `codegen_scenario.py` (`interrupt_then_continue`) covers the interrupt row.
 
 Found while fixing Phase 1, already handled:
 
@@ -69,6 +69,12 @@ Found while fixing Phase 1, already handled:
 - [ ] Refresh `PIN_MANIFEST.json`, `install.py --verify-only`.
 - [ ] Record results in `validation/tui/ACCEPTANCE.md` and update `docs/tui.md`.
 
-## Known test fragility
+## Known test fragility, and the product finding behind it
 
-`advanced_scenario.py` timed out twice in `polish-r1` inside `Client.call('status')`, at different steps, while the machine ran three suites plus a browser (load average 18–26). The failure is a 10-second client socket timeout, not an assertion. `status` does not hold the host mutex, but it does take two journal transactions, so it queues behind a long-running executor transaction. Before treating this as a product defect, the suite must run on an idle machine; if it recurs there, the fix belongs in the host (a status path that reads the projected state without a new transaction), not in the test timeout.
+Across three suite runs, `pty_scenario.py` and `advanced_scenario.py` failed only by timeout — never by assertion — and at a different step each time (a `Client.call('status')` socket timeout, a screen condition during a 2500-line output, a 90-second wait during the pipeline compile). Throughout, unrelated system processes held this workstation's load average between 18 and 70: a WebKit renderer pegged near 90% of a core for four days, `StorageManagementService` for over an hour, `WindowServer` at 43%, with the data volume 100% full.
+
+Run alone on the same code, `pty_scenario.py` passes. These timeouts are environmental and are recorded as such, not as passes.
+
+The investigation did surface a real characteristic worth fixing separately. `Journal._transaction` (`state/journal.py`) takes an exclusive `flock` and re-reads and re-verifies the whole hash chain on every call, including the read-only `status` path, which runs two such transactions. So `status` is O(journal size) and serializes against every write. The TUI's one-second working row uses cached state rather than polling, so the exposure is bounded to turn boundaries — but a long session's boundaries get slower as its journal grows, and under load this is what the tests hit.
+
+- [ ] Keep a projected application state in memory, advanced by the append path that already verifies each event, so `status` answers without re-reading the journal. The Journal stays the authority; this is a cache invalidated by its own writer. Executor change: needs its own review and acceptance.
