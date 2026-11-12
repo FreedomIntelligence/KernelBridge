@@ -47,7 +47,7 @@ Rules carried over from the redesign:
 
 D7 and D8 shipped with Phase 1: they live in the same footer renderer.
 
-- [ ] D5 Placeholder in the empty editor (`试试：修复 … · / 命令 · ! shell · @ 文件`), cleared on first keystroke.
+- [x] D5 Placeholder in the empty editor, cleared on first keystroke: `试试：修复失败的测试 · / 命令 · ! shell` (project) or `输入约束或问题 · /goal 目标内容 持续执行` (task), the widest variant that fits. `@ 文件` was left out: file completion depends on Pi's managed `fd`, which may be absent, so the hint would promise something that might not work. Implemented host-side as a `CustomEditor` subclass installed with `setEditorComponent`; no Pi patch change. Checks: `layout.mjs` (hint at 48 and 28 columns, hidden after a keystroke, back when empty) and `interaction_scenario.py` (`editor_hint`: visible after startup and at 48 columns, gone once `/go` is typed).
 - [x] D7 Footer: drop zero-valued reserved and pending; budget only when configured.
 - [x] D8 Footer path: elide the middle, keep the last segment and the branch.
 - [x] D9 Queued input is counted from host receipts and shown in the working row (`执行中… (12s · 2 条排队 · esc 中断)`).
@@ -61,7 +61,7 @@ Found while fixing Phase 1, already handled:
 ### Phase 3 — plan surface (D11) and width (D12)
 
 - [ ] D11 Decide and record the decision in this document. If adopted: a host tool with a receipt, rendered as a checklist, with the same admission and journal treatment as other tools. If declined: document why, in the redesign document's decisions section.
-- [ ] D12 Wrap every host-rendered block to the terminal width; add a 48-column pass to the interaction scenario covering help, goal and footer.
+- [x] D12 Every host-rendered block fits the terminal width. Found by rendering each block at 48/40/32/24/16 columns: `/goal` wrapped a long path away from `目录：` even at 48 columns (it was elided to a fixed 52); narrower `/help` wrapped descriptions to column 0 and split key hints mid-item; the footer cut the branch (`(mai…`) at 32 columns; the working row (`等待 1 个子代理完成… (1m05s · 2 条排队 · esc 中断)`, 54 columns) wrapped to two lines at 48. Now the feedback block elides labelled paths and reflows tables at render width, the footer drops `上下文` / the detach label before shortening the branch, and the working row drops details from the right. The welcome box, `/agents` panel and tool rows already fit. Checks: `validation/tui/layout.mjs` (4 width checks, each failing on the previous code) and `interaction_scenario.py` (`narrow_goal_path` at 48 columns).
 
 ### Phase 4 — acceptance
 

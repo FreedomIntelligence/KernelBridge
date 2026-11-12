@@ -173,7 +173,8 @@ export function createHostActions(control, effects, { observer = control } = {})
     // coding CLIs; it is presentation only and stops with the settled run.
     let workingTimer, activity;
     const stopWorking = () => { clearInterval(workingTimer); workingTimer = undefined; activity = undefined; context?.ui.setWorkingMessage?.(); };
-    const tick = started => context?.ui.setWorkingMessage?.(workingMessage(state, started, activity));
+    // The row stays on one line: details give way at the terminal's current width.
+    const tick = started => context?.ui.setWorkingMessage?.(workingMessage(state, started, activity, process.stdout.columns));
     pi.on('agent_start', () => {
       if (!interactive || !context?.ui.setWorkingMessage) return;
       stopWorking();

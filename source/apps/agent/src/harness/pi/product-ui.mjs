@@ -1,4 +1,5 @@
-import { Text, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
+import { CURSOR_MARKER, renderFakeCursor, truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@earendil-works/pi-tui';
+import { CustomEditor } from '@earendil-works/pi-coding-agent';
 import { homedir } from 'node:os';
 import { childMetrics, delegateTitle, reasonLabel } from './tool-render.mjs';
 
@@ -11,13 +12,21 @@ export const runningChildren = state => (state?.subagents ?? []).filter(child =>
 /** Inputs the host accepted but has not started yet. */
 export const queuedInputs = state => Object.values(state?.inputs ?? {}).filter(item => item.status === 'queued').length;
 
-/** Working-row text: elapsed time, live children, queued messages and the interrupt key. */
-export function workingMessage(state, startedAt, activity = '执行中') {
+/**
+ * Working-row text: elapsed time, live children, queued messages and the interrupt key.
+ * With `columns`, details are dropped from the right so the row stays on one line;
+ * the row itself adds a spinner and one column of padding on each side.
+ */
+export function workingMessage(state, startedAt, activity = '执行中', columns) {
   const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
   const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, '0')}s`;
   const children = runningChildren(state).length;
   const queued = queuedInputs(state);
-  return `${children ? `等待 ${children} 个子代理完成` : activity}… (${[elapsed, ...(queued ? [`${queued} 条排队`] : []), 'esc 中断'].join(' · ')})`;
+  const head = children ? `等待 ${children} 个子代理完成` : activity;
+  const counts = [elapsed, ...(queued ? [`${queued} 条排队`] : [])];
+  const variants = [`${head}… (${[...counts, 'esc 中断'].join(' · ')})`, `${head}… (${counts.join(' · ')})`, `${head}… (${elapsed})`, `${head}…`];
+  const room = columns ? columns - 4 : Infinity;
+  return variants.find(text => visibleWidth(text) <= room) ?? truncateToWidth(head, Math.max(1, room), '…');
 }
 
 const CHILD_STATUS = { running: '运行中', completed: '完成', failed: '失败', unknown: '待恢复' };
@@ -45,11 +54,11 @@ export function statePresentation(state) {
   const goal = currentGoal(state);
   const budget = state.budget ?? {};
   const criteria = state.task?.contract?.acceptance;
-  // Labels are two characters wide, so values already align; the path is shortened
-  // because an absolute path would wrap away from its own label.
+  // Labels are two characters wide, so values already align. The feedback block
+  // elides the path's middle at the real terminal width (fitFeedback).
   return [goal ? `目标：${goal.objective}` : '尚未设置 Goal。输入 /goal 目标内容 开始持续执行。',
     `状态：${goal ? STATUSES[goal.status] ?? goal.status : '普通会话'}`,
-    ...(state.cwd ? [`目录：${elidePath(state.cwd, 52)}`, `模型：${state.model}`] : []),
+    ...(state.cwd ? [`目录：${shortPath(state.cwd)}`, `模型：${state.model}`] : []),
     ...(state.workspace_mode !== 'project' ? [`任务版本 ${state.task_version} · Trial ${state.trials?.length || 0}`] : []),
     ...(goal && state.goal_usage ? [`已用时 ${state.goal_usage.elapsed_seconds}s · 模型调用 ${state.goal_usage.model_turns} · tokens ${state.goal_usage.tokens}${goal.token_budget == null ? '' : '/' + goal.token_budget}`,
       ...(state.goal_usage.usage_unknown_calls ? [`${state.goal_usage.usage_unknown_calls} 次调用未报告 token 用量`] : [])] : []),
@@ -106,16 +115,60 @@ export function welcomeBox(state, theme, width, { demo = false } = {}) {
     border('╰' + '─'.repeat(inner + 2) + '╯')];
 }
 
-/** The branch and the right-hand hint stay whole; only the path gives up room. */
+/** The fullest right-hand text that still leaves the left side whole. */
+function fitRight(left, rights, width) {
+  const right = rights.find(text => !text || visibleWidth(left) + visibleWidth(text) + 2 <= width) ?? rights.at(-1);
+  return split(left, right, width);
+}
+
+/**
+ * The branch and the right-hand hint stay whole while the path gives up room
+ * (down to eight columns). Narrower rows drop the detach label, then shorten the branch.
+ */
 function bottom(state, branch, detach, color, width) {
   const tail = branch ? ` (${branch})` : '';
-  const right = `${detach}/help`;
-  const room = Math.max(8, width - visibleWidth(right) - 2 - visibleWidth(tail));
-  return split(color('dim', elidePath(state.cwd, room) + tail), color('dim', right), width);
+  for (const right of [...new Set([`${detach}/help`, '/help'])]) {
+    const room = width - visibleWidth(right) - 2 - visibleWidth(tail);
+    if (room >= 8) return split(color('dim', elidePath(state.cwd, room) + tail), color('dim', right), width);
+  }
+  const branchRoom = Math.floor(width / 2) - 3;
+  const shortTail = branch && branchRoom >= 4 ? ` (${truncateToWidth(branch, branchRoom, '…')})` : '';
+  return truncateToWidth(color('dim', elidePath(state.cwd, Math.max(4, width - visibleWidth(shortTail))) + shortTail), width, '…');
+}
+
+/** Empty-editor hints, widest first; the widest that fits is shown (Codex composer style). */
+const HINTS = {
+  project: ['试试：修复失败的测试 · / 命令 · ! shell', '试试：修复失败的测试 · / 命令', '输入任务 · / 命令', '输入任务'],
+  task: ['输入约束或问题 · /goal 目标内容 持续执行', '输入约束或问题 · / 命令', '输入约束或问题'],
+};
+
+export function editorPlaceholder(mode, width) {
+  return HINTS[mode === 'project' ? 'project' : 'task'].find(text => visibleWidth(text) <= width) ?? '';
+}
+
+/** Pi's own editor plus a dim hint while it is empty; any text or open completion hides it. */
+export function placeholderEditor(getState, getTheme) {
+  class PlaceholderEditor extends CustomEditor {
+    render(width) {
+      const lines = super.render(width);
+      if (this.getText() || this.isShowingAutocomplete() || lines.length < 3) return lines;
+      const padding = Math.min(this.getPaddingX(), Math.max(0, Math.floor((width - 1) / 2)));
+      const content = Math.max(1, width - padding * 2);
+      const hint = editorPlaceholder(getState()?.workspace_mode, content - 2);
+      if (!hint) return lines;
+      const theme = getTheme();
+      const cursor = (this.focused ? CURSOR_MARKER : '') + renderFakeCursor(' ');
+      lines[1] = ' '.repeat(padding) + cursor + ' ' + (theme?.fg?.('dim', hint) ?? hint)
+        + ' '.repeat(Math.max(0, content - 2 - visibleWidth(hint))) + ' '.repeat(padding);
+      return lines;
+    }
+  }
+  return (tui, editorTheme, keybindings) => new PlaceholderEditor(tui, editorTheme, keybindings);
 }
 
 /** Product status stays visible without exposing broker IDs, synthetic token limits or plugin internals. */
 export function installProductUI(context, getState, { demo = false } = {}) {
+  context.ui.setEditorComponent?.(placeholderEditor(getState, () => context.ui.theme));
   context.ui.setHeader((_tui, theme) => ({
     invalidate() {},
     render: width => ['', ...welcomeBox(getState(), theme, width, { demo })],
@@ -136,10 +189,11 @@ export function installProductUI(context, getState, { demo = false } = {}) {
       const left = state.workspace_mode === 'project'
         ? `${color(busy || children ? 'accent' : 'success', '●')} ${color('text', state.model ?? '未配置模型')} ${color('dim', '·')} ${color('muted', activity)}`
         : `${color('accent', '●')} ${color('muted', `${goal ? `Goal ${STATUSES[goal.status] ?? goal.status}` : 'Session'} · task v${state.task_version} · Trial ${state.trials?.length || 0}`)}`;
-      const right = percent == null ? '' : color(percent >= 80 ? 'warning' : 'dim', `上下文剩余 ${Math.max(0, Math.round(100 - percent))}%`);
+      const remaining = Math.max(0, Math.round(100 - percent));
+      const rights = percent == null ? [''] : [`上下文剩余 ${remaining}%`, `剩余 ${remaining}%`].map(text => color(percent >= 80 ? 'warning' : 'dim', text));
       const detach = goal || state.workspace_mode !== 'project' ? `退出${goal?.on_detach === 'continue' ? '继续' : '暂停'} · ` : '';
       return [
-        split(left, right, width),
+        fitRight(left, rights, width),
         ...(children ? [truncateToWidth(color('accent', `子代理 ${children} 个运行中 · /agents 查看`), width, '…')] : []),
         ...(budget.limit == null ? [] : [truncateToWidth(color('muted', [`预算 ${budget.spent ?? 0}/${budget.limit}`,
           ...(budget.reserved ? [`预留 ${budget.reserved}`] : []),
@@ -148,6 +202,60 @@ export function installProductUI(context, getState, { demo = false } = {}) {
       ];
     },
   }));
+}
+
+const LABELLED_PATH = /^([^\s：]{1,8}：)([~/]\S*)$/;
+// Indented command, a gap of two or more spaces, then a description without such gaps.
+const TABLE_ROW = /^( {2,})(\S.*?)( {2,})(\S(?:(?! {2}).)*)$/;
+
+/** Wraps at ` · ` separators first, so a list of hints never breaks inside an item. */
+function wrapIndented(line, width) {
+  const text = line.trimStart();
+  let indent = line.length - text.length;
+  if (indent + visibleWidth(text) > width) indent = Math.min(indent, 4);
+  const room = Math.max(1, width - indent);
+  const parts = [];
+  for (const segment of text.split(' · ')) {
+    const last = parts.length - 1;
+    if (last >= 0 && visibleWidth(parts[last]) + 3 + visibleWidth(segment) <= room) parts[last] += ' · ' + segment;
+    else parts.push(...wrapTextWithAnsi(segment, room));
+  }
+  return parts.map(part => ' '.repeat(indent) + part);
+}
+
+/**
+ * Host blocks at the real terminal width. A labelled path keeps its label and
+ * elides its middle. A two-column table first tightens its column for every row
+ * at once, then puts each description under its command. Other lines wrap with
+ * their own indent.
+ */
+export function fitFeedback(text, width) {
+  const lines = String(text).split('\n');
+  const rows = lines.map(line => TABLE_ROW.exec(line));
+  const table = rows.filter(Boolean);
+  let mode = 'as-is', column = 0, indent = 2;
+  if (table.some(([row]) => visibleWidth(row) > width)) {
+    column = Math.max(...table.map(([, , command]) => visibleWidth(command)));
+    indent = Math.max(...table.map(([, lead]) => lead.length));
+    mode = table.every(([, , , , description]) => indent + column + 2 + visibleWidth(description) <= width) ? 'tight' : 'stacked';
+  }
+  return lines.flatMap((line, index) => {
+    const row = rows[index];
+    if (row && mode !== 'as-is') {
+      const [, lead, command, , description] = row;
+      if (mode === 'tight') return [lead + command + ' '.repeat(column - visibleWidth(command) + 2) + description];
+      const inline = lead + command + '  ' + description;
+      return visibleWidth(inline) <= width ? [inline]
+        : [...wrapIndented(lead + command, width), ...wrapIndented(' '.repeat(lead.length + 2) + description, width)];
+    }
+    // A description on its own line, under a command wider than the column.
+    if (mode === 'tight' && /^ {6,}\S/.test(line) && indent + column + 2 + visibleWidth(line.trim()) <= width) {
+      return [' '.repeat(indent + column + 2) + line.trim()];
+    }
+    if (visibleWidth(line) <= width) return [line];
+    const path = LABELLED_PATH.exec(line);
+    return path ? [path[1] + elidePath(path[2], Math.max(4, width - visibleWidth(path[1])))] : wrapIndented(line, width);
+  });
 }
 
 /** Host feedback is marked so it reads as the product speaking, not model output. */
@@ -159,7 +267,7 @@ export function showProductFeedback(context, message, error = false) {
       const lines = String(message).split('\n');
       // The marker goes on the first line only: blocks such as /help keep their own alignment.
       const body = [(error ? '✗ ' : '⏺ ') + lines[0], ...lines.slice(1)].join('\n');
-      const rows = new Text(theme.fg(error ? 'error' : 'accent', body), 0, 0).render(width);
+      const rows = fitFeedback(body, width).map(row => theme.fg(error ? 'error' : 'accent', row));
       // Blocks such as /help use the height the editor and footer leave free.
       const limit = Math.max(3, (tui.terminal?.rows ?? 24) - 7);
       return rows.length <= limit ? rows : [...rows.slice(0, limit - 1), '…'];
