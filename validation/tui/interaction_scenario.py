@@ -21,6 +21,9 @@ import pyte
 from product_scenario import ROOT, Provider, prepare
 from pty_scenario import Client, stop_child
 
+# The isolated-task hint in the empty editor (product-ui.mjs HINTS); it fits 48 columns.
+HINT = '输入约束或问题 · /goal 目标内容 持续执行'
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -92,11 +95,14 @@ def main():
         assert b'<inline:' not in transcript
         assert b'Initializing workspace history' not in transcript
         assert b'Invocation stopped by host' not in transcript
+        # D5: the empty editor carries a dim hint for this mode.
+        until(lambda: HINT in text())
         save('initial-screen')
 
         # Exercise actual Tab completion, not merely the command parser.
         os.write(master, b'/go')
         until(lambda: '→ goal' in text())
+        assert HINT not in text(), 'the first keystroke hides the editor hint'
         os.write(master, b'\t')
         until(lambda: any(line.strip() == '/goal' for line in screen.display))
         os.write(master, b'1\r')
@@ -134,6 +140,15 @@ def main():
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 48, 0, 0))
         screen.resize(24, 48)
         os.killpg(child.pid, signal.SIGWINCH)
+        # D12: at 48 columns /goal keeps the directory on its label's line, eliding the
+        # middle of the path, and the editor hint still fits without truncation.
+        send('/goal')
+        leaf = Path(state()['cwd']).name
+        until(lambda: any(line.startswith('目录：') for line in screen.display))
+        directory = next(line.rstrip() for line in screen.display if line.startswith('目录：'))
+        assert directory.endswith(leaf) and '…' in directory, screen.display
+        until(lambda: HINT in text())
+        save('narrow-goal-screen')
         send('/help')
         until(lambda: all(part in text() for part in ['/goal pause | resume | clear', '/quit', '可用命令', '/agents', '/trace']))
         assert '退出暂停' in text()
@@ -149,8 +164,8 @@ def main():
         until(lambda: child.poll() is not None)
         assert child.returncode == 0
         (output / 'scenario.json').write_text(json.dumps({'status': 'passed', 'final': final,
-            'checks': ['startup_tail', 'go_tab_completion', 'codex_goal_lifecycle', 'visible_rejection',
-                'latest_command', 'submit_from_history', 'narrow_footer', 'no_synthetic_final_answer']}, indent=2))
+            'checks': ['startup_tail', 'editor_hint', 'go_tab_completion', 'codex_goal_lifecycle', 'visible_rejection',
+                'latest_command', 'submit_from_history', 'narrow_goal_path', 'narrow_footer', 'no_synthetic_final_answer']}, indent=2))
         print(json.dumps({'status': 'passed', 'spent': final['budget']['spent']}))
     finally:
         (output / 'pty-transcript.txt').write_bytes(transcript)

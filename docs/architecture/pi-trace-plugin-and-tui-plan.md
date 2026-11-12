@@ -1,11 +1,12 @@
 # Lattice Trace 做成 pi 插件，以及 TUI 待完善项：计划与 TODO
 
-状态：§0 已完成（`18afa13`）；§A 第一版（A0–A6）已完成，在分支 `feat/pi-trace-plugin`；§B 的 D9、D10 已合入，D5、D12 在分支 `feat/tui-d5-d12` 进行中。日期 2026-11-11，2026-11-12 更新。
+状态：§0 已完成（`18afa13`）；§A 第一版（A0–A6）已完成，在分支 `feat/pi-trace-plugin`；§B 的 D5、D9、D10、D12 已完成（D5、D12 来自分支 `feat/tui-d5-d12`，与插件分支合并后 `npm test` 79/79）；D11 等用户决定，B-N2 与第四阶段全量验收未做。日期 2026-11-11，2026-11-12 更新。
 
 ## 进展（2026-11-12）
 
 - §0：另一个会话以 `7d474e3` 为共同祖先做了三方合并，Pi patch 用 patch builder 重建，`PIN_MANIFEST.json` 重新生成；`npm test` 62/62。未跟踪但被引用的 28 个文件一并提交。旧 worktree 和已合并分支已清理，磁盘可用空间 3.4 → 11.8 GiB。
 - §A：共享核心抽到 `source/packages/pi-lattice-trace/`，KernelBridge 的 `/trace` 对同一 Journal 的投影和页面与重构前逐字节一致；插件、单元测试（7 项）、真实 Pi 端到端场景（6 项，含 headless Chrome）完成；`npm test` 74/74。
+- §B：D5 用 Pi 的 `CustomEditor` 子类和 `ctx.ui.setEditorComponent` 实现空编辑器提示，不改 Pi patch；提示里不写 `@ 文件`，因为文件补全依赖的 `fd` 在这台机器上没有。D12 在 48/40/32/24/16 列下逐块渲染，修了 `/goal` 路径、窄宽 `/help`、32 列页脚分支名和 working 行换行四处，`validation/tui/layout.mjs` 5 项。
 - A0 结论：
   1. pi 用 jiti 加载插件，`.ts` 相对导入和 `import.meta.url` 读取 `viewer/` 都可用，安装到 `node_modules` 下也一样。
   2. `message_end` 处理函数运行时，这条消息还没进 `getBranch()`，下一个事件才看得到；插件用 100 ms 去抖后再取。并行工具的 `tool_execution_end` 按完成顺序到达，toolResult 等整批结束后才按源顺序写入，所以运行中的工具要由插件自己记。

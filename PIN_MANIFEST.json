@@ -632,8 +632,8 @@
       "sha256": "273bfed2fdbdd95ff4c5bfc26cb1bd2f8240de483aecd55c98a0fd60b317d8b3"
     },
     "docs/tui.md": {
-      "bytes": 24879,
-      "sha256": "f536b66715c3cb3fe999c9615c3f22e4894ba1a893dfe07423181eed228e2f36"
+      "bytes": 25830,
+      "sha256": "ffc249ec0255bd623eb48d2566d9fe934ef76ead2723070b1ecdb069bc7025ba"
     },
     "examples/cann/README.md": {
       "bytes": 10939,
@@ -1256,8 +1256,8 @@
       "sha256": "00caab7fe47dfe32d8361fd341199905397a91454f9c8610f15df7a8fcb85ded"
     },
     "source/apps/agent/package.json": {
-      "bytes": 1975,
-      "sha256": "b236ff37c6860c3ff342479a9e822d55594ba3898b0ae8c58f7a7c12b63b1908"
+      "bytes": 2010,
+      "sha256": "c915850a2992e4ca046e6c86b10947c4d91e2e67bef1123cdd0f1a2f6648807a"
     },
     "source/apps/agent/patches/pi-coding-agent-1.5.0-host-actions.json": {
       "bytes": 718,
@@ -1536,8 +1536,8 @@
       "sha256": "2bc8835a12f5e1840be77fbdcb3cc2922af46257ba249d42a857487c55861abf"
     },
     "source/apps/agent/src/harness/pi/host-actions.mjs": {
-      "bytes": 43102,
-      "sha256": "8a16cdbaaa05e53cd873106445f4ccc03293bd8e37f4eba9e33a64d454df1ccf"
+      "bytes": 43210,
+      "sha256": "7aa95b52d25b37b0ad650ed467e29902372d4e95881870c27f90c936b09042eb"
     },
     "source/apps/agent/src/harness/pi/input.ts": {
       "bytes": 2080,
@@ -1572,8 +1572,8 @@
       "sha256": "2cbcf09af0cb89f5d89fc81f63f8816208f88e40eaea30fdcb0c5cb804bde88a"
     },
     "source/apps/agent/src/harness/pi/product-ui.mjs": {
-      "bytes": 10798,
-      "sha256": "97f45eed32e25d5fb8899a59c28dadf2f4b2c7d182202013bba735c516e6bb3b"
+      "bytes": 16543,
+      "sha256": "7a779dcbe93c50a1af4b0e14a77ae68c54446445e5838d4ca6f758d35e130e3b"
     },
     "source/apps/agent/src/harness/pi/replay-context-extension.ts": {
       "bytes": 13755,
@@ -4228,8 +4228,8 @@
       "sha256": "66cab8020e355589692e846e06f20a0c9d257b44b2538f341d512ab955ccbb15"
     },
     "validation/tui/interaction_scenario.py": {
-      "bytes": 8453,
-      "sha256": "441774b75f31789754e693828254f17b643a7a4243989f7caf3eefe454d384cb"
+      "bytes": 9393,
+      "sha256": "a6cd8c2c07d8faecb6e7f4eeddfa61eeded2b480e161f0290cc8cb41fff3f55e"
     },
     "validation/tui/lifecycle-scenario.mjs": {
       "bytes": 4368,
