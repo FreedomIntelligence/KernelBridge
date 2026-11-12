@@ -58,9 +58,9 @@ One server serves the whole Pi process. After `/new`, `/resume`, `/fork` or `/tr
 
 Other branches of the session tree, such as attempts left behind by `/tree`, appear as lanes B, C and D in the branch comparison. They fork at the latest entry on the current path that has other children.
 
-## Not shown yet
+## Subagents
 
-- Subagent sessions (pi-subagents). Their child sessions are separate files.
+Each child of a `subagent` call (pi-subagents) gets its own lane with a spawn on the parent and a return when the result arrives. The child's steps come from the messages in its result, or from its `sessionFile` when the result carries none. Background runs that report only through completion notifications are not merged yet.
 
 ## Development
 

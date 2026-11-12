@@ -46,7 +46,7 @@ var KB_LIVE = (function(){
       },
       configHTML:function(){
         var c = T.config || {}, kids = T.rows.length - 1;
-        return '<div class="cfg"><b>Harness · ' + esc2(label('harness', 'KernelBridge')) + '</b><div>' + esc2(c.adapter || 'pi') + ' · 模型 ' + esc2(T.session.model || '—') + (c.thinking ? ' · 思考 ' + esc2(c.thinking) : '') + '</div><div>上下文上限 ' + kfmt(T.limit) + '，' + esc2(c.compaction || '80% 时压缩') + '</div><div>工具 ' + ((c.tools || []).length) + ' 个 · 执行 ' + esc2(c.execution || '—') + '</div><div>' + (T.labels && T.labels.childNote ? esc2(T.labels.childNote) : '子代理 ' + kids + ' 个（由宿主准入与记账）') + '</div></div>'
+        return '<div class="cfg"><b>Harness · ' + esc2(label('harness', 'KernelBridge')) + '</b><div>' + esc2(c.adapter || 'pi') + ' · 模型 ' + esc2(T.session.model || '—') + (c.thinking ? ' · 思考 ' + esc2(c.thinking) : '') + '</div><div>上下文上限 ' + kfmt(T.limit) + '，' + esc2(c.compaction || '80% 时压缩') + '</div><div>工具 ' + ((c.tools || []).length) + ' 个 · 执行 ' + esc2(c.execution || '—') + '</div><div>' + '子代理 ' + kids + ' 个（' + esc2(label('childNote', '由宿主准入与记账')) + '）' + '</div></div>'
           + '<div class="cfg"><b>工作区</b><div class="row2"><span>模式</span><span>' + esc2(c.workspace === 'project' ? label('workspace', '项目目录（直接修改）') : c.workspace || '—') + '</span></div><div class="row2"><span>写入 / 修改</span><span>' + T.commits.length + ' 次</span></div><div class="row2"><span>涉及文件</span><span>' + Object.keys(T.files || {}).length + ' 个</span></div><div class="row2"><span>来源</span><span>' + esc2(label('source', 'Journal（只读）')) + '</span></div></div>';
       },
       summaryFor:function(s){ return s.note || '摘要'; },

@@ -24,6 +24,9 @@ const TRANSFORMS: [string, string][] = [
   // Divergence pairs post-fork steps and looks up their model turn; live inputs and markers have none.
   ['  var base = postFork(ROOT), L = postFork(b), i = 0;', '  var base = postFork(ROOT).filter(kbComparable), L = postFork(b).filter(kbComparable), i = 0;'],
   ['  r.sameCtx = ctxSig(r.ma) === ctxSig(r.mx);', '  if (!r.ma || !r.mx) return null;\n  r.sameCtx = ctxSig(r.ma) === ctxSig(r.mx);'],
+  // A running subagent has no return step yet (and may have no steps): draw what exists.
+  ['    var tA = sp.t1, tB = list[list.length - 1].t1;', '    if (!sp || !list.length) return;\n    var tA = sp.t1, tB = list[list.length - 1].t1;'],
+  ["    g += '<path d=\"' + curve(li, tB, mi, rt.t0 + 4) + '\" class=\"graft\" data-id=\"' + rt.id + '\"/>';", "    if (rt) g += '<path d=\"' + curve(li, tB, mi, rt.t0 + 4) + '\" class=\"graft\" data-id=\"' + rt.id + '\"/>';"],
   // One lane (a session without subagents or forks) made the branch-history spacing divide by zero.
   ['  function laneC(i){ return up ? m.l + 80 + i * ((W - m.l - m.r - 180) / (LANES.length - 1)) : m.t + 34 + i * ((H - m.t - m.b - 68) / (LANES.length - 1)); }',
    '  function laneC(i){ return up ? m.l + 80 + i * ((W - m.l - m.r - 180) / Math.max(1, LANES.length - 1)) : m.t + 34 + i * ((H - m.t - m.b - 68) / Math.max(1, LANES.length - 1)); }'],

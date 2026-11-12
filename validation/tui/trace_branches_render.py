@@ -34,10 +34,17 @@ def pi_session(path):
     add('a1', 200, {'role': 'assistant', 'provider': 'f', 'model': 'fixture', 'stopReason': 'toolUse', 'usage': usage(400, 30, 800),
         'content': [{'type': 'toolCall', 'id': 'c1', 'name': 'read', 'arguments': {'path': 'parser.py'}}]}, end=600)
     add('r1', 700, {'role': 'toolResult', 'toolCallId': 'c1', 'toolName': 'read', 'isError': False, 'content': [{'type': 'text', 'text': 'def parse(): ...'}]})
+    add('as', 710, {'role': 'assistant', 'provider': 'f', 'model': 'fixture', 'stopReason': 'toolUse', 'usage': usage(100, 10, 1100),
+        'content': [{'type': 'toolCall', 'id': 'sub', 'name': 'subagent', 'arguments': {'agent': 'scout', 'task': 'Find callers'}}]}, end=720)
+    child = [{'role': 'user', 'content': [{'type': 'text', 'text': 'Find callers'}], 'timestamp': T0 + 730},
+             {'role': 'assistant', 'provider': 'f', 'model': 'fixture', 'stopReason': 'stop', 'usage': usage(80, 8, 0),
+              'content': [{'type': 'text', 'text': 'Only main.py.'}], 'timestamp': T0 + 740}]
+    add('rs', 780, {'role': 'toolResult', 'toolCallId': 'sub', 'toolName': 'subagent', 'isError': False, 'content': [{'type': 'text', 'text': 'done'}],
+        'details': {'mode': 'single', 'results': [{'index': 0, 'agent': 'scout', 'task': 'Find callers', 'exitCode': 0, 'usage': {}, 'finalOutput': 'Only main.py.', 'messages': child}]}})
     add('ub', 800, {'role': 'user', 'content': [{'type': 'text', 'text': 'Rewrite it from scratch'}]})
     add('ab', 900, {'role': 'assistant', 'provider': 'f', 'model': 'fixture', 'stopReason': 'stop', 'usage': usage(200, 40, 1200),
         'content': [{'type': 'text', 'text': 'Rewritten.'}]}, end=1500)
-    add('u2', 1600, {'role': 'user', 'content': [{'type': 'text', 'text': 'Patch the edge case instead'}]}, parent_id='r1')
+    add('u2', 1600, {'role': 'user', 'content': [{'type': 'text', 'text': 'Patch the edge case instead'}]}, parent_id='rs')
     add('a2', 1700, {'role': 'assistant', 'provider': 'f', 'model': 'fixture', 'stopReason': 'toolUse', 'usage': usage(150, 20, 1250),
         'content': [{'type': 'toolCall', 'id': 'c2', 'name': 'edit', 'arguments': {'path': 'parser.py', 'edits': [{'oldText': '...', 'newText': 'return []'}]}}]}, end=2000)
     add('r2', 2100, {'role': 'toolResult', 'toolCallId': 'c2', 'toolName': 'edit', 'isError': False, 'content': [{'type': 'text', 'text': 'Edited parser.py'}]})
@@ -68,6 +75,17 @@ def kb_journal(path):
     app('application/configuration', {'operation': 'transition_prepared', 'parent': {'operation': 'fork', 'pi_session_id': 'p1', 'entry_id': 'e1'}})
     app('application/input_accepted', {'kind': 'prompt', 'initiator': 'user', 'text': 'better idea'})
     turn('t/step/2/model/primary', 'Better.', 1100)
+    # A subagent still running: spawn and child steps exist, the return does not yet.
+    delegate = 't/step/2/model/primary/call/0'
+    add({'kind': 'admitted', 'action': {'id': delegate, 'tool': 'delegate', 'task': 't', 'arguments': {'agent': 'kernel-scout', 'task': 'Find callers'}, 'parents': ['t/step/2/model/primary']}})
+    add({'kind': 'started', 'action_id': delegate})
+    add({'kind': 'task', 'task': {'id': delegate + '/leaf', 'goal': 'Find callers'}})
+    child = delegate + '/leaf/step/0/model/primary'
+    add({'kind': 'admitted', 'action': {'id': child, 'tool': '__propose__', 'task': delegate + '/leaf', 'arguments': {}, 'parents': []}})
+    add({'kind': 'started', 'action_id': child})
+    add({'kind': 'settled', 'action_id': child, 'elapsed_ms': 40, 'outcome': {'status': 'completed', 'data': {'content': [{'type': 'text', 'text': 'Searching.'}],
+         'usage': {'prompt_tokens': 500, 'completion_tokens': 10}}}})
+    app('application/call_result', {'call_id': 'child', 'result': {}})
     path.write_text(''.join(json.dumps(row) + '\n' for row in rows))
 
 
@@ -93,8 +111,9 @@ def render(url, label, output):
         # The viewer catches render errors itself and logs them; they count as failures too.
         page.on('console', lambda message: errors.append(message.text) if message.type == 'error' and 'Failed to load resource' not in message.text else None)
         page.goto(url); page.wait_for_function('typeof STEPS !== "undefined" && STEPS.length > 0', timeout=15000)
-        state = page.evaluate('({live: !!DS.live, fork: FORK && FORK.step, forkb: FORKB.slice(), rows: ROWS.slice()})')
+        state = page.evaluate('({live: !!DS.live, fork: FORK && FORK.step, forkb: FORKB.slice(), rows: ROWS.slice(), subs: SUBS.slice()})')
         assert state['live'] and state['fork'] and state['forkb'] == ['B'] and 'B/main' in state['rows'], state
+        assert state['subs'] == ['M/c1'], state  # one subagent lane on the current branch in both sources
         for scope in ['M', 'B']:
             page.evaluate(f'state.scope = {json.dumps(scope)}; renderAll()')
             for tab in TABS:

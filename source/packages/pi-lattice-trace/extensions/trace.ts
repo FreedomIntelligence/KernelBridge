@@ -7,6 +7,7 @@
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { openBrowser, serveTrace, type TraceServer } from '../src/server.ts';
 import { exportTrace } from '../src/otlp.ts';
+import { childSessionEntries } from '../src/session-file.ts';
 import { projectSession, type RunningTool } from '../src/session-trace.ts';
 import type { Trace } from '../src/trace-core.ts';
 
@@ -52,6 +53,7 @@ export default function latticeTrace(pi: ExtensionAPI) {
       header: sessions.getHeader(), running: shared.running, streamingSince: shared.streamingSince,
       model: ctx.model ? { provider: ctx.model.provider, id: ctx.model.id, contextWindow: ctx.model.contextWindow } : null,
       thinkingLevel: ctx.thinkingLevel ?? null, sessionName: sessions.getSessionName() ?? null, tree: sessions.getEntries(),
+      childEntries: childSessionEntries,
     });
   };
   // Pi appends an entry after message_end handlers return; publish on the next tick.

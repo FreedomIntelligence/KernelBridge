@@ -75,6 +75,10 @@ KernelBridge loads Pi with `noExtensions` and an explicit factory list, so an in
 - `node validation/tui/pi-lattice-trace.mjs`: Pi session projection (token counts, parallel tools, errors, compaction, markers, `!!` commands, file history, running and streaming steps, stable ids), the Pi page and source switching on the shared server.
 - `python3 validation/tui/pi_plugin_trace_scenario.py --output DIR`: real Pi 1.5.0 in RPC mode with an isolated `PI_CODING_AGENT_DIR` and a scripted provider. It checks the served trace, a running tool, SSE growth, a headless Chrome render with Pi labels, `/new` on the same URL, and the server stopping when Pi exits.
 
+## Pi subagents
+
+In the Pi plugin each child of a pi-subagents `subagent` call becomes a lane: a spawn on the parent, the child's own steps (from the result's messages, or its session file), and a return when the result arrives. A child that has not returned yet is drawn without the return edge.
+
 ## Branches
 
 The viewer compares branches that share one fork point.

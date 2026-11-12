@@ -6,34 +6,18 @@ import { readFile, stat } from 'node:fs/promises';
 import { watch, type FSWatcher } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { Json, Trace } from '../src/trace-core.ts';
+import type { Trace } from '../src/trace-core.ts';
 import { projectSession } from '../src/session-trace.ts';
 import { openBrowser, serveTrace } from '../src/server.ts';
 import { exportTrace } from '../src/otlp.ts';
+import { childSessionEntries, sessionBranch } from '../src/session-file.ts';
 
-/** Header and current branch of a session file; a torn last line is ignored until complete. */
-export function sessionBranch(text: string): { header: Json; entries: Json[]; tree: Json[] } {
-  const complete = text.slice(0, text.lastIndexOf('\n') + 1);
-  const rows: Json[] = [];
-  for (const line of complete.split('\n')) {
-    if (!line.trim()) continue;
-    try { rows.push(JSON.parse(line)); } catch { /* a corrupt line is skipped; Pi itself refuses to load it */ }
-  }
-  const header = rows.find(row => row.type === 'session') ?? {};
-  const entries = rows.filter(row => row.type !== 'session' && typeof row.id === 'string');
-  const byId = new Map(entries.map(entry => [entry.id, entry]));
-  const branch: Json[] = [];
-  for (let entry = entries.at(-1); entry; entry = entry.parentId ? byId.get(entry.parentId) : undefined) {
-    branch.push(entry);
-    if (branch.length > entries.length) break; // a parent cycle is not a valid session
-  }
-  return { header, entries: branch.reverse(), tree: entries };
-}
+export { sessionBranch };
 
 export async function traceFile(path: string): Promise<Trace> {
   const { header, entries, tree } = sessionBranch(await readFile(path, 'utf8'));
   const name = [...entries].reverse().find(entry => entry.type === 'session_info' && entry.name)?.name ?? null;
-  return projectSession(entries, { header, sessionName: name, live: true, tree });
+  return projectSession(entries, { header, sessionName: name, live: true, tree, childEntries: childSessionEntries });
 }
 
 const USAGE = 'usage: lattice-trace SESSION.jsonl [--port N] [--no-open] [--offline] [--otlp]';

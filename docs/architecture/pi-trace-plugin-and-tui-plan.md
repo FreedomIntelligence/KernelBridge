@@ -260,7 +260,7 @@ startTraceServer(options: {
 **A7–A10：第二版及以后**
 
 - [x] **A7**（`findFork` 选最近的分叉点，最多 3 条分支；查看器 7 处 ID 比较改为按时间线排序；`trace_branches_render.py` 在 headless Chrome 里检查 9 个标签页 × 两个分支视角） 分支对比（M–L）：pi 的会话本身是树。用 `getTree()` 的每个叶子生成一个 `BR` 分支，适配脚本不再隐藏“分支 · 点选切换”。这正是 KernelBridge 一侧只能空着的那个视图。
-- [ ] **A8** 子代理泳道（L）：
+- [x] **A8** 子代理泳道（L；前台 `subagent` 结果已合并，只通过完成通知回报的后台运行未合并）：
   - 通过 pi-subagents 的进程内 RPC 或状态查询，拿到每个子代理的 `sessionFile`；
   - 读取子会话，投影成 `M/cN` 泳道；
   - 父会话里的 `subagent` 工具调用作为 spawn 和 return 步骤。

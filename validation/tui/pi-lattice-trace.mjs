@@ -246,3 +246,51 @@ test('other branches of the session tree become fork lanes at their latest commo
   assert.ok(trace.steps.every((step, i, all) => !i || all[i - 1].t0 <= step.t0), 'steps stay in timeline order');
   assert.equal(projectSession(entries, { header, now: T0 + 5000 }).fork, undefined, 'no tree, no fork');
 });
+
+test('pi-subagents children get lanes from their messages or their session files', async () => {
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
+  const { childSessionEntries } = await import('../../source/packages/pi-lattice-trace/src/session-file.ts');
+  const directory = await mkdtemp(join(tmpdir(), 'lattice-child-'));
+  try {
+    const childFile = join(directory, 'child.jsonl');
+    await writeFile(childFile, [
+      { type: 'session', version: 3, id: 'child-b', timestamp: iso(1200), cwd: '/work/project' },
+      { type: 'message', id: 'cb1', parentId: null, timestamp: iso(1210), message: { role: 'user', content: [{ type: 'text', text: 'Review greet.py' }], timestamp: T0 + 1210 } },
+      { type: 'message', id: 'cb2', parentId: 'cb1', timestamp: iso(1400), message: { role: 'assistant', provider: 'f', model: 'fixture-1', stopReason: 'stop',
+        usage: usage(90, 10, 0), content: [{ type: 'text', text: 'Looks fine.' }], timestamp: T0 + 1220 } },
+    ].map(row => JSON.stringify(row)).join('\n') + '\n');
+    parent = null;
+    const childMessages = [
+      { role: 'user', content: [{ type: 'text', text: 'Find callers of greet' }], timestamp: T0 + 1100 },
+      { role: 'assistant', provider: 'f', model: 'fixture-1', stopReason: 'toolUse', usage: usage(120, 15, 0),
+        content: [{ type: 'toolCall', id: 'cc1', name: 'grep', arguments: { pattern: 'greet' } }], timestamp: T0 + 1110 },
+      { role: 'toolResult', toolCallId: 'cc1', toolName: 'grep', isError: false, content: [{ type: 'text', text: 'main.py:3: greet()' }], timestamp: T0 + 1300 },
+      { role: 'assistant', provider: 'f', model: 'fixture-1', stopReason: 'stop', usage: usage(140, 12, 0), content: [{ type: 'text', text: 'main.py calls it.' }], timestamp: T0 + 1310 },
+    ];
+    const entries = [
+      msg('us000001', 1000, { role: 'user', content: [{ type: 'text', text: 'Delegate two reviews' }] }),
+      { ...msg('as000001', 1010, { role: 'assistant', provider: 'f', model: 'fixture-1', stopReason: 'toolUse', usage: usage(300, 20, 0),
+        content: [{ type: 'toolCall', id: 'sub1', name: 'subagent', arguments: { tasks: [{ agent: 'scout', task: 'Find callers' }, { agent: 'reviewer', task: 'Review' }] } }] }), timestamp: iso(1050) },
+      msg('tr000001', 1500, { role: 'toolResult', toolCallId: 'sub1', toolName: 'subagent', isError: false, content: [{ type: 'text', text: 'two results' }],
+        details: { mode: 'parallel', results: [
+          { index: 0, agent: 'scout', task: 'Find callers', exitCode: 0, usage: {}, finalOutput: 'main.py calls it.', messages: childMessages },
+          { index: 1, agent: 'reviewer', task: 'Review', exitCode: 1, error: 'reviewer timed out', usage: {}, sessionFile: childFile },
+        ] } }),
+    ];
+    const trace = projectSession(entries, { header, childEntries: childSessionEntries, now: T0 + 2000 });
+    assert.deepEqual(trace.rows, ['M/main', 'M/c1', 'M/c2']);
+    assert.equal(trace.agents['M/c1'].short, 'scout'); assert.equal(trace.agents['M/c1'].parent, 'M/main'); assert.equal(trace.agents['M/c2'].level, 1);
+    const spawns = trace.steps.filter(s => s.kind === 'spawn'); const returns = trace.steps.filter(s => s.kind === 'return');
+    assert.deepEqual(spawns.map(s => s.child), ['M/c1', 'M/c2']); assert.deepEqual(returns.map(s => s.child), ['M/c1', 'M/c2']);
+    assert.equal(returns[1].status, 'error'); assert.match(returns[0].out, /main\.py calls it/);
+    const scout = trace.steps.filter(s => s.agent === 'M/c1');
+    assert.deepEqual(scout.map(s => s.src), ['harness', 'model', 'tool', 'model']);
+    assert.equal(scout[1].t0, 1.11, 'child times use the parent session clock');
+    assert.equal(scout.find(s => s.tool === 'grep').status, 'ok');
+    const reviewer = trace.steps.filter(s => s.agent === 'M/c2');
+    assert.deepEqual(reviewer.map(s => s.title), ['用户：Review greet.py', 'Looks fine.'], 'a result without messages reads its session file');
+    assert.ok(trace.steps.every(s => trace.rows.includes(s.agent)), 'every step sits on a known lane');
+    assert.equal(new Set(trace.steps.map(s => s.id)).size, trace.steps.length, 'ids stay unique across lanes');
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});

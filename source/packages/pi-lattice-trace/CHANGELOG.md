@@ -4,6 +4,8 @@
 
 - `--otlp` exports the session as OpenTelemetry GenAI spans (OTLP/HTTP JSON); no message content unless selected.
 - `bin/lattice-trace.ts` opens a saved Pi session file and follows appends.
+- Subagent lanes for pi-subagents children, from result messages or their session files.
+- Fixed: the branch history failed for a subagent that had not returned yet.
 - Branch comparison: other branches of the session tree become fork lanes; the viewer orders the fork prefix by timeline, not by id text.
 - Fixed: the branch history drew NaN coordinates for a session with one lane; the divergence summary failed when a branch began with an input.
 - Model steps record cache writes and reasoning tokens; clipped tool outputs record `truncated` and `originalLength`; tool steps record the provider call id.
