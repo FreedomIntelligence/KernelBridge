@@ -644,8 +644,8 @@
       "sha256": "8d5258f4fa4bdbea748f6b1f2a282796d34688cc497ec05daaa0d66679bc0d61"
     },
     "docs/tui.md": {
-      "bytes": 27940,
-      "sha256": "87ad2cafaa90c2f81d575d8b42338486f55833d6c9cd9023f621690c264375dc"
+      "bytes": 28545,
+      "sha256": "ef060d080ce4039b7d103f9d79e50b562fd9819eec27cd34d805ac35794cdf0c"
     },
     "examples/cann/README.md": {
       "bytes": 10939,
@@ -1364,8 +1364,8 @@
       "sha256": "3b11db6d1cd80438479639e5ef6a5ecfd897a7271a410a583fe10bfe7c48f263"
     },
     "source/apps/agent/src/application/host.mjs": {
-      "bytes": 12887,
-      "sha256": "9e5071e154fb5ddb428a5b0138569432f2f17587f44bcb42dcea85e7b404aff5"
+      "bytes": 13364,
+      "sha256": "ef8c6767b913a81fe71686dc1aa345469d4a7b092a170e1573d232d9de6049bf"
     },
     "source/apps/agent/src/application/input-queue.mjs": {
       "bytes": 1238,
@@ -1604,8 +1604,8 @@
       "sha256": "2bc8835a12f5e1840be77fbdcb3cc2922af46257ba249d42a857487c55861abf"
     },
     "source/apps/agent/src/harness/pi/host-actions.mjs": {
-      "bytes": 45683,
-      "sha256": "3acdf661f168de90e561a15fae714769601ae456a98d9b19f394629ee21ac7e5"
+      "bytes": 45934,
+      "sha256": "855cddf85f401981f64a62740a423ae6c83b43bb61abd552a50e444b90a7e94c"
     },
     "source/apps/agent/src/harness/pi/input.ts": {
       "bytes": 2101,

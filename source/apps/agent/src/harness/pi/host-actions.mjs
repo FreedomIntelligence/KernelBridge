@@ -693,7 +693,11 @@ export function createHostActions(control, effects, { observer = control } = {})
       if (command === '/resume' && state.workspace_mode === 'project') {
         const all = arguments_.includes('--all');
         const query = arguments_.filter(value => value !== '--all').join(' ');
-        const available = (await sessions({ registry: dirname(control.directory) })).filter(item => item.workspace_mode === 'project'
+        // Each live session answers from its own host; say so while they are read.
+        showProductFeedback(context, '正在读取会话…');
+        const [listed, project] = await Promise.all([sessions({ registry: dirname(control.directory) }), query ? null : projectInfo(state.cwd)])
+          .finally(() => showProductFeedback(context, undefined));
+        const available = listed.filter(item => item.workspace_mode === 'project'
           && (item.has_history || item.application_session_id === control.applicationSessionId || query));
         let selected;
         if (query) {
@@ -704,7 +708,6 @@ export function createHostActions(control, effects, { observer = control } = {})
           selected = matches[0];
         } else {
           if (!available.length) return { action: 'handled', message: '当前项目没有历史会话；用 /resume --all 查看其他项目。' };
-          const project = await projectInfo(state.cwd);
           const choice = await context.ui.custom((tui, _theme, _keybindings, done) => sessionPicker(available, done, () => tui.requestRender(),
             { cwd: state.cwd, all, project, currentId: control.applicationSessionId, rows: () => tui.terminal.rows }));
           if (!choice) return { action: 'handled' };
