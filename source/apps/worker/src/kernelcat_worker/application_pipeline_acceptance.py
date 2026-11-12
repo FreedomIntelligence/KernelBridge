@@ -3,13 +3,31 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import re
 
 from kernelcat_executor.contracts.models import Conflict, digest
-from kernelcat_worker.application_artifacts import read_regular, verify_evaluator
+from kernelcat_worker.application_artifacts import read_regular, read_source_snapshot, verify_evaluator
 
 
 def pipeline_hash(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()).hexdigest()
+
+
+def candidate_source(checkpoints, context, source_paths):
+    """Project declared runtime sources from a verified full workspace checkpoint.
+
+    Scratch files remain checkpointed for recovery, but are never promoted as
+    candidate inputs. Pipeline receipts must bind exactly the declared bundle.
+    """
+    identity = context.get('source_sha256')
+    if not isinstance(identity, str) or re.fullmatch(r'[0-9a-f]{64}', identity) is None:
+        return None
+    try:
+        snapshot = read_source_snapshot(checkpoints / (identity + '.json'), identity)
+        source = {item['path']: item['sha256'] for item in snapshot['files']}
+        return {name: source[name] for name in source_paths}
+    except (OSError, ValueError, KeyError, TypeError, Conflict):
+        return None
 
 
 def original_result(original, folder):
@@ -32,7 +50,7 @@ def original_result(original, folder):
     return result.get('data') if result.get('status') == 'completed' else None
 
 
-def original_check_result(original, path, expected_hash, actions, contexts):
+def original_check_result(original, path, expected_hash, actions, contexts, checkpoints, source_paths):
     """Resolve F from its admitted action, including a manifest-bound composite.
 
     A composite's internal phases are not separate Journal admissions. Its real
@@ -59,8 +77,8 @@ def original_check_result(original, path, expected_hash, actions, contexts):
     origin_id = check.get('origin_action_id', action['id'])
     if origin_id != action['id']:
         # A completed internal F can survive a crash before its outer reply.
-        # Recover only that directly named owner, under the same admitted source
-        # and evaluator; never re-execute an unknown check to get a new identity.
+        # Recover only that directly named owner, under the same admitted
+        # candidate and evaluator; unrelated scratch changes do not re-run F.
         prior = actions.get(origin_id, {})
         context = contexts.get(action['id'], {})
         prior_context = contexts.get(origin_id, {})
@@ -70,7 +88,10 @@ def original_check_result(original, path, expected_hash, actions, contexts):
                 or prior.get('action', {}).get('tool') != 'pipeline_evaluate'
                 or prior.get('action', {}).get('task') != action['task']
                 or any(prior_context.get(key) != context.get(key) for key in
-                       ('task_version', 'evaluator_sha256', 'source_sha256'))):
+                       ('task_version', 'evaluator_sha256'))):
+            return None
+        source = candidate_source(checkpoints, context, source_paths)
+        if source is None or candidate_source(checkpoints, prior_context, source_paths) != source:
             return None
     if (check.get('tool') != 'pipeline_run' or check.get('status') != 'completed'
             or not isinstance(internal_id, str)
@@ -98,10 +119,11 @@ def promoted_receipt(host, state, declared, identity, action, actions, contexts)
             or evidence.get('contract') != declared['pipeline_contract']
             or evidence.get('baseline_files') != declared['baseline_files']):
         return None
-    snapshot = json.loads(read_regular(host.owner.gateway.store.path.parent / 'checkpoints' / (context['source_sha256'] + '.json')))
-    source = {item['path']: item['sha256'] for item in snapshot['files']}
-    if (set(source) != set(declared['source_paths']) or evidence.get('source_files') != source
-            or evidence.get('binding', {}).get('source') != pipeline_hash(source)):
+    checkpoints = host.owner.gateway.store.path.parent / 'checkpoints'
+    source = candidate_source(checkpoints, context, declared['source_paths'])
+    if (source is None or evidence.get('source_files') != source
+            or evidence.get('binding', {}).get('source') != pipeline_hash(source)
+            or evidence.get('binding', {}).get('baseline') != pipeline_hash(declared['baseline_files'])):
         return None
     check, pair = evidence.get('check', {}), evidence.get('pair', {})
     if (not check or not pair or check.get('passed') is not True or check.get('scope') != declared['scope']
@@ -116,7 +138,7 @@ def promoted_receipt(host, state, declared, identity, action, actions, contexts)
                 or original.get('action', {}).get('tool') not in tools or original.get('action', {}).get('task') != host.task.id
                 or original_context.get('task_version') != state['task_version']
                 or original_context.get('evaluator_sha256') != host.evaluator['sha256']
-                or original_context.get('source_sha256') != context['source_sha256']):
+                or candidate_source(checkpoints, original_context, declared['source_paths']) != source):
             return None
         originals.append(original)
     paths = [check['receipt'], *pair.get('receipts', [])]
@@ -129,11 +151,13 @@ def promoted_receipt(host, state, declared, identity, action, actions, contexts)
             return None
         raw.append(json.loads(content))
     # Do not accept a copied external report as an original tool result.
-    if (original_check_result(originals[0], Path(paths[0]), evidence['receipts'][paths[0]], actions, contexts) != raw[0]
+    if (original_check_result(originals[0], Path(paths[0]), evidence['receipts'][paths[0]], actions, contexts,
+                              checkpoints, declared['source_paths']) != raw[0]
             or original_result(originals[1], Path(paths[1]).parent.parent) != pair):
         return None
     full = raw[0]['result']
-    if (any(full.get('checks', {}).get(name) is not True for name in ('build', 'semantics', 'full'))
+    if (raw[0].get('source') != pipeline_hash(source) or raw[0].get('contract') != evidence['binding'].get('contract')
+            or any(full.get('checks', {}).get(name) is not True for name in ('build', 'semantics', 'full'))
             or full.get('case_count') != len(declared['pipeline_contract']['suite'])
             or sorted(full.get('case_ids', [])) != sorted(case['id'] for case in declared['pipeline_contract']['suite'])
             or full.get('oracle_sha256') != pipeline_hash(declared['pipeline_contract']['oracle']['files'])):
@@ -150,7 +174,7 @@ def promoted_receipt(host, state, declared, identity, action, actions, contexts)
             or not math.isfinite(delta) or not math.isfinite(noise) or noise < 0 or delta <= noise
             or type(pair.get('speedup')) not in (int, float) or not math.isfinite(pair['speedup']) or pair['speedup'] <= 1):
         return None
-    return {'evidence_tier': 'E3', 'source_sha256': snapshot['source_sha256'], 'source_files': source,
+    return {'evidence_tier': 'E3', 'source_sha256': context['source_sha256'], 'source_files': source,
         'evaluator_sha256': host.evaluator['sha256'], 'task_version': state['task_version'],
         'measurement_profile_version': digest(declared['pipeline_contract']['measurement']), 'evidence_ref': identity,
         'correct': True, 'full_suite': True, 'score': pair['speedup'], 'score_unit': 'geometric_mean_speedup',
@@ -178,7 +202,8 @@ def collect_pipeline_acceptance(host, state, declared):
         if receipt is None:
             continue
         if receipt['original_f'] not in known:
-            host.journal.command('evidence', {**receipt, 'evidence_tier': 'E1', 'evidence_ref': receipt['original_f']})
+            host.journal.command('evidence', {**receipt, 'evidence_tier': 'E1', 'evidence_ref': receipt['original_f'],
+                'source_sha256': contexts[receipt['original_f']]['source_sha256']})
         host.journal.command('evidence', receipt)
         if host.config.application.complete_on_acceptance and state['goal'] and state['goal']['status'] == 'active':
             host.journal.command('goal_outcome', {'status': 'completed', 'evidence_ref': identity})

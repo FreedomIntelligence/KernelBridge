@@ -134,7 +134,7 @@ export async function launchApplication(descriptor, environment = {}) {
   if (createHash('sha256').update(configBytes).digest('hex') !== descriptor.config_sha256) throw new Error('Frozen session configuration changed');
   const config = JSON.parse(configBytes.toString('utf8'));
   // Both codegen and isolated profiles declare env names, never credential bytes.
-  await loadCodegenCredentials(config.providers ?? {});
+  await loadCodegenCredentials(config.providers ?? {}, config.business_tools ?? []);
   const logfile = await open(join(descriptor.output, 'logs/host.log'), 'a', 0o600);
   let child;
   try {

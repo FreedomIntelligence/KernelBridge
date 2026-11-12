@@ -7,8 +7,10 @@ from typing import Literal, cast
 import httpx
 
 from kernelcat_executor.capabilities.http import request_json
-from kernelcat_executor.capabilities.streaming import prepare_stream, request_stream
 from kernelcat_executor.capabilities.messages import conversation, harness_conversation, parse_turn
+from kernelcat_executor.capabilities.streaming import prepare_stream, request_stream
+from kernelcat_executor.capabilities.task_instructions import TaskInstructions
+from kernelcat_executor.contracts.context import ContextOverflow
 from kernelcat_executor.contracts.messages import AssistantTurn
 from kernelcat_executor.contracts.models import (
     Conflict,
@@ -43,7 +45,8 @@ class APIProposer:
     def __init__(self, provider: str, base_url: str, model: str, api_key: str,
                  max_tokens: int = 8192, timeout: float = 120,
                  client: httpx.Client | None = None, *, wire_options: WireOptions | None = None,
-                 allow_insecure_http: bool = False, max_response_bytes: int = 1048576) -> None:
+                 allow_insecure_http: bool = False, max_response_bytes: int = 1048576,
+                 task_instructions: TaskInstructions | None = None) -> None:
         if provider not in {"openai", "anthropic"}:
             raise ValueError("unsupported provider")
         if not model or not api_key:
@@ -61,18 +64,33 @@ class APIProposer:
         self.base_url, self.api_key = base_url.rstrip("/"), api_key
         self.max_tokens, self.timeout = max_tokens, timeout
         self.client = client
+        # Only trusted composition supplies this immutable input. Never promote
+        # a field from model-provided context or delegate arguments into system.
+        self._task_instruction_prompt = task_instructions.render() if task_instructions else ""
 
     def propose(self, context: Json, tools: tuple[ToolSpec, ...]) -> Reply | AssistantTurn:
         return self.invoke(self.prepare(context, tools))
 
     def prepare(self, context: Json, tools: tuple[ToolSpec, ...]) -> ModelRequest:
         """Pure assembly; the controller logs this before a transport can see it."""
+        system = SYSTEM
+        if self.wire_options.native_turns:
+            system = system.replace("and make one tool call at a time.",
+                                    "and return text or a bounded batch of tool calls.")
+            system += "Use finish as the only call in its turn. Text completion never promotes a kernel.\n"
+        if self._task_instruction_prompt:
+            task_prompt = "\n" + self._task_instruction_prompt
+            limit = context.get("policy", {}).get("context_bytes")
+            if (type(limit) is int and len(canonical(context).encode("utf-8"))
+                    + len(task_prompt.encode("utf-8")) > limit):
+                raise ContextOverflow("child task instructions and context exceed context_bytes")
+            system += task_prompt
         if self.provider == "openai":
             endpoint = "/chat/completions"
             headers = {"content-type": "application/json"}
             payload: Json = {
                 "model": self.model, self.wire_options.token_parameter: self.max_tokens,
-                "messages": [{"role": "system", "content": SYSTEM},
+                "messages": [{"role": "system", "content": system},
                              {"role": "user", "content": canonical(context)}],
                 "tools": [{"type": "function", "function": {
                     "name": t.name, "description": t.description, "parameters": t.parameters,
@@ -87,16 +105,13 @@ class APIProposer:
             endpoint = "/messages"
             headers = {"content-type": "application/json", "anthropic-version": "2023-06-01"}
             payload = {
-                "model": self.model, "max_tokens": self.max_tokens, "system": SYSTEM,
+                "model": self.model, "max_tokens": self.max_tokens, "system": system,
                 "messages": [{"role": "user", "content": canonical(context)}],
                 "tools": [{"name": t.name, "description": t.description,
                            "input_schema": t.parameters} for t in tools],
                 "tool_choice": {"type": "any", "disable_parallel_tool_use": True},
             }
         if self.wire_options.native_turns:
-            system = SYSTEM.replace("and make one tool call at a time.",
-                                    "and return text or a bounded batch of tool calls.")
-            system += "Use finish as the only call in its turn. Text completion never promotes a kernel.\n"
             messages = conversation(self.provider, context)
             if self.provider == "openai":
                 payload["messages"] = [{"role": "system", "content": system}, *messages]

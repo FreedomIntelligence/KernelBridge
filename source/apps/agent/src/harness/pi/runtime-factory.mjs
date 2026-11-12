@@ -17,7 +17,7 @@ import { workspaceTools } from './workspace-tools.mjs';
 import { projectHarness } from './input.ts';
 import { randomUUID, createHash } from 'node:crypto';
 import { directRenderers, explorationBoundary } from './tool-render.mjs';
-import { DELEGATION_PROMPT } from './delegation-prompt.mjs';
+import { delegationPrompt } from './delegation-prompt.mjs';
 import { OPERATOR_WORKFLOW_PROMPT } from './operator-workflow-prompt.mjs';
 
 // Product themes (light/dark follow the terminal): no background blocks, warm accent, quiet borders.
@@ -77,7 +77,7 @@ async function runtimeServices(options, dependencies, provider, factories, repla
     agentsFilesOverride: () => structuredClone(frozenInstructions),
     extensionFactories: factories, appendSystemPrompt: [options.project
       ? 'You are a coding assistant working in the user project. Read the project instructions, inspect relevant files, implement the requested changes, and verify them. Tools operate directly in the current project. Finish with a concise account of changes and checks. Do not start autonomous goals, trials, or device evaluations unless the user explicitly requests them.' : SYSTEM,
-      ...(options.delegation ? [DELEGATION_PROMPT] : []),
+      ...(options.delegationPrompt ? [options.delegationPrompt] : []),
       ...(options.operatorWorkflow ? [OPERATOR_WORKFLOW_PROMPT] : [])] });
   await resourceLoader.reload();
   if (resourceLoader.getExtensions().errors.length) throw new Error('Required Pi extension failed to load');
@@ -247,7 +247,7 @@ export async function createGovernedRuntime(client, home, dependencies, options 
         createReplayContextExtension({ rpc, fail: error => controller.fail(error), receipts,
           replayOnCompaction, semanticCompaction: options.semanticCompaction, isStopped: () => controller.stopped })];
       const services = await runtimeServices({ ...runtimeOptions, project,
-        delegation: hello.tools.some(tool => tool.name === 'delegate'),
+        delegationPrompt: delegationPrompt(hello.tools),
         operatorWorkflow: hello.tools.some(tool => tool.name === 'pipeline_status') }, dependencies, provider, factories, replay, replayOnCompaction, frozenInstructions, options.semanticCompaction === true);
       const created = await sdk.createAgentSession({ ...runtimeOptions, ...services,
         model: services.modelRuntime.getModel('kernelcat', provider.models[0].id), noTools: 'builtin',

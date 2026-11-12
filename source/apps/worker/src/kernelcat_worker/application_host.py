@@ -32,7 +32,7 @@ from kernelcat_executor.state.application import ApplicationJournal, ModelAdmiss
 from kernelcat_worker.bindings import build
 from kernelcat_worker.configuration import load_config
 from kernelcat_worker.startup import admit_config
-from kernelcat_worker.application_artifacts import evaluator_identity, verify_evaluator, source_snapshot, restore_source, persist, read_regular
+from kernelcat_worker.application_artifacts import evaluator_identity, verify_evaluator, source_snapshot, restore_source, persist, read_regular, read_source_snapshot
 from kernelcat_executor.generated.application_host import SCHEMA as HOST_SCHEMA
 
 REQUEST_VALIDATOR = Draft202012Validator(HOST_SCHEMA)
@@ -743,7 +743,7 @@ class ApplicationHost:
             selected = self.journal.state()["checkpoints"].get(params["pi_session_id"] + ":" + params["entry_id"])
             if selected is None:
                 raise Conflict("selected entry has no source checkpoint; historical source cannot be inferred")
-            snapshot = json.loads(read_regular(directory / (selected["source_sha256"] + ".json")))
+            snapshot = read_source_snapshot(directory / (selected["source_sha256"] + ".json"), selected["source_sha256"])
             params = {**params, "native_checkpoint": selected.get("native_checkpoint"), "session_file": selected.get("session_file")}
         persist(directory / (snapshot["source_sha256"] + ".json"), snapshot)
         checkpoint = {**connection.worker, "source_sha256": snapshot["source_sha256"],
@@ -802,7 +802,7 @@ class ApplicationHost:
         if state["pending_effect_ids"] or state["calls"]:
             raise Conflict("Resume requires a settled execution boundary")
         if self.config.workspace_mode != "project":
-            snapshot = json.loads(read_regular(self.owner.gateway.store.path.parent / "checkpoints" / (selected["source_sha256"] + ".json")))
+            snapshot = read_source_snapshot(self.owner.gateway.store.path.parent / "checkpoints" / (selected["source_sha256"] + ".json"), selected["source_sha256"])
             policy = self.owner.workspace_policy
             restore_source(Path(policy["root"]), snapshot, policy["writable_paths"], policy["readonly_paths"])
         self.journal.command("checkpoint", {**selected, **connection.worker, "operation": "checkpoint"})

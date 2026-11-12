@@ -4,6 +4,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { openSync, closeSync, writeSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadCodegenCredentials, configuredCredentialValues } from '../../source/apps/agent/src/application/credentials.mjs';
 import { withProcessEnvironment } from '../../source/apps/agent/src/harness/pi/environment.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -33,7 +34,8 @@ export async function executePrepared(prepared, options = {}) {
 async function executeTask(prepared, options) {
   const output = prepared.output;
   const config = JSON.parse(await readFile(join(output, 'config.json'), 'utf8'));
-  const keys = Object.values(config.providers).map(x => process.env[x.api_key_env]).filter(Boolean);
+  await loadCodegenCredentials(config.providers ?? {}, config.business_tools ?? []);
+  const keys = configuredCredentialValues(config.providers ?? {}, config.business_tools ?? []);
   const encode = value => keys.reduce((s, key) => s.split(key).join('[REDACTED]'), JSON.stringify(value, null, 2)) + '\n';
   const save = (name, value) => writeFile(join(output, name), encode(value), { flag: 'wx', mode: 0o600 });
   const oldPythonPath = process.env.PYTHONPATH;
@@ -82,7 +84,7 @@ async function executeTask(prepared, options) {
   } catch (error) {
     primaryError = error;
     await save('failure.json', { error: String(error), automatic_retry: false });
-    throw error;
+    throw new Error(keys.reduce((text, key) => text.split(key).join('[REDACTED]'), String(error.message ?? error)));
   } finally {
     if (events !== undefined) closeSync(events);
     if (oldPythonPath === undefined) delete process.env.PYTHONPATH;

@@ -83,6 +83,60 @@ UTF-8 起始位置可返回 base64，不能把编码文本直接当原始诊断�
 
 新增工具需要重新 prepare 配置并启动新会话；已有封存 profile、旧试验和原回执保持原样。
 
+### 项目指导与临时文件
+
+`examples/scatter/prepare_npu_campaign.py` 为新任务加入通用 `AGENTS.md` 和配置明确的
+`AGENTS.task.md`。父代理加载冻结的项目文件；clean operator 子代理由宿主将这两份
+已准入只读指令及 SHA256 放入实际模型请求。子代理仍不继承父聊天；委托时应提供相关
+错误摘录、源码身份和问题，不能假设它能读取父代理的任意回执路径。
+
+clean task 的 `writable` 字段声明**候选运行源码集合**，用于冻结与验收。会话可在工作区
+建立其他 helper、草稿和临时数据；这些文件随完整 checkpoint 保存、恢复，但不自动进入
+候选源码包。候选真正依赖的文件必须属于声明的源码集合。当前六段 native 接口仅执行
+冻结 `candidate.py` 中规定的源码字符串，不执行任意 workspace helper。
+
+引用、任务文档和宿主读取的 agent 配置路径保持只读。隔离 bash 每次使用新的 snapshot：
+退出码为 0 才写回通过授权的 regular files；非零退出或超时不写回。使用相对路径保存
+后续仍需使用的文件，使用 `$TMPDIR` 存放单次命令临时文件；不要保存上一次 bash 的
+绝对临时目录。当前 snapshot 限制为每文件 256 KiB、总计 16 MiB、4096 个文件，支持
+二进制字节恢复。工作区权限与候选验收范围是两套不同约束。
+
+### 按证据缺口联网检索
+
+联网检索是独立配置的工具，不是模型已具备的隐含能力。在普通 codegen 或 CANN profile
+顶层加入 `online_research`；clean NPU campaign 也接受该字段：
+
+```json
+{
+  "online_research": {
+    "provider": "brave",
+    "api_key_env": "BRAVE_SEARCH_API_KEY"
+  }
+}
+```
+
+凭据从该独立环境变量或本地 credentials 中读取，不写进 profile、源码或模型上下文，
+不能复用模型 API key。也可配置 `{"provider":"searxng","endpoint":"https://your-instance.example/search"}`，
+或使用 `true` / `{"provider":"duckduckgo_html"}`；后者是无需 API key 的尽力服务，HTML
+接口变化、限流或验证页面会明确返回失败，不保证搜索可用。
+`prepare_npu_campaign.py --online-research` 是启用这一默认 provider 的便捷参数。
+不配置时不注册检索工具。
+
+| 工具 | 实际行为 |
+| --- | --- |
+| `online_search` | 向配置的 provider 提交显式公开 query，保留真实 URL、摘要和回执 |
+| `online_fetch` | GET 显式公开 HTTPS URL，保留原始响应和有界正文；不使用模型改写内容 |
+| `online_read` | 按原 run/path 分页读取已保留的结果，不发网络请求 |
+
+检索只发送模型显式提交的 query/URL，不自动附带聊天或工作区内容。网络访问限制为
+公开 HTTPS，禁止凭据 URL、私网目标和不安全重定向；不用环境代理绕过这些约束。
+read-only 子代理只在父工具表已准入这些工具时获得它们；analysis 子代理仍无工具。
+web 内容是外部资料，不是用户指令、编译结果或设备证据。
+
+指导在 API/语义、目标 SDK 支持、具体报错、结构假设或 profiler 字段存在缺口时触发
+检索，优先官方文档与固定版本源码。它不要求每轮搜索，也不注入旧算子答案。
+实现对照和未声称兼容的行为见[官方源码核对](architecture/operator-guidance-alignment.md)。
+
 ## 测评后的自动诊断
 
 仅仅注册 `ir_collect`、`profiler_collect` 或 J 阶段驱动，并不意味着模型一定会调用它们。

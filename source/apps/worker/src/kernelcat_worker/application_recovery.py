@@ -119,11 +119,11 @@ def commit_recovery(host, connection, request):
         raise Conflict("recovery of model turns requires a native checkpoint")
     control = SessionControl(host.owner.gateway, host.owner.options)
     if plan["pending_transition"]:
-        from kernelcat_worker.application_artifacts import restore_source, read_regular
+        from kernelcat_worker.application_artifacts import restore_source, read_source_snapshot
         parent = plan["pending_transition"]["parent"]
         path = host.owner.gateway.store.path.parent / "checkpoints" / (parent["source_sha256"] + ".json")
         policy = host.owner.workspace_policy
-        restore_source(Path(policy["root"]), json.loads(read_regular(path)), policy["writable_paths"], policy["readonly_paths"])
+        restore_source(Path(policy["root"]), read_source_snapshot(path, parent["source_sha256"]), policy["writable_paths"], policy["readonly_paths"])
         host.journal.command("configuration", {**connection.worker, "operation": "transition_aborted",
             "transition_id": plan["pending_transition"]["transition_id"], "reason": "worker_lost_before_trial_commit"})
         host.journal.command("checkpoint", {**parent, **connection.worker})

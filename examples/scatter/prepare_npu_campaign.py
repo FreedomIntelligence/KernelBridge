@@ -14,6 +14,7 @@ import uuid
 HERE = Path(__file__).resolve().parent
 NATIVE_INTERFACE = HERE.parent / 'cann/native-interface.md'
 NATIVE_INTERFACE_VERSION = 'kernelbridge.native-six-source-interface/v2'
+OPERATOR_GUIDANCE = HERE.parent / 'cann/instructions/AGENTS.md'
 
 
 def save(path, value):
@@ -39,6 +40,22 @@ def scatter_contract(mode, device):
 
 def prepare(args):
     supplied = json.loads(args.profile.read_text()) if args.profile else {}
+    runtime = json.loads(args.runtime_profile.read_text()) if getattr(args, 'runtime_profile', None) else None
+    research_settings = [value for value in (
+        supplied.get('online_research'), (runtime or {}).get('online_research'),
+        (runtime or {}).get('config', {}).get('online_research'),
+        True if getattr(args, 'online_research', False) else None,
+    ) if value is not None]
+    if research_settings and any(value != research_settings[0] for value in research_settings[1:]):
+        raise ValueError('Conflicting online_research settings; select one explicit provider configuration')
+    research_setting = research_settings[0] if research_settings else False
+    if type(research_setting) is not bool and not isinstance(research_setting, dict):
+        raise ValueError('online_research must be a boolean or provider settings object')
+    max_model_turns = getattr(args, 'max_model_turns', None)
+    if max_model_turns is None and runtime is not None:
+        max_model_turns = runtime.get('application', {}).get('max_model_turns')
+    if max_model_turns is not None and (type(max_model_turns) is not int or max_model_turns < 1):
+        raise ValueError('max_model_turns must be a positive integer or absent')
     diagnostic_switches = supplied.get('diagnostics', {})
     if (not isinstance(diagnostic_switches, dict)
             or set(diagnostic_switches) - {'on_failure', 'on_regression', 'required'}
@@ -98,6 +115,37 @@ def prepare(args):
         '# Task ABI\n\nDeclared by this task; the shared compiler interface follows.\n\n```json\n'
         + json.dumps(task.get('candidate_abi') or {}, ensure_ascii=False, indent=2)
         + '\n```\n\n' + interface)
+    guidance = OPERATOR_GUIDANCE.read_text()
+    (project / 'AGENTS.md').write_text(guidance)
+    research = None
+    if research_setting is not False:
+        spec = importlib.util.spec_from_file_location('npu_online_research_prepare', HERE.parent / 'online_research/prepare.py')
+        research_module = importlib.util.module_from_spec(spec); spec.loader.exec_module(research_module)
+        research = research_module.prepare(research_setting, root / 'online-research', args.python)
+        save(project / 'online-research.json', {'resources': research['resources']})
+    (project / 'AGENTS.task.md').write_text(
+        '# Configured operator workflow\n\n'
+        'Use contract.json exactly for pipeline_bind. workflow-inputs.json separately declares '
+        'baseline selection, driver IDs and the candidate ABI; do not add those fields to the contract.\n\n'
+        'Use pipeline_evaluate for one source-bound build/check attempt, then recover its original '
+        'continuation if pending. A preflight rejection marked not_started has no device job; correct '
+        'the declared inputs before evaluating again. Unknown dispatches require original-handle recovery.\n\n'
+        'After complete correctness use pipeline_pair, then pipeline_promote only if its full gates pass. '
+        'Keep all cases, oracle, baseline and measurement settings unchanged.\n\n'
+        'Diagnostic driver IDs: ' + json.dumps({kind: names[kind] for kind in ('ir', 'profiler')}) + '. '
+        'Use pipeline_run with stage J and the configured driver to inspect source-bound diagnostics. '
+        'Failure/regression receipts may already include automatic J output. Read returned artifact '
+        'links and manifests with pipeline_read, preserving the exact run and path; follow next_read '
+        'for remaining pages. Never guess an artifact path from a remote compiler log. '
+        'Unavailable diagnostics are not captured IR or profiling evidence.\n\n'
+        'Use only online_search/online_fetch/online_read if those tools are actually present. '
+        'Search the exact unresolved API, compiler diagnostic or proposed mechanism and target SDK '
+        'version; inspect primary documentation/source and retain the URL and applicability. '
+        'Search results are references, not executed validation. If search is unavailable, report it '
+        'and use the admitted local evidence without pretending a lookup occurred.\n\n'
+        'Use only roles from the actual delegate schema. Children do not inherit this conversation '
+        'or access to arbitrary parent receipt paths: provide relevant source identities, exact '
+        'diagnostic excerpts and a focused question, distinguishing observations from hypotheses.\n')
     authored = {'schema_version': 'kernelbridge.operator-task/v1', 'instruction': task.get('instruction', task.get('goal')),
                 'contract': contract, 'files': {path.name: path.read_text() for path in sorted(project.iterdir())},
                 'writable': ['candidate.py'], 'readonly': sorted(path.name for path in project.iterdir())}
@@ -123,23 +171,35 @@ def prepare(args):
             tool['description'] = 'G: project original E job ABBA samples into four original arm receipts; no new measurement. Inspect full-case speedups. J exposes original source-bound diagnostics for investigating failures and revising hypotheses.'
         elif tool['name'] == 'pipeline_run':
             tool['description'] = 'E npu-launch executes one frozen NPU job; npu-collect observes the original handle. F npu-check validates its original full-suite receipt. J npu-ir/npu-profiler recover actual source-bound diagnostic files. Unknown never authorizes a replacement launch.'
+    if research is not None:
+        tools.extend(research['business_tools'])
     save(root / 'business-tools.json', tools)
     fragment = {'schema_version': 'kernelbridge.operator-profile/v1', 'config': {'business_tools': tools},
                 'acceptance': {'scope': measurement['scope'], 'baseline_files': baseline_files},
-                'application': {'max_model_turns': 20}, 'goal': {'enabled': True, 'max_trials': 1, 'complete_on_acceptance': True}}
+                'application': {'max_model_turns': max_model_turns}, 'goal': {'enabled': True, 'max_trials': 1, 'complete_on_acceptance': True}}
     save(root / 'profile-fragment.json', fragment)
-    if getattr(args, 'runtime_profile', None):
-        runtime = json.loads(args.runtime_profile.read_text())
+    if runtime is not None:
+        runtime.pop('online_research', None)
         runtime.update(schema_version=fragment['schema_version'], goal=fragment['goal'], acceptance=fragment['acceptance'])
-        runtime['config'] = dict(runtime.get('config', {}), business_tools=tools)
-        runtime['application'] = dict(runtime.get('application', {}), max_model_turns=20)
+        retained = runtime.get('config', {}).get('business_tools', [])
+        combined = [*retained, *tools]
+        if len({tool['name'] for tool in combined}) != len(combined):
+            raise ValueError('Runtime and pipeline business tools have duplicate names')
+        if len(combined) > 32:
+            raise ValueError('Combined business tools exceed the configured 32-tool limit')
+        runtime['config'] = dict(runtime.get('config', {}), business_tools=combined)
+        runtime['config'].pop('online_research', None)
+        runtime['application'] = dict(runtime.get('application', {}), max_model_turns=max_model_turns)
         save(root / 'profile.json', runtime)
     save(root / 'clean-input-manifest.json', {'trial_id': trial_id, 'candidate_present': False,
          'session_history': None, 'seed_implementation': None, 'formal_device_jobs': 0,
-         'application': {'max_model_turns': 20}, 'task_source': str(args.task.resolve()) if args.task else None,
+         'application': {'max_model_turns': max_model_turns}, 'task_source': str(args.task.resolve()) if args.task else None,
          'npu_profile_source': str(args.profile.resolve()) if args.profile else None,
          'native_interface': {'version': NATIVE_INTERFACE_VERSION, 'source': 'examples/cann/native-interface.md',
-                              'sha256': hashlib.sha256(interface.encode()).hexdigest()}})
+                              'sha256': hashlib.sha256(interface.encode()).hexdigest()},
+         'operator_guidance': {'source': 'examples/cann/instructions/AGENTS.md',
+                               'sha256': hashlib.sha256(guidance.encode()).hexdigest()},
+         'online_research': research['resources'] if research is not None else []})
     return {'trial': str(root), 'project': str(project), 'task': str(root / 'task.json'),
             'tools': str(root / 'business-tools.json'), 'mode': mode, 'device': device, 'candidate_present': False}
 
@@ -150,6 +210,8 @@ if __name__ == '__main__':
     parser.add_argument('--task', type=Path)
     parser.add_argument('--profile', type=Path)
     parser.add_argument('--runtime-profile', type=Path)
+    parser.add_argument('--max-model-turns', type=int, help='Optional explicit model-call limit; unset preserves the profile or no limit')
+    parser.add_argument('--online-research', action='store_true', help='Enable explicit public web tools with the best-effort DuckDuckGo HTML provider; configure other providers in the profile')
     parser.add_argument('--mode', choices=['max', 'min'])
     parser.add_argument('--device', type=int)
     parser.add_argument('--transport', type=Path)

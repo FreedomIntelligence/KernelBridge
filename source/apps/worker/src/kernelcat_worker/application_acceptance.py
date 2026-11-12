@@ -1,11 +1,9 @@
 """Project acceptance exclusively from settled, evaluator-bound receipts."""
 import hashlib
-import json
-from pathlib import Path
 from jsonschema import Draft202012Validator
 
 from kernelcat_executor.contracts.models import Conflict
-from kernelcat_worker.application_artifacts import read_regular, verify_evaluator
+from kernelcat_worker.application_artifacts import read_source_snapshot, verify_evaluator
 from kernelcat_worker.candidate_retention import field
 
 
@@ -36,7 +34,7 @@ def collect_acceptance(host):
         context = contexts.get(identity, {})
         if context.get("task_version") != state["task_version"] or context.get("evaluator_sha256") != host.evaluator["sha256"]:
             continue
-        snapshot = json.loads(read_regular(host.owner.gateway.store.path.parent / "checkpoints" / (context["source_sha256"] + ".json")))
+        snapshot = read_source_snapshot(host.owner.gateway.store.path.parent / "checkpoints" / (context["source_sha256"] + ".json"), context["source_sha256"])
         live = {item["path"]: item["sha256"] for item in snapshot["files"]}
         if not all(live.get(path) == field(outcome, key) for path, key in source_fields.items()):
             continue

@@ -46,6 +46,9 @@ export async function prepareOperatorTask({ task, selected, output, agentRoot })
   }
   const writable = paths(task.writable, 'writable');
   const readonly = paths(task.readonly, 'readonly');
+  if (writable.some(path => path === '.kernelbridge' || path === '.kernelbridge/agents' || path.startsWith('.kernelbridge/agents/'))) {
+    throw new Error('Candidate paths conflict with host-owned agent definitions');
+  }
   if ([...writable, ...readonly].some(path => path === 'refs' || path.startsWith('refs/')
       || path === 'resource-map.json' || path.startsWith('resource-map.json/'))) {
     throw new Error('Task paths conflict with generated reference resources');
@@ -101,16 +104,18 @@ export async function prepareOperatorTask({ task, selected, output, agentRoot })
     usage: { native_read: 'Read non-null read_path relative to this workspace. These hash-identical reference copies are read-only. Null read_path means host_only_binary: use its binding_path through pipeline tools without a native text read.',
       pipeline_binding: 'Use binding_path only in pipeline_bind or pipeline_baseline; do not open host paths with native read/bash.',
       driver: 'Configured driver IDs are pipeline_evaluate/pipeline_run/pipeline_pair parameters, not shell commands. When pipeline_evaluate is available, use it to freeze, launch or recover the original job, collect and check in one bounded call; pairing and promotion remain separate.',
-      bash: 'Each bash call uses a fresh temporary snapshot. Use relative paths; do not retain or cd to a previous temporary directory.',
-      candidate: 'Write only declared candidate paths; freeze workspace-relative source paths. No candidate implementation is provided.' } }, null, 2) + '\n';
-  const generatedReadonly = [...copies.values(), 'resource-map.json'];
+      bash: 'Each bash call uses a fresh temporary snapshot. Only successful authorized regular-file changes persist; failed or timed-out calls do not write changes back. The snapshot permits at most 256 KiB per file, 16 MiB total and 4096 files. TMPDIR files do not persist. Use relative paths; do not retain or cd to a previous temporary directory.',
+      candidate: 'Create and reuse scratch files or helper scripts inside this workspace. Only declared candidate paths belong in the frozen source bundle; candidate runtime dependencies must be declared too. References, task documents and resource-map.json are read-only. No candidate implementation is provided.' } }, null, 2) + '\n';
+  const generatedReadonly = ['refs', ...copies.values(), 'resource-map.json', '.kernelbridge/agents'];
   config.application = { ...selected.application, max_trials: selected.goal?.max_trials ?? selected.application?.max_trials,
     complete_on_acceptance: selected.goal?.complete_on_acceptance ?? true };
   const bindings = JSON.parse(await readFile(selected.expected_python_modules, 'utf8'));
   const roots = new Set(bindings.modules.flatMap(module => module.allowed_package_roots.map(root => dirname(fileURLToPath(root)))));
   if (roots.size !== 1) throw new Error('Expected one frozen installed Python module root');
+  // task.writable declares the complete candidate bundle above. Workspace
+  // helpers are independently writable, while admitted references stay frozen.
   Object.assign(config, { python_modules: bindings, workspace_mode: 'isolated', workspace: join(output, 'workspace'),
-    state_dir: join(output, 'state'), writable_paths: writable, readonly_paths: [...readonly, ...generatedReadonly],
+    state_dir: join(output, 'state'), writable_paths: null, readonly_paths: [...readonly, ...generatedReadonly],
     pi_worker: { ...config.pi_worker, node: selected.node ?? process.execPath, root: agentRoot } });
   const compiled = { id: 'operator-' + randomUUID(), scope: 'operator-development', goal: task.instruction,
     contract, seed_files: seedFiles };
@@ -118,6 +123,10 @@ export async function prepareOperatorTask({ task, selected, output, agentRoot })
   await save(join(output, 'task.json'), compiled);
   await save(join(output, 'config.json'), config);
   await save(join(output, 'prepared.json'), { schema_version: task.schema_version, model_started: false, device_started: false,
-    candidate_seeded: false, writable, readonly: [...readonly, ...generatedReadonly], model_turn_accounting: 'all_model_calls_including_compact_child_review' });
+    candidate_seeded: false, writable, candidate_source_paths: writable,
+    workspace_write_policy: { writable_paths: null, readonly_paths: [...readonly, ...generatedReadonly],
+      shell_persistence: 'successful_authorized_regular_file_diff', temporary_files: 'per_call_disposable',
+      max_file_bytes: 262144, max_tree_bytes: 16 * 1024 * 1024, max_files: 4096 },
+    readonly: [...readonly, ...generatedReadonly], model_turn_accounting: 'all_model_calls_including_compact_child_review' });
   return { pythonPath: [...roots][0] };
 }

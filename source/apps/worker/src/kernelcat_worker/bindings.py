@@ -15,8 +15,9 @@ from kernelcat_executor.capabilities.llm import APIProposer
 from kernelcat_executor.capabilities.process import CommandEvaluator
 from kernelcat_executor.capabilities.runtime_artifacts import RuntimeArtifacts
 from kernelcat_executor.capabilities.skills import Skills
+from kernelcat_executor.capabilities.task_instructions import TaskInstructions, admitted_task_instructions
 from kernelcat_executor.capabilities.workspace_tools import builtin_tools
-from kernelcat_executor.capabilities.workspace_policy import WorkspaceGuard
+from kernelcat_executor.capabilities.workspace_policy import WorkspaceGuard, filesystem_case_sensitive
 from kernelcat_executor.contracts.models import Conflict, Json, Task, digest
 from kernelcat_executor.contracts.ports import Proposer, Tool
 from kernelcat_executor.contracts.providers import validate_endpoint
@@ -109,9 +110,12 @@ def _pi_files(worker: PiWorkerConfig, base: Path, writable: Path, *, project: bo
 
 
 def _build_proposers(
-    providers: Mapping[str, ProviderConfig], *, child: bool = False
+    providers: Mapping[str, ProviderConfig], *, child: bool = False,
+    task_instructions: TaskInstructions | None = None,
 ) -> dict[str, Proposer]:
     """Construct transports without sending requests or mutating operator policy."""
+    if task_instructions is not None and not child:
+        raise ValueError("task instruction inheritance is restricted to child transports")
     result: dict[str, Proposer] = {}
     for route, provider in providers.items():
         wire_options = provider.wire_options
@@ -129,6 +133,7 @@ def _build_proposers(
             wire_options=wire_options,
             allow_insecure_http=provider.allow_insecure_http,
             max_response_bytes=provider.max_response_bytes,
+            task_instructions=task_instructions,
         )
     return result
 
@@ -321,7 +326,9 @@ def build(config: Config, base: Path, task: Task, *,
                 digest({"config": v.model_dump(mode="json"), "files": validator_hashes})))
             observers.append(PromoteOnFinish())
     providers = _build_proposers(config.providers)
-    child_providers = _build_proposers(config.providers, child=True)
+    child_providers = _build_proposers(config.providers, child=True,
+        task_instructions=admitted_task_instructions(task, workspace_mode=config.workspace_mode,
+            readonly_paths=config.readonly_paths))
     gateway = Gateway(store, [*tools, *extra_tools], task.scope, guards)
     rsi = None if config.rsi is None else RsiEffects(
         gateway, workspace, artifacts, state_dir, task.id, config.rsi)
@@ -340,6 +347,7 @@ def build(config: Config, base: Path, task: Task, *,
         max_frame_bytes=worker.max_frame_bytes,
         workspace_policy={"root": str(workspace.root), "writable_paths": writable_paths,
                           "readonly_paths": config.readonly_paths, "codemode": worker.codemode,
+                          "case_sensitive": filesystem_case_sensitive(workspace.root),
                           "mode": config.workspace_mode, "home": str(Path.home())},
         role=worker.role, child_proposers=child_providers, profile=config.agent_profile,
         observers=tuple(observers), task_identity=digest(task), options=config.agent_options,

@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { openSync, writeSync, closeSync } from 'node:fs';
 import { resolve, join, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadCodegenCredentials, configuredCredentialValues } from '../../source/apps/agent/src/application/credentials.mjs';
 import { spawnSync } from 'node:child_process';
 import { KernelCat } from '../../source/apps/agent/src/sdk/index.ts';
 
@@ -22,7 +23,8 @@ if (process.argv.includes('--help')) { process.stdout.write(help); } else {
   const task = JSON.parse(await readFile(args.get('--task'), 'utf8'));
   const config = JSON.parse(await readFile(args.get('--config'), 'utf8'));
   if (config.rsi) throw new Error('This example runs an ordinary task. Use the managed SDK + LoopX entry for an RSI goal.');
-  const secrets = Object.values(config.providers ?? {}).map(p => process.env[p.api_key_env]).filter(Boolean);
+  await loadCodegenCredentials(config.providers ?? {}, config.business_tools ?? []);
+  const secrets = configuredCredentialValues(config.providers ?? {}, config.business_tools ?? []);
   const encode = value => secrets.reduce((s, key) => s.split(key).join('[REDACTED]'), JSON.stringify(value)) + '\n';
   await mkdir(output); // Reserve before starting effects; never overwrite an attempt.
   config.workspace = join(output, 'workspace');

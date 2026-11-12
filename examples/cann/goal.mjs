@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
+import { loadCodegenCredentials, configuredCredentialValues } from '../../source/apps/agent/src/application/credentials.mjs';
 import { withProcessEnvironment } from '../../source/apps/agent/src/harness/pi/environment.mjs';
 
 const HELP = 'Usage: node examples/cann/goal.mjs --bundle ABS --input ABS [--loopx ABS]\n'
@@ -65,7 +66,16 @@ function validatePrepared(config, task) {
 }
 
 export async function runGoal({ bundle, input, loopx, signal }) {
-  return withProcessEnvironment({}, () => scopedGoal({ bundle, input, loopx, signal }));
+  return withProcessEnvironment({}, async () => {
+    const command = await readJson(join(input, 'command.json'));
+    const config = await readJson(commandOptions(command).config);
+    await loadCodegenCredentials(config.providers ?? {}, config.business_tools ?? []);
+    const secrets = configuredCredentialValues(config.providers ?? {}, config.business_tools ?? []);
+    try { return await scopedGoal({ bundle, input, loopx, signal }); }
+    catch (error) {
+      throw new Error(secrets.reduce((text, key) => text.split(key).join('[REDACTED]'), String(error.message ?? error)));
+    }
+  });
 }
 
 async function scopedGoal({ bundle, input, loopx, signal }) {
@@ -95,7 +105,9 @@ async function executeGoal({ bundle, input, loopx, signal }) {
   }
   const secret = process.env[apiKeyEnv];
   if (!secret) throw new Error(`Export ${apiKeyEnv} before running the managed example`);
-  const redact = value => JSON.stringify(value, null, 2).split(secret).join('[REDACTED]') + '\n';
+  const secrets = configuredCredentialValues(config.providers ?? {}, config.business_tools ?? []);
+  const redactText = text => secrets.reduce((value, key) => value.split(key).join('[REDACTED]'), text);
+  const redact = value => redactText(JSON.stringify(value, null, 2)) + '\n';
   const output = join(input, 'sdk');
   await mkdir(output); // The attempt reservation precedes account creation; never redispatch on loss.
   const save = (name, value) => writeFile(join(output, name), redact(value), { flag: 'wx', mode: 0o600 });
@@ -119,7 +131,7 @@ async function executeGoal({ bundle, input, loopx, signal }) {
   await save('task-contract.json', contract);
   await writeFile(join(output, 'baseline.py'), task.seed_files['solution.py'], { flag: 'wx', mode: 0o600 });
   signal?.throwIfAborted();
-  await runSession(KernelCat, LoopXGoal, options, output, manifest, save, secret, loopx, signal);
+  await runSession(KernelCat, LoopXGoal, options, output, manifest, save, redactText, loopx, signal);
 }
 
 async function createAccount(options, config, input, output, identity, save) {
@@ -154,7 +166,7 @@ function launchManifest(receipt, identity, config, task, contract, program) {
   };
 }
 
-async function runSession(KernelCat, LoopXGoal, options, output, manifest, save, secret, loopx, signal) {
+async function runSession(KernelCat, LoopXGoal, options, output, manifest, save, redactText, loopx, signal) {
   const client = new KernelCat({ python: options.python, expectedPythonModules: options.expectedPythonModules,
     config: options.config, timeoutMs: options.timeoutMs, maxFrameBytes: 1048576 });
   const session = await client.createSession({ manifest: join(output, 'manifest.json') });
@@ -163,14 +175,14 @@ async function runSession(KernelCat, LoopXGoal, options, output, manifest, save,
   let sequence = 0;
   try {
     if (loopx) {
-      await advanceGoal(LoopXGoal, session, options, output, manifest, save, secret, events, loopx, signal);
+      await advanceGoal(LoopXGoal, session, options, output, manifest, save, redactText, events, loopx, signal);
       return;
     }
     const invocation = session.runStreamed({ signal });
     void invocation.result.catch(() => {}); // Event failure still settles/disposes the original invocation.
     for await (const event of invocation.events) {
       if (event.sequence !== ++sequence) throw new Error('SDK event order changed');
-      const line = JSON.stringify(event).split(secret).join('[REDACTED]') + '\n';
+      const line = redactText(JSON.stringify(event)) + '\n';
       bytes += Buffer.byteLength(line);
       if (bytes > 32 * 1024 * 1024) throw new Error('SDK event log exceeded 32 MiB; inspect retained receipts');
       writeSync(events, line);
@@ -188,7 +200,7 @@ async function runSession(KernelCat, LoopXGoal, options, output, manifest, save,
   }
 }
 
-async function advanceGoal(LoopXGoal, session, options, output, manifest, save, secret, events, cli, signal) {
+async function advanceGoal(LoopXGoal, session, options, output, manifest, save, redactText, events, cli, signal) {
   const root = join(output, 'loopx');
   const connection = { cli, node: options.node, project: join(root, 'project'),
     registry: join(root, 'registry.md'), runtimeRoot: join(root, 'runtime'), home: join(root, 'home'),
@@ -242,7 +254,7 @@ async function advanceGoal(LoopXGoal, session, options, output, manifest, save, 
   let bytes = 0;
   const unsubscribe = session.subscribe(event => {
     try {
-      const line = JSON.stringify(event).split(secret).join('[REDACTED]') + '\n';
+      const line = redactText(JSON.stringify(event)) + '\n';
       bytes += Buffer.byteLength(line);
       if (bytes > 32 * 1024 * 1024) throw new Error('SDK event log exceeded 32 MiB');
       writeSync(events, line);
@@ -289,6 +301,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   if (args === null) process.stdout.write(HELP);
   else await runGoal(args);
 } catch (error) {
-  process.stderr.write(`cann-task SDK: ${String(error.message).split(process.env.DEEPSEEK_API_KEY || '\0').join('[REDACTED]')}; preserve original state; no automatic retry\n`);
+  process.stderr.write(`cann-task SDK: ${String(error.message)}; preserve original state; no automatic retry\n`);
   process.exitCode = 1;
 }

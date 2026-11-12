@@ -11,6 +11,8 @@ const MAX_TREE = 16 * 1024 * 1024;
 const hash = data => createHash('sha256').update(data).digest('hex');
 const under = (path, parent) => path === parent || path.startsWith(parent + '/');
 const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+const asciiCasePattern = value => [...value].map(char => /[a-z]/i.test(char)
+  ? `[${char.toLowerCase()}${char.toUpperCase()}]` : char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('');
 
 export function workspaceTools(sdk, capability) {
   const root = resolve(capability.root);
@@ -27,16 +29,34 @@ export function workspaceTools(sdk, capability) {
   }
   const writable = capability.writable_paths;
   const readonly = capability.readonly_paths ?? ['reference'];
+  // New hosts supply the actual Darwin volume pathconf result. Older macOS
+  // capabilities fail conservatively; Linux keeps distinct case spellings.
+  if (capability.case_sensitive !== undefined && typeof capability.case_sensitive !== 'boolean') {
+    throw new Error('Workspace filesystem case sensitivity must be a host-supplied boolean');
+  }
+  const caseSensitive = capability.case_sensitive ?? (process.platform !== 'darwin');
+  const pathKey = name => caseSensitive ? name : name.normalize('NFD').toUpperCase().toLowerCase();
+  const reservedNames = new Set([...RESERVED].map(pathKey));
+  for (const paths of [writable, readonly]) {
+    if (paths == null) continue;
+    if (!Array.isArray(paths) || paths.some(path => typeof path !== 'string' || !path || isAbsolute(path)
+        || path.includes('\\') || path.includes('\0') || path.split('/').some(part => !part || part === '.' || part === '..'))) {
+      throw new Error('Workspace policy requires normalized relative paths');
+    }
+  }
+  const readonlyNames = readonly.map(pathKey);
 
   function local(path) {
     const absolute = resolve(root, path);
     const name = relative(root, absolute).split(sep).join('/');
-    if (name === '..' || name.startsWith('../') || isAbsolute(name)
-        || RESERVED.has(name.split('/')[0])) throw new Error('Path is outside the admitted workspace');
+    if (name === '..' || name.startsWith('../') || isAbsolute(name) || name.includes('\\') || name.includes('\0')
+        || reservedNames.has(pathKey(name.split('/')[0]))) throw new Error('Path is outside the admitted workspace');
     return { absolute, name };
   }
   function canWrite(name) {
-    return name && !readonly.some(p => under(name, p))
+    // A regular-file write must not replace an ancestor of a protected path.
+    const key = pathKey(name);
+    return name && !readonlyNames.some(p => under(key, p) || under(p, key))
       && (writable == null || writable.includes(name));
   }
   async function checked(path, write = false) {
@@ -44,11 +64,13 @@ export function workspaceTools(sdk, capability) {
     if (write && !canWrite(selected.name)) throw new Error(`Read-only task path: ${selected.name}`);
     let cursor = root;
     for (const part of [null, ...selected.name.split('/').filter(Boolean)]) {
-      if (part) cursor = join(cursor, part);
       try {
+        const entries = part ? await fs.readdir(cursor) : null;
+        if (part) cursor = join(cursor, part);
         const stat = await fs.lstat(cursor);
+        if (part && !entries.includes(part)) throw new Error('Workspace path uses a non-canonical filesystem alias');
         if (stat.isSymbolicLink()) throw new Error('Workspace symlinks are forbidden');
-      } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      } catch (error) { if (error.code === 'ENOENT') break; throw error; }
     }
     return selected.absolute;
   }
@@ -83,7 +105,7 @@ export function workspaceTools(sdk, capability) {
     async function walk(current, prefix = '') {
       for (const entry of await fs.readdir(current, { withFileTypes: true })) {
         const name = prefix + entry.name;
-        if (!prefix && RESERVED.has(entry.name)) continue;
+        if (!prefix && reservedNames.has(pathKey(entry.name))) continue;
         if (entry.isSymbolicLink()) {
           if (!trusted) throw new Error('Shell output contains a symlink');
           continue;
@@ -105,14 +127,18 @@ export function workspaceTools(sdk, capability) {
     await checked(root);
     const before = await inventory(root);
     const directory = await fs.mkdtemp(join(tmpdir(), 'kernelcat-workspace-'));
-    const scratch = await fs.realpath(directory);
+    const container = await fs.realpath(directory);
+    const scratch = join(container, 'workspace');
+    const temporary = join(container, 'tmp');
     try {
+      await fs.mkdir(scratch);
+      await fs.mkdir(temporary);
       for (const [name, data] of before) {
         await fs.mkdir(dirname(join(scratch, name)), { recursive: true });
         await fs.writeFile(join(scratch, name), data);
         await fs.chmod(join(scratch, name), (await fs.stat(join(root, name))).mode & 0o777);
       }
-      const result = await execute(scratch, before);
+      const result = await execute(scratch, before, temporary);
       if (writeback && result.exitCode === 0) {
         const after = await inventory(scratch, false);
         const changes = [];
@@ -145,6 +171,7 @@ export function workspaceTools(sdk, capability) {
   const write = sdk.createWriteToolDefinition(root, { operations: {
     mkdir: async () => {}, writeFile,
   } });
+  write.description += ' Create durable helper scripts and scratch files with workspace-relative paths. Direct writes cannot access host /tmp; use bash with $TMPDIR for disposable files within one shell call. Readonly task documents, references and controller paths remain protected.';
   const edits = new Map();
   const edit = sdk.createEditToolDefinition(root, { operations: {
     access: async p => { await checked(p, true); },
@@ -160,7 +187,7 @@ export function workspaceTools(sdk, capability) {
     stat: async p => fs.stat(await checked(p)),
     readdir: async p => {
       const selected = await checked(p); const entries = await fs.readdir(selected, { withFileTypes: true });
-      return entries.filter(e => !e.isSymbolicLink() && !(selected === root && RESERVED.has(e.name))).map(e => e.name);
+      return entries.filter(e => !e.isSymbolicLink() && !(selected === root && reservedNames.has(pathKey(e.name)))).map(e => e.name);
     },
   } });
   function search(factory) {
@@ -174,19 +201,39 @@ export function workspaceTools(sdk, capability) {
   }
   const shell = sdk.createLocalBashOperations({ shellPath: '/bin/bash' });
   const bash = sdk.createBashToolDefinition(root, { exposeSessionEnvironment: false, operations: {
-    exec: async (command, _cwd, options) => withSnapshot(async (scratch, original) => {
+    exec: async (command, _cwd, options) => withSnapshot(async (scratch, original, temporary) => {
       const protectedFiles = [...original.keys()].filter(name => !canWrite(name));
+      // Include absent readonly and controller paths: denying only existing
+      // files would permit first-time creation at these policy boundaries.
+      const protections = [...new Set([...RESERVED, ...readonly, ...protectedFiles])];
+      const protectedRoots = protections.filter(name => !protections.some(parent => parent !== name && under(name, parent)));
+      const protectedAncestors = new Set([scratch]);
+      for (const name of protectedRoots) {
+        for (let parent = dirname(join(scratch, name)); parent !== scratch; parent = dirname(parent)) {
+          protectedAncestors.add(parent);
+        }
+      }
+      const ancestors = [...protectedAncestors].sort((a, b) => a.split(sep).length - b.split(sep).length);
+      // Materialize only disposable directories. A missing parent must not be
+      // replaceable by a regular file that shadows a protected descendant.
+      for (const parent of ancestors) await fs.mkdir(parent, { recursive: true });
       let isolated;
       if (process.platform === 'darwin') {
         const system = ['/usr', '/bin', '/sbin', '/System/Library', '/System/Volumes/Preboot', '/Library', '/Applications', '/dev', '/opt', '/private/etc', '/private/var/db'];
         const profile = '(version 1)(deny default)(allow process*)(allow sysctl-read)(allow mach-lookup)(allow file-read-metadata)'
           + '(allow file-read* (literal "/") '
-          + [...system, scratch].map(p => `(subpath ${JSON.stringify(p)})`).join(' ') + ')'
-          + `(allow file-write* (subpath ${JSON.stringify(scratch)}) (literal "/dev/null"))`
-          + protectedFiles.map(name => `(deny file-write* (literal ${JSON.stringify(join(scratch, name))}))`).join('')
-          + readonly.map(name => `(deny file-write* (subpath ${JSON.stringify(join(scratch, name))}))`).join('');
+          + [...system, scratch, temporary].map(p => `(subpath ${JSON.stringify(p)})`).join(' ') + ')'
+          + `(allow file-write* (subpath ${JSON.stringify(scratch)}) (subpath ${JSON.stringify(temporary)}) (literal "/dev/null"))`
+          + protectedRoots.map(name => `(deny file-write* (literal ${JSON.stringify(join(scratch, name))}) (subpath ${JSON.stringify(join(scratch, name))}))`).join('')
+          + (caseSensitive ? '' : protectedRoots.map(name => `(deny file-write* (regex #${JSON.stringify('^' + asciiCasePattern(join(scratch, name)) + '(/.*)?$')}))`).join(''))
+          // Seatbelt's subpath rule alone does not protect creation of the
+          // exact root; ancestor unlink denies also prevent rename bypasses.
+          + ancestors.map(path => `(deny file-write-unlink (literal ${JSON.stringify(path)}))`).join('')
+          + (caseSensitive ? '' : ancestors.map(path => `(deny file-write-unlink (regex #${JSON.stringify('^' + asciiCasePattern(path) + '$')}))`).join(''))
+          // These macOS operations can mutate files through readonly handles.
+          + '(deny system-fcntl (fcntl-command 80 110))';
         isolated = ['/usr/bin/sandbox-exec', '-p', profile, '/usr/bin/env', '-i',
-          'PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin', 'LANG=en_US.UTF-8', `TMPDIR=${scratch}`, `HOME=${scratch}`,
+          'PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin', 'LANG=en_US.UTF-8', `TMPDIR=${temporary}`, `HOME=${scratch}`,
           '/bin/bash', '--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', command].map(quote).join(' ');
       } else if (process.platform === 'linux') {
         // No unsandboxed fallback: provision bubblewrap in the runner image.
@@ -199,20 +246,31 @@ export function workspaceTools(sdk, capability) {
         // An empty /proc also works in nested runners that prohibit proc mounts;
         // never bind the host's /proc (which can expose other processes/files).
         argv.push('--dir', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--setenv', 'TMPDIR', '/tmp', '--bind', scratch, '/workspace');
-        for (const name of protectedFiles) argv.push('--ro-bind', join(scratch, name), join('/workspace', name));
-        for (const name of readonly) {
-          try { await fs.stat(join(scratch, name)); argv.push('--ro-bind', join(scratch, name), join('/workspace', name)); }
-          catch (error) { if (error.code !== 'ENOENT') throw error; }
+        // Each protected ancestor is a mount point, so Linux cannot rename it
+        // and move protected children outside their readonly mount locations.
+        for (const parent of ancestors) {
+          if (parent !== scratch) argv.push('--bind', parent, join('/workspace', relative(scratch, parent)));
+        }
+        for (const name of protectedRoots) {
+          const path = join(scratch, name);
+          try { await fs.lstat(path); }
+          catch (error) {
+            if (error.code !== 'ENOENT') throw error;
+            // Empty readonly placeholders exist in this shell snapshot only;
+            // they have no regular-file entry to copy back to the workspace.
+            await fs.mkdir(path);
+          }
+          argv.push('--ro-bind', path, join('/workspace', name));
         }
         argv.push('--chdir', '/workspace',
           '/usr/bin/env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin', 'LANG=C.UTF-8', 'TMPDIR=/tmp', 'HOME=/workspace',
           '/bin/bash', '--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', command);
         isolated = argv.map(quote).join(' ');
       } else throw new Error('No isolated bash backend on this platform');
-      return shell.exec(isolated, scratch, { ...options, env: { PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin', LANG: 'en_US.UTF-8', TMPDIR: scratch } });
+      return shell.exec(isolated, scratch, { ...options, env: { PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin', LANG: 'en_US.UTF-8', TMPDIR: temporary } });
     }, true),
   } });
-  bash.description += ' Commands run in an isolated workspace snapshot with no network. Only authorized regular-file changes persist; failures and timeouts must be inspected before retrying.';
+  bash.description += ' Commands run in a fresh isolated workspace snapshot with no network. Only successful authorized regular-file changes persist (256 KiB per file, 16 MiB and 4096 files per snapshot). TMPDIR is disposable. Failed or timed-out commands do not write changes back; inspect their output before retrying.';
   return [read, write, edit, ls, search(sdk.createFindToolDefinition), search(sdk.createGrepToolDefinition), bash]
     .filter(tool => capability.tools.includes(tool.name))
     .map(tool => withProductRenderers({ ...tool, exposure: 'model-only' }));

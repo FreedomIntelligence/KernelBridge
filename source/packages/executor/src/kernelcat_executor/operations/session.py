@@ -14,6 +14,7 @@ from threading import Event, Lock, RLock, get_ident
 from uuid import uuid4
 
 from kernelcat_executor.capabilities.pi import default_pi_root
+from kernelcat_executor.capabilities.workspace_policy import filesystem_case_sensitive
 from kernelcat_executor.contracts.agent import (
     AgentEvent,
     AgentInput,
@@ -72,9 +73,15 @@ class ExecutionSession:
         worker = Path(default_pi_root())
         self.worker_argv = argv if argv is not None else (node, str(worker / "src/harness/pi/worker.mjs"))
         self.worker_cwd = (cwd or Path.cwd()).resolve()
-        self.workspace_policy = workspace_policy or {
+        self.workspace_policy = dict(workspace_policy or {
             "root": str(self.worker_cwd), "writable_paths": None,
-            "readonly_paths": ["reference"], "codemode": False}
+            "readonly_paths": ["reference"], "codemode": False})
+        # Older embedding callers may omit this host-owned filesystem fact.
+        # Resolve it before exporting native capabilities; do not mutate their dict.
+        if "case_sensitive" not in self.workspace_policy:
+            self.workspace_policy["case_sensitive"] = filesystem_case_sensitive(Path(self.workspace_policy["root"]))
+        elif type(self.workspace_policy["case_sensitive"]) is not bool:
+            raise ValueError("workspace case_sensitive capability must be a boolean")
         self.worker_timeout, self.worker_frame_bytes = timeout, max_frame_bytes
         self.role, self.child_proposers = role, dict(child_proposers or {})
         self.external_context = external_context

@@ -103,8 +103,9 @@ class SubagentEffect:
             + ("A worktree agent returns its branch and diff; review it and apply it yourself (apply_hint) only if it is correct. " if writes else "")
             + "Split independent questions into separate calls in the same reply; those children run concurrently. Then synthesize their results. "
             + ("Set background=true only for long work the user need not wait for: the call returns at once and the result arrives later "
-               "as a [子代理结果] message; agents_status shows progress and stop_agent cancels. "
-               "Test agents must stay foreground because they share the project directory; use a worktree worker for background commands. " if background else "")
+               "as a [子代理结果] message. Use status/cancellation tools only if they are present in the current tool list. "
+               + ("Test agents must stay foreground because they share the project directory. "
+                  if any(agent.get("tools") == "test" for agent in self.agents.values()) else "") if background else "")
             + "Children cannot spawn further children. Answers are advisory, not validation."), credits=1,
             parameters={"type": "object", "additionalProperties": False,
                 "properties": {"agent": {"type": "string", "enum": list(self.agents)},

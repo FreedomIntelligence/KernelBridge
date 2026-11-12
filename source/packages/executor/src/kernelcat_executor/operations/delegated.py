@@ -25,7 +25,8 @@ from kernelcat_executor.operations.requests import propose
 from kernelcat_executor.state.goal_progress import model_call_progress
 
 READ_TOOLS = frozenset({"read_file", "list_files", "search_text", "load_skill", "read_receipt", "read_learned_skill",
-                        "knowledge_search", "knowledge_show", "knowledge_source", "knowledge_read"})
+                        "knowledge_search", "knowledge_show", "knowledge_source", "knowledge_read",
+                        "online_search", "online_fetch", "online_read"})
 
 
 def ordered_effect(method):

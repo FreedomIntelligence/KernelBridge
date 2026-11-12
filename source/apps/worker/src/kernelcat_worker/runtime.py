@@ -9,8 +9,9 @@ from kernelcat_executor.capabilities.delegation import SubagentEffect
 from kernelcat_executor.capabilities.filesystem import Workspace
 from kernelcat_executor.capabilities.runtime_artifacts import RuntimeArtifacts, workspace_bundle
 from kernelcat_executor.capabilities.skills import Skills
+from kernelcat_executor.capabilities.task_instructions import admitted_task_instructions
 from kernelcat_executor.capabilities.workspace_tools import builtin_tools
-from kernelcat_executor.capabilities.workspace_policy import WorkspaceGuard
+from kernelcat_executor.capabilities.workspace_policy import WorkspaceGuard, filesystem_case_sensitive
 from kernelcat_executor.contracts.models import Conflict, Json, Task, canonical, digest
 from kernelcat_executor.contracts.ports import Store, Tool
 from kernelcat_executor.contracts.runtime import PROGRAM_BYTES, validate_runtime
@@ -196,13 +197,16 @@ class RuntimeService:
             rsi = None if self.config.rsi is None else RsiEffects(gateway, workspace,
                 self.artifacts, (self.base / self.config.state_dir).resolve(), task.id, self.config.rsi)
             self.host = ExecutionSession(self.gateway, _build_proposers(self.config.providers), skills.catalog(),
-                child_proposers=_build_proposers(self.config.providers, child=True),
+                child_proposers=_build_proposers(self.config.providers, child=True,
+                    task_instructions=admitted_task_instructions(task,
+                        workspace_mode=self.config.workspace_mode, readonly_paths=self.config.readonly_paths)),
                 profile=self.config.agent_profile, options=self.config.agent_options,
                 task_identity=digest(task), external_context=True, cwd=self.workspace.root,
                 role=self.config.pi_worker.role, timeout=self.config.pi_worker.timeout,
                 max_frame_bytes=self.config.pi_worker.max_frame_bytes, rsi=rsi,
                 workspace_policy={"root": str(workspace.root), "writable_paths": writable_paths,
                                   "readonly_paths": self.config.readonly_paths,
+                                  "case_sensitive": filesystem_case_sensitive(workspace.root),
                                   "codemode": self.config.pi_worker.codemode},
                 replay=NativeReplayFiles(store, (self.base / self.config.state_dir).resolve(), workspace.root, task.id,
                     seed=self.config.native_session_seed.model_dump(mode="json") if self.config.native_session_seed else None))

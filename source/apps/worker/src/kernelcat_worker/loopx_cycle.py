@@ -32,6 +32,8 @@ def validate_plan(plan: LoopXCycle, path: Path) -> tuple[Config, Task]:
         if not Path(value).is_absolute() or not Path(value).is_file():
             raise ValueError("cycle configuration and task must be existing absolute paths")
     config = load_config(Path(plan.config_path))
+    if any(tool.name in {"online_search", "online_fetch", "online_read"} for tool in config.business_tools):
+        raise ValueError("Legacy LoopX cycle does not support online research; use the application host or CANN SDK entrypoint")
     if plan.round_mode == "experiment" and (config.rsi is None or not plan.allow_evaluation):
         raise ValueError("experiment rounds require configured RSI and explicit allow_evaluation")
     task = Task.model_validate_json(Path(plan.task_path).read_text())

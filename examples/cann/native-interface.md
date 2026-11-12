@@ -100,8 +100,13 @@ interfaces do not select an algorithm, block count, tile size or memory layout.
 
 `msopgen` versions place the generated tiling header in either `op_host` or
 `op_kernel`. The compiler requires exactly one generated `<name>_tiling.h` and
-replaces only that file. The public include is `#include "<name>_tiling.h"` from
-both host and kernel source; no duplicate tiling definition is synthesized.
+replaces only that file. Its public filename is `<name>_tiling.h`; no duplicate
+tiling definition is synthesized. Host and device must agree on the serialized
+layout, but that does not make host registration declarations device-safe.
+Only include this header in a device translation unit if its device-visible
+contents and dependencies are supported by the target compiler. Separate or
+conditionally expose host registration and device layout declarations as required
+by the actual SDK; the harness does not insert those guards for a candidate.
 
 The generated-include contract `kernelbridge.generated-includes/v1` prepends
 absolute project, `op_host`, and `op_kernel` roots to **each build subprocess's**
@@ -115,8 +120,12 @@ of inherited paths, not the full environment. An SDK wrapper which clears
 `CPATH` requires separate toolchain qualification; this contract does not
 silently rewrite candidate includes or modify the installed SDK.
 
-Register-based tiling declarations use `register/tilingdata_base.h`; raw layouts
-must remain compatible on both sides. The compiler does not serialize or repair
+Host register-based tiling declarations use `register/tilingdata_base.h`, which
+can transitively import GE host types. Unconditionally importing those host types
+after `kernel_operator.h` can conflict with device compilation. Raw layouts
+must remain compatible on both sides, including field sizes, order and alignment;
+device reads must preserve the SDK's GM address-space qualifiers and supported
+tiling access conventions. The compiler does not serialize or repair
 user tiling data. Filename/layout ambiguity and actual compiler errors remain
 errors, rather than reasons to guess a different declaration.
 
