@@ -18,6 +18,8 @@ export interface SessionTraceOptions {
   thinkingLevel?: string | null;
   reserveTokens?: number;
   sessionName?: string | null;
+  /** Every entry of the session tree (getEntries()); other branches become fork lanes. */
+  tree?: Json[] | null;
   now?: number;
   live?: boolean;
   labels?: TraceLabels;
@@ -36,7 +38,7 @@ const ms = (value: Json): number | null => {
   return null;
 };
 
-export function projectSession(entries: Json[], options: SessionTraceOptions = {}): Trace {
+function projectBranch(entries: Json[], options: SessionTraceOptions = {}): Trace {
   const now = options.now ?? Date.now();
   const header = options.header ?? {};
   const base = ms(header.timestamp) ?? ms(entries[0]?.timestamp) ?? now;
@@ -163,4 +165,62 @@ export function projectSession(entries: Json[], options: SessionTraceOptions = {
     branches: { M: { name: '当前分支', variant: model ?? 'Pi' } },
     steps, commits, files, result: summary.result, labels: labelSet,
   };
+}
+
+const FORK_LETTERS = ['B', 'C', 'D'];
+const entryOf = (step: Step) => String(step.id).slice(1).split('.')[0];
+const meaningful = (path: Json[]) => path.some(entry => ['message', 'custom_message', 'compaction'].includes(entry.type));
+
+/** The latest entry on the current path that has other children, and the newest branch under each. */
+export function findFork(tree: Json[], path: Json[]): { index: number; branches: Json[][] } | null {
+  const onPath = new Set(path.map(entry => entry.id));
+  const order = new Map(tree.map((entry, index) => [entry.id, index]));
+  const byId = new Map(tree.map(entry => [entry.id, entry]));
+  const children = new Map<string, Json[]>();
+  for (const entry of tree) if (entry.parentId) children.set(entry.parentId, [...(children.get(entry.parentId) ?? []), entry]);
+  const newestPath = (start: Json) => {
+    let newest = start; const stack = [start];
+    while (stack.length) {
+      const entry = stack.pop()!;
+      if ((order.get(entry.id) ?? -1) > (order.get(newest.id) ?? -1)) newest = entry;
+      stack.push(...(children.get(entry.id) ?? []));
+    }
+    const branch: Json[] = [];
+    for (let entry: Json | undefined = newest; entry; entry = entry.id === start.id ? undefined : byId.get(entry.parentId)) branch.push(entry);
+    return branch.reverse();
+  };
+  for (let index = path.length - 1; index >= 0; index--) {
+    const others = (children.get(path[index].id) ?? []).filter(entry => !onPath.has(entry.id));
+    const branches = others.map(newestPath).filter(meaningful)
+      .sort((a, b) => (order.get(b.at(-1).id) ?? 0) - (order.get(a.at(-1).id) ?? 0)).slice(0, FORK_LETTERS.length);
+    if (branches.length) return { index, branches };
+  }
+  return null;
+}
+
+export function projectSession(entries: Json[], options: SessionTraceOptions = {}): Trace {
+  const trace = projectBranch(entries, options);
+  const fork = options.tree ? findFork(options.tree, entries) : null;
+  if (!fork) return trace;
+  const position = new Map(entries.map((entry, index) => [entry.id, index]));
+  const root = trace.steps.filter(step => step.agent === MAIN && (position.get(entryOf(step)) ?? Infinity) <= fork.index);
+  const at = root.at(-1);
+  if (!at) return trace;
+  trace.fork = { t: at.t1, ctx: at.ctx ?? 0, step: at.id };
+  fork.branches.forEach((branch, index) => {
+    const letter = FORK_LETTERS[index]; const lane = letter + '/main';
+    const own = new Set(branch.map(entry => entry.id));
+    const projected = projectBranch([...entries.slice(0, fork.index + 1), ...branch],
+      { ...options, tree: null, running: new Map(), streamingSince: null });
+    const steps = projected.steps.filter(step => own.has(entryOf(step))).map(step => ({ ...step, agent: lane, branch: letter }));
+    if (!steps.length) return;
+    const prompt = branch.find(entry => entry.type === 'message' && entry.message?.role === 'user');
+    trace.agents[lane] = { branch: letter, name: `${letter} · 另一分支`, short: '主会话', tag: letter, level: 0, fork: true, sb: '—', ws: '—' };
+    trace.rows.push(lane);
+    trace.branches[letter] = { name: '分支 ' + letter + (prompt ? ' · ' + firstLine(contentText(prompt.message.content), 30) : ''), variant: projected.session.model ?? 'Pi' };
+    trace.result[letter] = summarize(steps, 1).result.M;
+    trace.steps.push(...steps);
+  });
+  trace.steps.sort((a, b) => a.t0 - b.t0 || a.id.localeCompare(b.id));
+  return trace;
 }

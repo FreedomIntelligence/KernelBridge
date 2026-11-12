@@ -54,9 +54,12 @@ One server serves the whole Pi process. After `/new`, `/resume`, `/fork` or `/tr
 
 `--otlp` posts OpenTelemetry GenAI spans (`invoke_agent`, `chat`, `execute_tool`, with OpenInference kinds) as OTLP/HTTP JSON to `OTEL_EXPORTER_OTLP_ENDPOINT`. No message content is sent unless `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true` or `KERNELBRIDGE_OTEL_CAPTURE=prompts,tools,outputs` selects it. See `docs/trace.md` in the KernelBridge repository for the mapping.
 
+## Branches
+
+Other branches of the session tree, such as attempts left behind by `/tree`, appear as lanes B, C and D in the branch comparison. They fork at the latest entry on the current path that has other children.
+
 ## Not shown yet
 
-- Other branches of the session tree. The viewer's branch comparison shows the current branch only.
 - Subagent sessions (pi-subagents). Their child sessions are separate files.
 
 ## Development

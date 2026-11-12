@@ -3,6 +3,17 @@
    it boots. It replaces the demo session (DS_INV) with the live session (a
    KernelBridge Journal or a Pi session) and follows updates over Server-Sent
    Events. T.labels carries host wording; without it the KernelBridge text applies. */
+/* Timeline order of two steps (the viewer compares ids as strings, which only its demo ids satisfy). */
+var kbAtOrBefore = function(a, b){
+  if (!DS || !DS.live) return a <= b;
+  if (kbAtOrBefore.steps !== STEPS){ kbAtOrBefore.steps = STEPS; kbAtOrBefore.order = {}; STEPS.forEach(function(s, i){ kbAtOrBefore.order[s.id] = i; }); }
+  var x = kbAtOrBefore.order[a], y = kbAtOrBefore.order[b];
+  return x == null || y == null ? a <= b : x <= y;
+};
+
+/* Live inputs and markers have no model turn; divergence compares model and tool steps only. */
+var kbComparable = function(s){ return !DS || !DS.live || s.src !== 'harness'; };
+
 var KB_LIVE = (function(){
   var source = document.getElementById('kb-trace'), T = JSON.parse(source.textContent), base = location.pathname.replace(/[^/]*$/, '');
   var connected = false, pending = null, lastApply = 0, timer = null;
@@ -20,7 +31,7 @@ var KB_LIVE = (function(){
     var files = T.files && Object.keys(T.files).length ? T.files : {'（本会话未写文件）': [['这次会话没有成功的写入或修改调用。', '—']]};
     return {
       id:'invoice', live:true, root:'M', AG:T.agents, ROWS:T.rows, BR:T.branches, LIMIT:T.limit, THRESH:T.thresh, BUDGET:T.budget || 0, minPps:0,
-      build:function(){ return {steps:T.steps.map(copy), commits:T.commits.map(copy), FORK:null, RESULT:T.result}; },
+      build:function(){ return {steps:T.steps.map(copy), commits:T.commits.map(copy), FORK:T.fork ? copy(T.fork) : null, RESULT:T.result}; },
       files:files, lanes:T.rows.slice(), txt:{TXT:{}, THOUGHT:{}, PATCH:{}, SUMMARY:{}}, attr:[], decDef:[], stratMock:{},
       ckpt:'—', baseCommit:'—', baseLabel:'会话开始前的工作区', forkHead:'—', mainBase:0, subBase:0, histStep:30, cmpStep:15,
       prefixNote:'', meta:{session:T.session.id || '—', harness:label('harness', 'KernelBridge · Pi'), model:T.session.model || '—'},
@@ -39,7 +50,7 @@ var KB_LIVE = (function(){
           + '<div class="cfg"><b>工作区</b><div class="row2"><span>模式</span><span>' + esc2(c.workspace === 'project' ? label('workspace', '项目目录（直接修改）') : c.workspace || '—') + '</span></div><div class="row2"><span>写入 / 修改</span><span>' + T.commits.length + ' 次</span></div><div class="row2"><span>涉及文件</span><span>' + Object.keys(T.files || {}).length + ' 个</span></div><div class="row2"><span>来源</span><span>' + esc2(label('source', 'Journal（只读）')) + '</span></div></div>';
       },
       summaryFor:function(s){ return s.note || '摘要'; },
-      compareNote:function(){ return '实时会话只有一条分支；/fork、/new 作为标记出现在时间线上。'; }, compareNote2:'', noForkHint:'实时会话没有可对比的 fork 分支。',
+      compareNote:function(){ return T.fork ? '其他分支从 ' + T.fork.step + '（' + fmtT(T.fork.t) + '）分叉。表中只统计分叉之后的部分。' : '实时会话只有一条分支；/fork、/new 作为标记出现在时间线上。'; }, compareNote2:'', noForkHint:'实时会话没有可对比的 fork 分支。',
       filesNote:label('filesNote', '项目模式不快照工作区；文件内容由本会话的写入与修改调用重建，只覆盖这些调用涉及的部分。'),
       sideBoxes:function(){ return ''; },
       initialSel:function(){ return STEPS.length ? STEPS[STEPS.length - 1].id : null; }

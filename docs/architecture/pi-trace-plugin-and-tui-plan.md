@@ -259,7 +259,7 @@ startTraceServer(options: {
 
 **A7–A10：第二版及以后**
 
-- [ ] **A7** 分支对比（M–L）：pi 的会话本身是树。用 `getTree()` 的每个叶子生成一个 `BR` 分支，适配脚本不再隐藏“分支 · 点选切换”。这正是 KernelBridge 一侧只能空着的那个视图。
+- [x] **A7**（`findFork` 选最近的分叉点，最多 3 条分支；查看器 7 处 ID 比较改为按时间线排序；`trace_branches_render.py` 在 headless Chrome 里检查 9 个标签页 × 两个分支视角） 分支对比（M–L）：pi 的会话本身是树。用 `getTree()` 的每个叶子生成一个 `BR` 分支，适配脚本不再隐藏“分支 · 点选切换”。这正是 KernelBridge 一侧只能空着的那个视图。
 - [ ] **A8** 子代理泳道（L）：
   - 通过 pi-subagents 的进程内 RPC 或状态查询，拿到每个子代理的 `sessionFile`；
   - 读取子会话，投影成 `M/cN` 泳道；
@@ -318,7 +318,7 @@ startTraceServer(options: {
   - 结果：会话越长，每个回合边界越慢；机器负载高时，`advanced_scenario` 会碰到 10 秒的 socket 超时。
   - 方案：在已经逐条校验事件的追加路径上，顺带维护一份内存里的投影状态，`status` 直接读它。Journal 仍然是权威来源，这份状态只是由写入方自己失效的缓存。
   - 完成标准：一万行 Journal 下，`status` 的耗时不随行数增长；`advanced_scenario` 在负载下不再超时。
-- [ ] **B-N3 `/trace` 里没数据的视图**（与 A7 合并考虑）：
+- [x] **B-N3 `/trace` 里没数据的视图**（`/fork` 历史条目时，被放弃的回合显示为分支 B；工作区快照仍为空，因为项目模式不快照）（与 A7 合并考虑）：
   - KernelBridge 一侧的分支对比和工作区快照是空的。
   - Journal 里有 `transition_prepared` 记录的 `/fork`，可以把 fork 前后两段映射成两个分支（M）。
 - [x] **B-N4 中断提示目前是“反馈”而不是“记录行”**：会被下一条反馈覆盖，滚动记录里也看不到。归入 D10。

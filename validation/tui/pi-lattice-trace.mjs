@@ -220,3 +220,29 @@ test('lattice-trace CLI: the resumed branch of a session file, followed as it gr
     assert.equal(after.steps.length, before.steps.length + 1);
   } finally { child.kill('SIGTERM'); await rm(directory, { recursive: true, force: true }); }
 });
+
+test('other branches of the session tree become fork lanes at their latest common entry', async () => {
+  const { findFork } = await import('../../source/packages/pi-lattice-trace/src/session-trace.ts');
+  const entries = session();
+  // Two abandoned attempts after the first tool results: an older and a newer one.
+  const older = [msg('ob000001', 1050, { role: 'user', content: [{ type: 'text', text: 'try the old approach' }] })];
+  older[0].parentId = 'tr000002';
+  const newerUser = msg('nb000001', 1060, { role: 'user', content: [{ type: 'text', text: 'try another approach' }] });
+  newerUser.parentId = 'tr000002';
+  const newerReply = { ...msg('nb000002', 1070, { role: 'assistant', provider: 'fixture', model: 'fixture-1', stopReason: 'stop', usage: usage(150, 10, 1200),
+    content: [{ type: 'text', text: 'Another approach done.' }] }), parentId: 'nb000001', timestamp: iso(1090) };
+  const tree = [...entries.slice(0, 7), ...older, newerUser, newerReply, ...entries.slice(7)];
+  const fork = findFork(tree, entries);
+  assert.equal(entries[fork.index].id, 'tr000002');
+  assert.deepEqual(fork.branches.map(branch => branch.map(entry => entry.id)), [['nb000001', 'nb000002'], ['ob000001']], 'newest branch first');
+  const trace = projectSession(entries, { header, tree, now: T0 + 5000 });
+  assert.deepEqual(trace.rows, ['M/main', 'B/main', 'C/main']);
+  assert.equal(trace.fork.step, trace.steps.find(s => s.tool === 'ls').id, 'the fork follows the last root step at the forked entry');
+  assert.equal(trace.agents['B/main'].fork, true); assert.equal(trace.agents['B/main'].branch, 'B');
+  const b = trace.steps.filter(step => step.branch === 'B');
+  assert.deepEqual(b.map(step => step.kind), ['input', 'final']);
+  assert.equal(b[1].tokIn, 1350); assert.match(trace.branches.B.name, /try another approach/);
+  assert.equal(trace.result.B.ok, true);
+  assert.ok(trace.steps.every((step, i, all) => !i || all[i - 1].t0 <= step.t0), 'steps stay in timeline order');
+  assert.equal(projectSession(entries, { header, now: T0 + 5000 }).fork, undefined, 'no tree, no fork');
+});

@@ -108,7 +108,9 @@ test('the vendored viewer accepts every live transform exactly once', async () =
   assert.ok(page.indexOf('id="kb-trace"') < page.indexOf('/* kernelbridge live adapter */'));
   assert.ok(page.indexOf('/* kernelbridge live adapter */') < page.indexOf('\nloadSession(DS_INV);\nreadHash();\n'));
   assert.ok(!page.includes('</script><script>alert(1)'), 'embedded JSON cannot close the script element');
-  assert.match(page, /if \(DS\.live\) L = DS\.baseCtx/);
+  assert.match(page, /if \(DS\.live\) L = AG\[k\]\.fork && FORK_CTX \? FORK_CTX\.slice\(\) : DS\.baseCtx/);
+  assert.equal(page.split('kbAtOrBefore(').length - 1, 7, 'every id comparison against FORK.step uses timeline order');
+  assert.doesNotMatch(page, /s\.id <= FORK\.step|s\.id > FORK\.step|state\.sel <= FORK\.step/);
   assert.match(page, /DS\.live \? DS\.configHTML\(\)/);
 });
 
@@ -161,4 +163,39 @@ test('server requires the token and loopback host, and streams Journal growth', 
     assert.deepEqual(events.at(-1).rows, ['M/main', 'M/c1']);
     stream.destroy();
   } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test('a /fork from a historical entry shows the abandoned turns as branch B', () => {
+  const S = 1_800_000_000_000_000_000; let seq = 0; const rows = []; let clock = S;
+  const add = row => rows.push({ seq: seq++, ...row });
+  const app = (kind, data) => { clock += 1e8; add({ kind, application_session_id: 'a', data, time_ns: clock }); };
+  const turn = (id, text, usage) => {
+    app('application/call_intent', { call_id: id, method: 'model' });
+    add({ kind: 'admitted', action: { id, tool: '__propose__', task: 't', arguments: {}, parents: [] } });
+    add({ kind: 'started', action_id: id });
+    add({ kind: 'settled', action_id: id, elapsed_ms: 50, outcome: { status: 'completed', data: { content: [{ type: 'text', text }], usage } } });
+    app('application/call_result', { call_id: id, result: {} });
+  };
+  add({ kind: 'task', task: { id: 't', goal: 'g' } });
+  app('application/input_accepted', { kind: 'prompt', initiator: 'user', text: 'first' });
+  turn('t/step/0/model/primary', 'One.', { prompt_tokens: 1000, completion_tokens: 10 });
+  app('application/checkpoint', { pi_session_id: 'p1', entry_id: 'e1', operation: 'checkpoint' });
+  app('application/input_accepted', { kind: 'prompt', initiator: 'user', text: 'abandoned idea' });
+  turn('t/step/1/model/primary', 'Abandoned.', { prompt_tokens: 1200, completion_tokens: 20 });
+  app('application/checkpoint', { pi_session_id: 'p1', entry_id: 'e2', operation: 'checkpoint' });
+  app('application/configuration', { operation: 'transition_prepared', parent: { operation: 'fork', pi_session_id: 'p1', entry_id: 'e1' } });
+  app('application/input_accepted', { kind: 'prompt', initiator: 'user', text: 'better idea' });
+  turn('t/step/2/model/primary', 'Better.', { prompt_tokens: 1100, completion_tokens: 30 });
+  const trace = projectTrace(rows, { now_ns: clock + 1e9 });
+  assert.deepEqual(trace.rows, ['M/main', 'B/main']);
+  const b = trace.steps.filter(step => step.branch === 'B');
+  assert.deepEqual(b.map(step => step.title), ['用户：abandoned idea', 'Abandoned.']);
+  assert.equal(trace.fork.step, trace.steps.find(step => step.title === 'One.').id);
+  assert.equal(trace.agents['B/main'].fork, true);
+  assert.ok(trace.steps.some(step => step.branch === 'M' && step.title === 'Better.'));
+  assert.equal(trace.result.B.ok, true);
+  // A fork from the current leaf leaves nothing behind: no branch, just the marker.
+  const latest = rows.map(row => row.data?.parent ? { ...row, data: { ...row.data, parent: { ...row.data.parent, entry_id: 'e2' } } } : row);
+  const plain = projectTrace(latest, { now_ns: clock + 1e9 });
+  assert.equal(plain.fork, null); assert.deepEqual(plain.rows, ['M/main']);
 });

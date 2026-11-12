@@ -129,14 +129,14 @@ export function projectTrace(rows: Json[], options: { now_ns?: number; live?: bo
       const prior = ctx.get(agent) ?? 0;
       if (/\/compact\//.test(a.id)) {
         const after = usage.completion_tokens ?? tokens(said); const before = usage.prompt_tokens ?? prior;
-        steps.push({ id: sid('K', a.admitted), agent, branch: 'M', src: 'harness', kind: 'compact', t0: span.t0, t1: span.t1, title: `上下文压缩 ${(before / 1000).toFixed(1)}k → ${(after / 1000).toFixed(1)}k`,
+        steps.push({ id: sid('K', a.admitted), pos: a.admitted, agent, branch: 'M', src: 'harness', kind: 'compact', t0: span.t0, t1: span.t1, title: `上下文压缩 ${(before / 1000).toFixed(1)}k → ${(after / 1000).toFixed(1)}k`,
           status: span.running ? 'running' : 'warn', note: clip(said || '压缩中…'), before, after, ctx: after });
         ctx.set(agent, after); continue;
       }
       const turnNo = (turns.get(agent) ?? 0) + 1; turns.set(agent, turnNo);
       const tokIn = usage.prompt_tokens ?? prior; const tokOut = usage.completion_tokens ?? (said ? tokens(said) : 0);
       const names = calls.map((c: Json) => c.name);
-      const step: Step = { id: sid('T', a.admitted), agent, branch: 'M', src: 'model', kind: !span.running && !calls.length && !failed ? 'final' : 'think', t0: span.t0, t1: span.t1,
+      const step: Step = { id: sid('T', a.admitted), pos: a.admitted, agent, branch: 'M', src: 'model', kind: !span.running && !calls.length && !failed ? 'final' : 'think', t0: span.t0, t1: span.t1,
         title: span.running ? '生成中…' : failed ? '模型调用失败' : firstLine(said) || (names.length ? '调用 ' + [...new Set(names)].join('、') : '思考'),
         status: st, tokIn, tokOut, cacheRead: 0, cacheReal: usage.prompt_cache_hit_tokens ?? usage.prompt_tokens_details?.cached_tokens ?? usage.cached_tokens ?? usage.cache_read_tokens ?? null,
         cacheWrite: usage.cache_creation_input_tokens ?? usage.prompt_tokens_details?.cache_write_tokens ?? usage.cache_write_tokens ?? null,
@@ -150,14 +150,14 @@ export function projectTrace(rows: Json[], options: { now_ns?: number; live?: bo
     const output = span.running ? { out: '' } : clipped(resultText(a.outcome)); const out = output.out;
     const isError = a.outcome?.data?.result?.isError === true;
     const outTok = out ? tokens(out) : 0; const prior = ctx.get(agent) ?? 0;
-    const base: Step = { id: sid('T', a.admitted), agent, branch: 'M', src: 'tool', kind: 'call', t0: span.t0, t1: span.t1, title: toolTitle(a.tool, a.args),
+    const base: Step = { id: sid('T', a.admitted), pos: a.admitted, agent, branch: 'M', src: 'tool', kind: 'call', t0: span.t0, t1: span.t1, title: toolTitle(a.tool, a.args),
       status: denied ? 'denied' : isError ? 'error' : st, tool: a.tool, args: a.args ?? {}, ...output, outTok, turn, ctx: prior + outTok, action_id: a.id };
     if (a.tool === 'delegate') {
       const child = childOf.get(a.id);
       const spawnEnd = round2(Math.min(span.t1, span.t0 + 0.3));
       steps.push({ ...base, kind: 'spawn', child, t1: spawnEnd, out: child ? '已派生 ' + agents[child].name : out || '未启动', outTok: child ? 40 : outTok,
         status: child ? (span.running ? 'running' : 'ok') : base.status });
-      if (child && !span.running) steps.push({ ...base, id: sid('R', a.settled!), kind: 'return', child, t0: span.t1, t1: round2(span.t1 + 0.05), title: '子代理返回：' + agents[child].short,
+      if (child && !span.running) steps.push({ ...base, id: sid('R', a.settled!), pos: a.settled!, kind: 'return', child, t0: span.t1, t1: round2(span.t1 + 0.05), title: '子代理返回：' + agents[child].short,
         status: failed ? 'error' : 'ok', out, outTok, turn: undefined });
       ctx.set(agent, prior + (child ? 40 + (span.running ? 0 : outTok) : outTok));
       continue;
@@ -171,24 +171,43 @@ export function projectTrace(rows: Json[], options: { now_ns?: number; live?: bo
     if (data.kind === 'control' && value.startsWith('{')) continue;
     const goal = data.initiator === 'loopx' || data.channel === 'policy' && data.initiator !== 'agent';
     const notice = data.initiator === 'agent';
-    steps.push({ id: sid('U', index), agent: MAIN, branch: 'M', src: 'harness', kind: goal ? 'goal' : 'input', t0: t, t1: round2(t + 0.05),
+    steps.push({ id: sid('U', index), pos: index, agent: MAIN, branch: 'M', src: 'harness', kind: goal ? 'goal' : 'input', t0: t, t1: round2(t + 0.05),
       title: goal ? 'Goal 续跑' : notice ? '子代理结果通知' : data.kind === 'control' ? '命令 ' + firstLine(value, 40) : '用户：' + firstLine(value, 40),
       status: 'ok', note: clip(value, 2000), ctx: 0, addTok: data.kind === 'control' ? 0 : tokens(value) });
   }
   for (const { index, data } of transitions) {
     const op = data.parent?.operation; const t = round2(at(index));
-    steps.push({ id: sid('F', index), agent: MAIN, branch: 'M', src: 'harness', kind: op === 'fork' ? 'fork' : 'checkpoint', t0: t, t1: t,
+    steps.push({ id: sid('F', index), pos: index, agent: MAIN, branch: 'M', src: 'harness', kind: op === 'fork' ? 'fork' : 'checkpoint', t0: t, t1: t,
       title: op === 'fork' ? '/fork 新分支' : op === 'reset' ? '/new 新上下文' : '上下文切换', status: 'ok',
       note: op === 'fork' ? '对话从这里 fork 成新的 Pi 会话；原分支保留。' : '新的对话上下文；之前的历史不再进入模型。', ctx: 0 });
   }
+  // A /fork from a historical entry leaves the old conversation's later turns behind: show them
+  // as branch B, forked where the selected entry was checkpointed (the viewer has one fork point).
+  const forked = [...transitions].reverse().find(item => item.data.parent?.operation === 'fork');
+  const anchor = forked ? rows.findIndex(row => row.kind === 'application/checkpoint'
+    && row.data?.pi_session_id === forked.data.parent.pi_session_id && row.data?.entry_id === forked.data.parent.entry_id) : -1;
+  const left = forked && anchor >= 0 ? steps.filter(step => step.agent === MAIN && step.pos > anchor && step.pos < forked.index) : [];
+  for (const step of left) { step.agent = 'B/main'; step.branch = 'B'; }
   finishSteps(steps);
-  const summary = summarize(steps, rowsOrder.length); status = summary.status;
+  let fork: Trace['fork'] = null;
+  if (left.length) {
+    const at = steps.filter(step => step.agent === MAIN && step.pos <= anchor).at(-1);
+    if (at) {
+      fork = { t: at.t1, ctx: at.ctx ?? 0, step: at.id };
+      agents['B/main'] = { branch: 'B', name: 'B · fork 前的原分支', short: '主会话', tag: 'B', level: 0, fork: true, sb: '—', ws: '—' };
+      rowsOrder.push('B/main');
+      // Calibration restarts per lane; steps before the branch's first model call continue from the fork.
+      for (const step of steps.filter(item => item.agent === 'B/main')) { if (step.src === 'model') break; step.ctx = (step.ctx ?? 0) + fork.ctx; }
+    } else for (const step of left) { step.agent = MAIN; step.branch = 'M'; }
+  }
+  const summary = summarize(steps.filter(step => step.branch === 'M'), rowsOrder.filter(row => agents[row].branch === 'M').length); status = summary.status;
   return {
     schema: TRACE_SCHEMA, seq, live: options.live ?? false,
     session: { id: session, title: firstLine(named || title || objective || firstPrompt, 120) || 'KernelBridge 会话', model, cwd, started_ns: known.find(v => v !== undefined) ?? null, updated_ns: updated, status },
     limit, thresh: Math.round(limit * 0.8), budget, config,
-    agents, rows: rowsOrder, branches: { M: { name: '当前会话', variant: model ?? 'KernelBridge' } },
-    steps, commits, files,
-    result: summary.result,
+    agents, rows: rowsOrder, branches: { M: { name: '当前会话', variant: model ?? 'KernelBridge' },
+      ...(fork ? { B: { name: 'fork 前的原分支', variant: model ?? 'KernelBridge' } } : {}) },
+    steps, commits, files, fork,
+    result: { ...summary.result, ...(fork ? { B: summarize(steps.filter(step => step.branch === 'B'), 1).result.M } : {}) },
   };
 }

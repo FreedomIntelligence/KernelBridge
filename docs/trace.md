@@ -75,6 +75,15 @@ KernelBridge loads Pi with `noExtensions` and an explicit factory list, so an in
 - `node validation/tui/pi-lattice-trace.mjs`: Pi session projection (token counts, parallel tools, errors, compaction, markers, `!!` commands, file history, running and streaming steps, stable ids), the Pi page and source switching on the shared server.
 - `python3 validation/tui/pi_plugin_trace_scenario.py --output DIR`: real Pi 1.5.0 in RPC mode with an isolated `PI_CODING_AGENT_DIR` and a scripted provider. It checks the served trace, a running tool, SSE growth, a headless Chrome render with Pi labels, `/new` on the same URL, and the server stopping when Pi exits.
 
+## Branches
+
+The viewer compares branches that share one fork point.
+
+- Pi: other branches of the session tree (left by `/tree`) become lanes B, C and D. They fork at the latest entry on the current path that has other children, and each follows its newest descendant.
+- KernelBridge: a `/fork` from a historical entry shows the turns it left behind as branch B, forked where the selected entry was checkpointed. A fork from the latest entry leaves nothing behind and stays a marker.
+
+The vendored viewer orders the fork prefix by comparing step ids as strings, which only its demo ids satisfy. The live page replaces those comparisons with timeline order (`kbAtOrBefore`). It also skips inputs and markers when it pairs steps for the divergence summary, and stops a one-lane branch history from dividing by zero. Each replacement is an exact match that must occur once.
+
 ## OpenTelemetry export
 
 `kernelagent trace ID --otlp`, `/trace --otlp` in Pi, or `lattice-trace FILE --otlp` sends a session once as OTLP/HTTP JSON to `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, or to `OTEL_EXPORTER_OTLP_ENDPOINT` + `/v1/traces`; `OTEL_EXPORTER_OTLP_HEADERS` is honoured. Nothing is sent unless you run one of these commands.

@@ -51,7 +51,7 @@ export default function latticeTrace(pi: ExtensionAPI) {
     shared.source = () => projectSession(sessions.getBranch(), {
       header: sessions.getHeader(), running: shared.running, streamingSince: shared.streamingSince,
       model: ctx.model ? { provider: ctx.model.provider, id: ctx.model.id, contextWindow: ctx.model.contextWindow } : null,
-      thinkingLevel: ctx.thinkingLevel ?? null, sessionName: sessions.getSessionName() ?? null,
+      thinkingLevel: ctx.thinkingLevel ?? null, sessionName: sessions.getSessionName() ?? null, tree: sessions.getEntries(),
     });
   };
   // Pi appends an entry after message_end handlers return; publish on the next tick.

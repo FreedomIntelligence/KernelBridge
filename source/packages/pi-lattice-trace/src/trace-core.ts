@@ -17,6 +17,8 @@ export interface Trace {
   agents: Record<string, Json>; rows: string[]; branches: Record<string, Json>;
   steps: Step[]; commits: Json[]; files: Record<string, [string, string][]>; result: Record<string, Json>;
   labels?: TraceLabels;
+  /** One fork point shared by every other branch (the viewer's model): the root step it follows. */
+  fork?: { t: number; ctx: number; step: string } | null;
 }
 
 export const round2 = (value: number) => Math.round(value * 100) / 100;

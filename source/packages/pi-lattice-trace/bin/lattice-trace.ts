@@ -12,7 +12,7 @@ import { openBrowser, serveTrace } from '../src/server.ts';
 import { exportTrace } from '../src/otlp.ts';
 
 /** Header and current branch of a session file; a torn last line is ignored until complete. */
-export function sessionBranch(text: string): { header: Json; entries: Json[] } {
+export function sessionBranch(text: string): { header: Json; entries: Json[]; tree: Json[] } {
   const complete = text.slice(0, text.lastIndexOf('\n') + 1);
   const rows: Json[] = [];
   for (const line of complete.split('\n')) {
@@ -27,13 +27,13 @@ export function sessionBranch(text: string): { header: Json; entries: Json[] } {
     branch.push(entry);
     if (branch.length > entries.length) break; // a parent cycle is not a valid session
   }
-  return { header, entries: branch.reverse() };
+  return { header, entries: branch.reverse(), tree: entries };
 }
 
 export async function traceFile(path: string): Promise<Trace> {
-  const { header, entries } = sessionBranch(await readFile(path, 'utf8'));
+  const { header, entries, tree } = sessionBranch(await readFile(path, 'utf8'));
   const name = [...entries].reverse().find(entry => entry.type === 'session_info' && entry.name)?.name ?? null;
-  return projectSession(entries, { header, sessionName: name, live: true });
+  return projectSession(entries, { header, sessionName: name, live: true, tree });
 }
 
 const USAGE = 'usage: lattice-trace SESSION.jsonl [--port N] [--no-open] [--offline] [--otlp]';

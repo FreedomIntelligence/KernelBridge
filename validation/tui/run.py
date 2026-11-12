@@ -115,7 +115,8 @@ def main():
                          ('subagents-panel', 'subagent_panel_scenario.py')]:
         checks[name] = (scenario(script, '--launcher', launcher), ROOT, 600)
     for name, script in [('cancel', 'subagent_cancel_scenario.py'), ('goal-review', 'goal_review_scenario.py'),
-                         ('goal-plan', 'goal_plan_scenario.py'), ('pi-plugin-trace', 'pi_plugin_trace_scenario.py')]:
+                         ('goal-plan', 'goal_plan_scenario.py'), ('pi-plugin-trace', 'pi_plugin_trace_scenario.py'),
+                         ('trace-branches', 'trace_branches_render.py')]:
         checks[name] = (scenario(script), ROOT, 600)
     selected = [name for name in checks if not args.only or name in args.only]
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
