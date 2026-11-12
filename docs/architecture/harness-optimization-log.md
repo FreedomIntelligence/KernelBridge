@@ -96,6 +96,33 @@ These are local integration checks and original-receipt replay, with no new mode
 trial or NPU performance result. The resumed optimization goal still requires
 recovery of the original deployment identity before fresh device trials.
 
+### Resumed preflight: fresh inputs, no new trial
+
+A read-only re-audit of all 16 formal Journals verified their hash chains and
+matched every frozen index head: 303 model calls, 5,713,968 known tokens and zero
+accepted E3 trials. This is an evidence check, not another optimization run.
+
+The unstarted `include-roots-*` inputs cannot test the current repair unchanged:
+they register ten tools without `pipeline_evaluate`, retain old driver pins and
+runtime bindings, and disable failure/regression diagnostics. Those original
+inputs remain untouched. New local inputs are sealed as
+`.validation/harness-trials/feedback-d25875b-{max,min,matmul}-01`, with eleven
+tools, current runtime/driver bindings, the shared 20-call ceiling and diagnostic
+defaults enabled. Each preparation verifies unchanged contract, cases,
+measurement, oracle and baseline hashes; none contains a candidate, session
+history, attempt or dispatch. These prepare steps made zero model, transport,
+upload or device calls. Their equivalence and cleanliness evidence is indexed in
+`.validation/rebase-ae59e4f/fresh-trial-readiness.json`.
+
+Both configured access paths remain unavailable on the resumed read-only check:
+SLAI method negotiation times out and `hetao-web` refuses the SSH connection.
+The original `cc39657de0d9bbcfd94e8589b69813ddd1f9c9167670c85719852422168244f2`
+deployment remains unknown. The new manifests explicitly record that their
+local preparation does not verify or update this remote payload. Before launch,
+recover that original identity and reconcile the deployment with the required
+runtime closure; do not substitute a namespace or repeat an unknown upload.
+No new correctness, timing, IR/profiler capture or promotion result is claimed.
+
 ## Goal and accounting
 
 The active goal supersedes the earlier request for 20 externally coordinated
