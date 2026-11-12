@@ -40,7 +40,7 @@ def main():
         ui = Terminal(command, project, env)
         client = None
         try:
-            ui.until(lambda: 'deepseek-flash' in ui.text() and '/help · /latest' in ui.text())
+            ui.until(lambda: 'deepseek-flash' in ui.text() and '等待输入' in ui.text())
             binding = json.loads((run / 'application.json').read_text())
             client = Client(Path(binding['host_directory']))
             state = client.call('status')

@@ -61,7 +61,7 @@ def main():
         return state['subagents'][len(before['subagents']):], running_seen
 
     try:
-        ui.until(lambda: '等待输入' in ui.text() and '/help · /latest' in ui.text())
+        ui.until(lambda: '等待输入' in ui.text() and '上下文剩余' in ui.text())
         binding = json.loads((run / 'application.json').read_text()); client = Client(Path(binding['host_directory']))
         assert client.call('status')['model_turns'] == 0
         children, _ = send('simple', '读取 README.md，只说项目包含哪两个子目录。')

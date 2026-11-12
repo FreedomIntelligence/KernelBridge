@@ -1,4 +1,5 @@
-import { Text, truncateToWidth } from '@earendil-works/pi-tui';
+import { Text, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
+import { homedir } from 'node:os';
 import { childMetrics, delegateTitle, reasonLabel } from './tool-render.mjs';
 
 const STATUSES = { active: '进行中', paused: '已暂停', awaiting_user: '等待输入', completed: '已完成',
@@ -9,11 +10,11 @@ const plain = value => String(value ?? '').replace(/[\x00-\x1f\x7f-\x9f]/g, ' ')
 export const runningChildren = state => (state?.subagents ?? []).filter(child => child.status === 'running');
 
 /** Working-row text: elapsed time, live children and the interrupt key. */
-export function workingMessage(state, startedAt) {
+export function workingMessage(state, startedAt, activity = '执行中') {
   const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
   const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, '0')}s`;
   const children = runningChildren(state).length;
-  return `${children ? `等待 ${children} 个子代理完成` : '执行中'}… (${elapsed} · Esc 中断)`;
+  return `${children ? `等待 ${children} 个子代理完成` : activity}… (${elapsed} · esc 中断)`;
 }
 
 const CHILD_STATUS = { running: '运行中', completed: '完成', failed: '失败', unknown: '待恢复' };
@@ -53,15 +54,44 @@ export function statePresentation(state) {
     ...(goal ? [`退出策略：${goal.on_detach === 'continue' ? '后台继续' : '暂停'}`] : [])].join('\n');
 }
 
+const home = homedir();
+const shortPath = path => path && home && (path === home || path.startsWith(home + '/')) ? '~' + path.slice(home.length) : path ?? '';
+
+/** Left and right segments on one row; the left side is truncated first. */
+function split(left, right, width) {
+  const gap = 2;
+  const rightWidth = visibleWidth(right);
+  if (!right || rightWidth + gap >= width) return truncateToWidth(left || right, width, '…');
+  const fitted = truncateToWidth(left, width - rightWidth - gap, '…');
+  return fitted + ' '.repeat(Math.max(gap, width - visibleWidth(fitted) - rightWidth)) + right;
+}
+
+/** Claude Code-style welcome box: product, quick commands and the working directory. */
+export function welcomeBox(state, theme, width, { demo = false } = {}) {
+  const color = (name, text) => theme?.fg(name, text) ?? text;
+  const project = state?.workspace_mode === 'project';
+  const rows = [
+    `${color('accent', '✻')} ${theme?.bold?.('KernelBridge') ?? 'KernelBridge'}`,
+    ...(demo ? [color('warning', '本地演示：固定脚本回复，无真实模型或 NPU')] : []),
+    '',
+    color('muted', '  ' + (project ? '/help 命令 · /agents 子代理 · /model 模型 · ! shell' : '/goal 目标内容 持续执行 · /help 命令 · /agents 子代理')),
+    color('muted', '  esc 中断 · ctrl+o 展开工具输出 · /resume 历史会话'),
+    ...(state?.cwd ? ['', color('dim', `  cwd: ${shortPath(state.cwd)}`)] : []),
+  ];
+  const inner = Math.min(Math.max(20, width - 4), 68);
+  if (width < 24) return rows.filter(Boolean).map(row => truncateToWidth(row, width, '…'));
+  const border = text => color('borderMuted', text);
+  return [border('╭' + '─'.repeat(inner + 2) + '╮'),
+    ...rows.map(row => { const cell = truncateToWidth(row, inner, '…'); return border('│ ') + cell + ' '.repeat(Math.max(0, inner - visibleWidth(cell))) + border(' │'); }),
+    border('╰' + '─'.repeat(inner + 2) + '╯')];
+}
+
 /** Product status stays visible without exposing broker IDs, synthetic token limits or plugin internals. */
 export function installProductUI(context, getState, { demo = false } = {}) {
-  const project = getState()?.workspace_mode === 'project';
-  context.ui.setHeader(project ? undefined : () => new Text([
-    'KernelBridge',
-    ...(demo ? ['本地演示：固定脚本回复，无真实模型或 NPU。'] : []),
-    '输入任务，或 /goal 目标内容 · /help 命令 · /latest 最新消息',
-  ].join('\n'), 0, 1));
-  if (project && demo) context.ui.setWidget('kernelbridge-demo', ['本地演示：固定脚本回复，无真实模型或 NPU。']);
+  context.ui.setHeader((_tui, theme) => ({
+    invalidate() {},
+    render: width => ['', ...welcomeBox(getState(), theme, width, { demo })],
+  }));
   context.ui.setFooter((_tui, theme, footerData) => ({
     invalidate() {},
     render(width) {
@@ -70,16 +100,23 @@ export function installProductUI(context, getState, { demo = false } = {}) {
       const goal = currentGoal(state), budget = state.budget ?? {};
       const color = (name, text) => theme?.fg(name, text) ?? text;
       const branch = footerData?.getGitBranch();
-      return new Text([
-        ...(state.cwd ? [color('dim', state.cwd + (branch ? ` (${branch})` : ''))] : []),
-        state.workspace_mode === 'project'
-          ? `${color('accent', state.model ?? '未配置模型')} · ${goal ? 'Goal ' + (STATUSES[goal.status] ?? goal.status) : color('dim', Object.values(state.inputs ?? {}).some(item => item.status === 'applied') ? '执行中' : '等待输入')}`
-          : `${goal ? `Goal ${STATUSES[goal.status] ?? goal.status}` : 'Session'} · task v${state.task_version} · Trial ${state.trials?.length || 0}`,
-        ...(budget.limit == null ? [] : [`预算 ${budget.spent ?? 0}/${budget.limit} · 预留 ${budget.reserved ?? 0}`
-          + (state.workspace_mode !== 'project' ? ` · 待处理 ${state.pending_effect_ids?.length ?? 0}` : '')]),
-        ...(runningChildren(state).length ? [color('accent', truncateToWidth(`子代理 ${runningChildren(state).length} 个运行中 · /agents 查看`, width))] : []),
-        `${goal || state.workspace_mode !== 'project' ? `退出${goal?.on_detach === 'continue' ? '继续' : '暂停'} · ` : ''}/help · /latest`,
-      ].join('\n'), 0, 0).render(width);
+      const children = runningChildren(state).length;
+      const busy = Object.values(state.inputs ?? {}).some(item => item.status === 'applied');
+      const activity = goal ? `Goal ${STATUSES[goal.status] ?? goal.status}` : busy ? '执行中' : '等待输入';
+      const usage = context.getContextUsage?.();
+      const percent = usage?.percent ?? (usage?.tokens != null && usage?.contextWindow ? usage.tokens / usage.contextWindow * 100 : null);
+      const left = state.workspace_mode === 'project'
+        ? `${color(busy || children ? 'accent' : 'success', '●')} ${color('text', state.model ?? '未配置模型')} ${color('dim', '·')} ${color('muted', activity)}`
+        : `${color('accent', '●')} ${color('muted', `${goal ? `Goal ${STATUSES[goal.status] ?? goal.status}` : 'Session'} · task v${state.task_version} · Trial ${state.trials?.length || 0}`)}`;
+      const right = percent == null ? '' : color(percent >= 80 ? 'warning' : 'dim', `上下文剩余 ${Math.max(0, Math.round(100 - percent))}%`);
+      const detach = goal || state.workspace_mode !== 'project' ? `退出${goal?.on_detach === 'continue' ? '继续' : '暂停'} · ` : '';
+      return [
+        split(left, right, width),
+        ...(children ? [truncateToWidth(color('accent', `子代理 ${children} 个运行中 · /agents 查看`), width, '…')] : []),
+        ...(budget.limit == null ? [] : [truncateToWidth(color('muted', `预算 ${budget.spent ?? 0}/${budget.limit} · 预留 ${budget.reserved ?? 0}`
+          + (state.workspace_mode !== 'project' ? ` · 待处理 ${state.pending_effect_ids?.length ?? 0}` : '')), width, '…')]),
+        split(color('dim', shortPath(state.cwd) + (branch ? ` (${branch})` : '')), color('dim', `${detach}/help`), width),
+      ];
     },
   }));
 }

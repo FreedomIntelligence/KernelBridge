@@ -116,11 +116,17 @@ When automatic forks are disabled, repeated tool failures or multiple compaction
 
 Tool calls render like other coding CLIs: a status header `⏺ Tool(main argument)` (grey while running, green on success, red on failure) and a one-line summary under `⎿`: lines read, lines written, `+a −b` with a short diff for edits, match/file counts for searches, and for shell commands the live tail while running, then duration and exit code. Test/build commands and failures keep the output tail; other commands keep the head. Errors show project-relative paths. Consecutive reads, searches and listings collapse into one `浏览` row. Ctrl+O shows every call and its full output; receipt-backed tools show readable fields instead of JSON.
 
-Assistant text streams as it arrives; only a suffix that could still form a credential is held back. Reasoning deltas (`reasoning_content`) display as a collapsible thinking block while streaming and are not part of the settled reply. The working row shows elapsed time and `Esc 中断`.
+Assistant text streams as it arrives; only a suffix that could still form a credential is held back. Reasoning deltas (`reasoning_content`) display as a collapsible thinking block while streaming and are not part of the settled reply.
 
 `--tui-mode regular` renders inline, keeping output in the terminal's own scrollback like Claude Code; `--tui-mode fullscreen` uses Pi's alternate screen with in-app scrolling (`Ctrl+End` returns to the latest message). `KERNELBRIDGE_TUI_MODE` sets the same choice.
 
 Operator tools and no-Torch self iteration are documented in [operator-workflow.md](operator-workflow.md).
+
+## Layout and theme
+
+The interface follows the Claude Code / Codex layout. A welcome box shows the product, quick commands and the working directory. User messages are prefixed with `>` and assistant text with `⏺`; there are no background blocks. Tool rows use status marks as described above. While the agent works, the row above the editor shows an animated `✻` mark and the current step: thinking, running a command, reading files, or waiting for N subagents. It also shows elapsed time and `esc 中断`.
+
+The footer has two lines. The first shows the model and state, plus Codex-style remaining context (`上下文剩余 X%`). The last shows the directory with branch and `/help`. Running subagents, budgets and the Goal detach policy appear only when relevant. The bundled themes `kernelbridge-dark` and `kernelbridge-light` follow the terminal's appearance (`source/apps/agent/themes/`); `/settings` can select another installed theme. `/help` lists the commands and keys in two columns.
 
 ## Goal policy and evidence
 

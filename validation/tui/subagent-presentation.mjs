@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { installProductUI, subagentStatus, workingMessage } from '../../source/apps/agent/src/harness/pi/product-ui.mjs';
+import { installProductUI, subagentStatus, workingMessage, welcomeBox } from '../../source/apps/agent/src/harness/pi/product-ui.mjs';
 import { initTheme } from '../../source/apps/agent/node_modules/@earendil-works/pi-coding-agent/dist/index.js';
+import { visibleWidth } from '../../source/apps/agent/node_modules/@earendil-works/pi-tui/dist/index.js';
 import { directRenderers, withProductRenderers, updateSubagentProgress, displayPath, formatDuration } from '../../source/apps/agent/src/harness/pi/tool-render.mjs';
 
 initTheme();
@@ -21,7 +22,7 @@ test('footer shows one live child line and nothing once children settle', () => 
   assert(footer.render(48).some(line => line.includes('子代理 1 个运行中')));
   state.subagents[0].status = 'completed';
   assert(!footer.render(48).some(line => line.includes('子代理')));
-  assert.match(workingMessage({ subagents: [{ status: 'running' }, { status: 'running' }] }, Date.now() - 65000), /等待 2 个子代理完成… \(1m05s · Esc 中断\)/);
+  assert.match(workingMessage({ subagents: [{ status: 'running' }, { status: 'running' }] }, Date.now() - 65000), /等待 2 个子代理完成… \(1m05s · esc 中断\)/);
 });
 
 test('delegate row shows title, live progress, completion metrics and an explicit partial result', () => {
@@ -99,4 +100,21 @@ test('consecutive exploration calls collapse into one row until a boundary', asy
   const bash = tool('bash').renderCall({ command: 'ls' }, theme, context({ toolCallId: 'g5' }));
   const next = tool('read').renderCall({ path: 'c.py' }, theme, context({ toolCallId: 'g6' }));
   assert.match(screen(bash), /⏺ Bash\(ls\)/); assert.match(screen(next), /⏺ Read\(c\.py\)/);
+});
+
+test('welcome box and footer follow the Claude Code / Codex layout', () => {
+  const box = welcomeBox({ workspace_mode: 'project', cwd: '/repo/project' }, theme, 80);
+  assert.match(box[0], /^╭─+╮$/); assert.match(box.at(-1), /^╰─+╯$/);
+  assert(box.some(line => line.includes('✻ KernelBridge')) && box.some(line => line.includes('ctrl+o')));
+  assert(box.every(line => visibleWidth(line) === visibleWidth(box[0])));
+  assert(welcomeBox({ workspace_mode: 'project' }, theme, 20).every(line => visibleWidth(line) <= 20));
+  let footer;
+  const ui = { getContextUsage: () => ({ percent: 12.4, contextWindow: 100000 }),
+    ui: { setHeader() {}, setFooter(factory) { footer = factory({}, theme, { getGitBranch: () => 'main' }); } } };
+  installProductUI(ui, () => ({ workspace_mode: 'project', model: 'fixture', cwd: '/repo/project', inputs: {} }));
+  const rows = footer.render(72);
+  assert.match(rows[0], /● fixture · 等待输入 +上下文剩余 88%$/);
+  assert.match(rows.at(-1), /\/repo\/project \(main\) +\/help$/);
+  assert(rows.every(line => visibleWidth(line) <= 72));
+  assert.match(workingMessage({ subagents: [] }, Date.now(), '运行命令'), /^运行命令… \(0s · esc 中断\)$/);
 });
