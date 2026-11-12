@@ -241,10 +241,10 @@
                          this.chatContainer.addChild(new Spacer(1));
 @@ -3256,1 +3316,1 @@
 -                            const userComponent = new UserMessageComponent(skillBlock.userMessage, this.getMarkdownThemeWithSettings(), this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp);
-+                            const userComponent = withUserPrompt(new UserMessageComponent(skillBlock.userMessage, this.getMarkdownThemeWithSettings(), this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp), this.options.hostActions);
++                            const userComponent = withUserPrompt(new UserMessageComponent(skillBlock.userMessage, this.getMarkdownThemeWithSettings(), this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp), this.options.hostActions && textContent === originalText);
 @@ -3261,7 +3321,7 @@
 -                        const userComponent = new UserMessageComponent(textContent, this.getMarkdownThemeWithSettings(), this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp);
-+                        const userComponent = withUserPrompt(new UserMessageComponent(textContent, this.getMarkdownThemeWithSettings(), this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp), this.options.hostActions);
++                        const userComponent = withUserPrompt(new UserMessageComponent(textContent, this.getMarkdownThemeWithSettings(), this.outputPad, this.getMarkdownTransformers(), options?.messageId, options?.timestamp), this.options.hostActions && textContent === originalText);
                          this.chatContainer.addChild(userComponent);
                      }
 -                    if (options?.populateHistory) {

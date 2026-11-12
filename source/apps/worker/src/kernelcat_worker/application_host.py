@@ -517,12 +517,16 @@ class ApplicationHost:
         state = self.status()
         if state.get("takeover_requested"):
             raise Conflict("compaction is fenced while an interactive worker takes over")
-        facts = {key: state.get(key) for key in ("goal", "task_version", "checkpoint", "best", "platform", "budget", "pending_effect_ids", "plan")}
+        from kernelcat_executor.state.goal_progress import with_model_call_progress
+        facts = with_model_call_progress(
+            {key: state.get(key) for key in ("goal", "task_version", "checkpoint", "best", "platform", "budget", "pending_effect_ids", "plan")},
+            self.owner.gateway.store)
         harness = {**harness, "system_prompt": harness["system_prompt"] + "\nRetain these authoritative facts verbatim in the summary:\n" + canonical(facts)}
         if len(canonical(harness).encode()) > policy.context_bytes:
             raise Conflict("compaction input and authoritative facts exceed the configured context budget")
         route = policy.routes[0]
-        context = {"policy": policy.model_dump(mode="json")}
+        context = {"policy": policy.model_dump(mode="json"),
+            **({"goal_progress": facts["goal_progress"]} if "goal_progress" in facts else {})}
         outcome = propose(self.owner.gateway, self.owner.proposers[route],
             self.task.id + "/compact/" + params["input_id"], self.task.id,
             route, context, (), (), harness=harness)

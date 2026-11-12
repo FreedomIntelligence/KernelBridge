@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT / 'examples/operator_pipeline'))
 from pipeline import main, Pipeline
 from prepare import prepare
 from diagnostic_policy import assess_diagnostics, diagnostic_reason
+from job_identity import wire_handle, wire_handles
 
 
 def load(path, name):
@@ -99,7 +100,7 @@ print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['s
         self.freeze(); self.diagnostics(); self.fixture_driver('check_bad', 'check'); self.fixture_driver('launch', 'launch')
         handle = self.call('pipeline_run', stage='E', driver='launch')['result']['result']['handle']
         result = self.call('pipeline_run', stage='F', driver='check_bad')
-        reports = result['result']['diagnostics']['reports']
+        reports = result['diagnostics']['reports']
         self.assertEqual([row['status'] for row in reports], ['completed', 'completed'])
         self.assertEqual((self.root / 'diagnostic-count.txt').read_text(), 'ir\nprofiler\n')
         for row in reports:
@@ -116,8 +117,8 @@ print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['s
         self.call('pipeline_run', stage='F', driver='check_ok')
         self.call('pipeline_pair', driver='positive')
         self.assertFalse((self.root / 'diagnostic-count.txt').exists())
-        first = self.call('pipeline_pair', driver='equal')['result']['diagnostics']['reports']
-        second = self.call('pipeline_pair', driver='equal')['result']['diagnostics']['reports']
+        first = self.call('pipeline_pair', driver='equal')['diagnostics']['reports']
+        second = self.call('pipeline_pair', driver='equal')['diagnostics']['reports']
         self.assertTrue(all(row['reused'] for row in second))
         self.assertEqual([row['receipt'] for row in first], [row['receipt'] for row in second])
         self.assertEqual(len((self.root / 'diagnostic-count.txt').read_text().splitlines()), 2)
@@ -129,13 +130,13 @@ print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['s
     def test_required_actual_cpu_diagnostics_and_artifact_tamper_gate(self):
         self.freeze()
         self.config['diagnostics'] = {'required': True, 'scope': 'local_cpu_diagnostic', 'drivers': {'ir': 'ir', 'profiler': 'profiler'}}
-        result = self.check()['result']['diagnostics']['reports']
+        result = self.check()['diagnostics']['reports']
         self.assertEqual([r['status'] for r in result], ['completed', 'completed'])
         self.assertTrue(self.call('pipeline_promote')['result']['bootstrap'])
         ir = Path(result[0]['receipt']).parent / 'kernel-O2.ll'
         self.assertTrue(ir.exists()); ir.write_text('tampered')
         self.call('pipeline_promote', failed=True)
-        repeated = self.check()['result']['diagnostics']['reports']
+        repeated = self.check()['diagnostics']['reports']
         self.assertEqual(repeated[0]['status'], 'failed')
         self.assertTrue(repeated[0]['reused'])
 
@@ -144,7 +145,7 @@ print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['s
         for mode, scope, expected in [('ok', 'npu_diagnostic', 'failed'), ('empty', 'protocol_fixture', 'failed'),
                                       ('unavailable', 'protocol_fixture', 'unavailable')]:
             self.diagnostics(mode=mode, required=True, scope=scope)
-            reports = self.call('pipeline_run', stage='F', driver='check_ok')['result']['diagnostics']['reports']
+            reports = self.call('pipeline_run', stage='F', driver='check_ok')['diagnostics']['reports']
             self.assertTrue(all(row['status'] == expected for row in reports), reports)
             self.assertTrue(Pipeline(self.config).state['check']['passed'])
             self.call('pipeline_promote', failed=True)
@@ -152,7 +153,7 @@ print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['s
     def test_missing_driver_is_unavailable_and_policy_validated(self):
         self.freeze(); self.fixture_driver('check_ok', 'check')
         self.config['diagnostics'] = {'required': True, 'scope': 'npu_diagnostic'}
-        reports = self.call('pipeline_run', stage='F', driver='check_ok')['result']['diagnostics']['reports']
+        reports = self.call('pipeline_run', stage='F', driver='check_ok')['diagnostics']['reports']
         self.assertEqual([row['status'] for row in reports], ['unavailable', 'unavailable'])
         self.call('pipeline_promote', failed=True)
         for policy in ({'required': True}, {'scope': 'npu_diagnostic', 'required': 'true'},
@@ -161,11 +162,12 @@ print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['s
 
     def test_timeout_diagnostic_retains_original_intent_and_never_relaunches(self):
         self.freeze(); self.fixture_driver('check_ok', 'check'); self.diagnostics(mode='timeout', required=True)
-        first = self.call('pipeline_run', stage='F', driver='check_ok')['result']['diagnostics']['reports']
-        self.assertEqual([row['status'] for row in first], ['unknown', 'unknown'])
-        second = self.call('pipeline_run', stage='F', driver='check_ok')['result']['diagnostics']['reports']
-        self.assertTrue(all(row['status'] == 'unknown' and row['reused'] for row in second))
-        self.assertEqual(len((self.root / 'diagnostic-count.txt').read_text().splitlines()), 2)
+        first = self.call('pipeline_run', stage='F', driver='check_ok')['diagnostics']['reports']
+        self.assertEqual([row['status'] for row in first], ['unknown', 'blocked'])
+        second = self.call('pipeline_run', stage='F', driver='check_ok', failed=True)['diagnostics']['reports']
+        self.assertEqual([row['status'] for row in second], ['unknown', 'blocked'])
+        self.assertTrue(second[0]['reused'])
+        self.assertEqual(len((self.root / 'diagnostic-count.txt').read_text().splitlines()), 1)
         self.call('pipeline_promote', failed=True)
 
     def test_uncommitted_diagnostic_intent_blocks_implicit_retry(self):
@@ -174,16 +176,16 @@ print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['s
         key = pipeline.diagnostic_key('ir', 'diag_ir', pipeline.current())
         folder = Path(self.config['state']) / ('e' * 64) / 'diagnostic-ir'; folder.mkdir(parents=True)
         (folder / 'diagnostic-intent.json').write_text(json.dumps({'key': key, 'kind': 'ir'}))
-        reports = self.call('pipeline_run', stage='F', driver='check_ok')['result']['diagnostics']['reports']
-        self.assertEqual(reports[0]['status'], 'unknown')
-        self.assertEqual((self.root / 'diagnostic-count.txt').read_text(), 'profiler\n')
+        reports = self.call('pipeline_run', stage='F', driver='check_ok', failed=True)['diagnostics']['reports']
+        self.assertEqual([row['status'] for row in reports], ['unknown', 'blocked'])
+        self.assertFalse((self.root / 'diagnostic-count.txt').exists())
 
     def test_unresolved_check_timeout_blocks_diagnostic_device_execution(self):
         self.freeze(); self.diagnostics(); path = self.root / 'slowcheck.py'; path.write_text('import time; time.sleep(2)')
         self.config['drivers']['slowcheck'] = {'kind': 'check', 'argv': [sys.executable, '-B', str(path)],
             'files': {str(path): hashlib.sha256(path.read_bytes()).hexdigest()}, 'timeout': .1}
-        result = self.call('pipeline_run', stage='F', driver='slowcheck', failed=True)['result']
-        self.assertEqual(result['evaluation_outcome'], 'unknown')
+        result = self.call('pipeline_run', stage='F', driver='slowcheck', failed=True)
+        self.assertEqual(result['result']['evaluation_outcome'], 'unknown')
         self.assertTrue(all(row['status'] == 'blocked' for row in result['diagnostics']['reports']))
         self.assertFalse((self.root / 'diagnostic-count.txt').exists())
 
@@ -221,6 +223,7 @@ print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['s
         tools = prepare(profile, self.root / 'timed-inputs', sys.executable)
         self.assertTrue(all(tool['timeout'] >= 7630 for tool in tools))
         self.assertTrue((self.root / 'timed-inputs/diagnostic_policy.py').is_file())
+        self.assertTrue((self.root / 'timed-inputs/job_identity.py').is_file())
         reply = subprocess.run(tools[0]['argv'], input=json.dumps({'id': 'frozen-status', 'tool': 'pipeline_status', 'arguments': {}}),
                                text=True, capture_output=True, check=True)
         self.assertEqual(json.loads(reply.stdout)['data']['result']['diagnostic_policy']['scope'], 'local_cpu_diagnostic')
@@ -261,6 +264,54 @@ print(json.dumps({'kind':kind,'scope':'protocol_fixture','candidate_sha256':r['s
         self.freeze()
         script = self.fixture_driver('equal', 'measure'); script.write_text('raise RuntimeError("changed")')
         self.baseline(); self.check(); self.call('pipeline_pair', driver='equal', failed=True)
+
+    def test_legacy_nanosecond_state_status_collect_and_workflow_are_lossless(self):
+        self.config['evaluation_enabled'] = False  # Explicit legacy workflow remains supported.
+        self.freeze()
+        raw = json.loads((ROOT / 'validation/fixtures/npu-job-handle.json').read_text())['handle']
+        path = self.root / 'handle-driver.py'
+        count = self.root / 'launch-count.txt'
+        path.write_text('''import json,sys
+from pathlib import Path
+r=json.load(sys.stdin)
+if sys.argv[1]=='launch':
+ with Path(sys.argv[2]).open('a') as stream: stream.write('launch\\n')
+ result={'handle':json.loads(sys.argv[3])}
+else: result={'handle':r['handle'],'original_handle':r['handle'],'status':'completed'}
+print(json.dumps(result))
+''')
+        for kind in ('launch', 'collect'):
+            self.config['drivers'][kind] = {'kind': kind, 'argv': [sys.executable, '-B', str(path), kind, str(count), json.dumps(raw)],
+                'files': {str(path): hashlib.sha256(path.read_bytes()).hexdigest()}, 'timeout': 30}
+        launched = self.call('pipeline_run', stage='E', driver='launch')
+        self.assertEqual(launched['result']['result']['handle'], wire_handle(raw))
+        state = Pipeline(self.config)
+        self.assertEqual(state.state['handles'][0]['handle'], raw)
+        self.assertEqual(state.workflow()['next_actions'][0]['arguments']['handle'], wire_handle(raw))
+        before = {p: p.read_bytes() for p in state.root.rglob('*') if p.is_file()}
+        status = self.call('pipeline_status')
+        self.assertEqual(status['result']['handles'][0]['handle'], wire_handle(raw))
+        self.assertEqual(status['workflow']['next_actions'][0]['arguments']['handle'], wire_handle(raw))
+        original_text = self.call('pipeline_read', run=launched['run'], path='driver/receipt.json', limit=16384)['text']
+        self.assertEqual(json.loads(original_text)['result']['handle'], raw)
+        wrong = dict(raw, started_ns='1794401504504640500')
+        self.call('pipeline_run', stage='E', driver='collect', handle=wrong, failed=True)
+        collected = self.call('pipeline_run', stage='E', driver='collect', handle=wire_handle(raw))
+        self.assertEqual(collected['result']['result']['handle'], wire_handle(raw))
+        self.assertEqual(collected['workflow']['next_actions'][0]['stage'], 'F')
+        self.assertEqual(collected['workflow']['next_actions'][0]['arguments']['handle'], wire_handle(raw))
+        self.assertEqual(Pipeline(self.config).state['handles'][0]['handle'], raw)
+        self.assertEqual({p: p.read_bytes() for p in before}, before)
+        self.assertEqual(count.read_text(), 'launch\n')
+
+    def test_generic_handle_projection_preserves_unrelated_types_and_cached_content(self):
+        generic = {'handle': {'job': 7, 'pid': 23, 'metadata': ['plain', 1.5, True]},
+                   'elsewhere': {'started_ns': 1794401504504640402}, 'original_handle': 'opaque-job-id'}
+        self.assertEqual(wire_handles(generic), generic)
+        old = json.loads((ROOT / 'validation/fixtures/npu-job-handle.json').read_text())['handle']
+        cached = {'diagnostics': {'reports': [{'result': {'original_handle': old}}]}}
+        self.assertEqual(wire_handles(cached)['diagnostics']['reports'][0]['result']['original_handle'], wire_handle(old))
+        self.assertIs(type(cached['diagnostics']['reports'][0]['result']['original_handle']['started_ns']), int)
 
     def test_no_torch_bootstrap_incumbent_pair_and_archive(self):
         self.freeze(); checked = self.check()['result']
@@ -353,7 +404,8 @@ else:
 
     def test_native_invalid_indices_and_nan_rejected(self):
         library = self.root / 'native.so'
-        subprocess.run([shutil.which('clang++'), '-O2', '-shared', '-fPIC', str(ROOT / 'examples/scatter/native.cpp'), '-o', str(library)], check=True)
+        from driver import cxx_compiler  # examples/scatter is on sys.path (setUp)
+        subprocess.run([cxx_compiler(), '-O2', '-shared', '-fPIC', str(ROOT / 'examples/scatter/native.cpp'), '-o', str(library)], check=True)
         native = ctypes.CDLL(str(library)).scatter_extrema
         native.argtypes = [ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_int64), ctypes.c_int64, ctypes.c_int64, ctypes.c_int64, ctypes.c_int, ctypes.POINTER(ctypes.c_float)]
         out = (ctypes.c_float * 1)(); x = (ctypes.c_float * 1)(2); index = (ctypes.c_int64 * 1)(-1)

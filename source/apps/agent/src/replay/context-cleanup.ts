@@ -23,6 +23,12 @@ export const DEFAULT_REPLAY_CLEANUP_OPTIONS: ReplayCleanupOptions = Object.freez
   maxOutputBytes: 16 * 1024 * 1024,
 });
 
+/** Actual owner-composed request bytes, never an estimate from the model token window. */
+export interface ReplayCleanupBudget {
+  readonly inputBytes: number;
+  readonly targetBytes: number;
+}
+
 type DecisionReason = ReplayCleanupDecision["reason"];
 
 export interface ReplayCleanupProjection {
@@ -186,10 +192,16 @@ function protectedExchange(group: Exchange, messages: readonly AgentMessage[], r
 
 /** Pure request projection. Inputs and append-only session history are never mutated. */
 export function projectReplayContext(messages: readonly AgentMessage[], options: ReplayCleanupOptions,
-  metadata: readonly ReplayResultMetadata[] = []): ReplayCleanupProjection {
+  metadata: readonly ReplayResultMetadata[] = [], budget?: ReplayCleanupBudget): ReplayCleanupProjection {
   validateOptions(options);
   if (messages.length > options.maxMessages) throw new ReplayContextOverflow("Replay context message limit exceeded");
   const original = encode(messages, options.maxInputBytes);
+  let remainingBytes = budget?.inputBytes ?? original.bytes;
+  const targetBytes = budget?.targetBytes ?? options.maxOutputBytes;
+  if (!Number.isSafeInteger(remainingBytes) || remainingBytes < 0
+      || !Number.isSafeInteger(targetBytes) || targetBytes < 1) {
+    throw new Error("Invalid trusted replay request byte budget");
+  }
   const { byIndex, anchors } = checkedMetadata(messages, metadata);
   const recent = recentBoundary(messages, options.keepRecentModelTurns);
   const projected = new Map<number, AgentMessage | null>();
@@ -205,9 +217,13 @@ export function projectReplayContext(messages: readonly AgentMessage[], options:
         decisions[index] = { index, action: "keep", reason };
       } else if (delivered.has(message.toolCallId)) {
         projected.set(index, null);
+        remainingBytes -= Buffer.byteLength(original.strings[index]) + 1;
         decisions[index] = { index, action: "remove", reason: "duplicate_delivery" };
+      } else if (remainingBytes <= targetBytes) {
+        decisions[index] = { index, action: "keep", reason: "within_budget" };
       } else {
         const reduced = reduceResult(message, byIndex.get(index), options);
+        remainingBytes -= Buffer.byteLength(original.strings[index]) - Buffer.byteLength(JSON.stringify(reduced.message));
         projected.set(index, reduced.message);
         decisions[index] = { index, action: reduced.message === message ? "keep" : "replace", reason: reduced.reason };
       }

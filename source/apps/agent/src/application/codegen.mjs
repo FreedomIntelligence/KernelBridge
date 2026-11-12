@@ -93,6 +93,7 @@ export async function startCodegen(options, settings, submission) {
     readonly_paths: [], pi_worker: { node: process.execPath, root: agentRoot, timeout: 86400 } };
   config.subagents = settings.config.subagents ?? {};
   config.goal_review = settings.config.goal_review ?? {};
+  config.application = settings.config.application ?? {};
   if (settings.config.business_tools?.length || settings.config.operator_infra || settings.config.operator_pipeline) {
     const frozen = join(output, 'operator-tools-input.json');
     await save(frozen, { business_tools: settings.config.business_tools, operator_infra: settings.config.operator_infra,
@@ -105,7 +106,8 @@ export async function startCodegen(options, settings, submission) {
   await save(join(output, 'task.json'), task);
   await save(join(output, 'config.json'), config);
   const client = await startApplication({ ...options, config: join(output, 'config.json'), task: join(output, 'task.json'),
-    output, sessionOnly: true, forkPolicy: { enabled: false, minimum_observations: 3, cooldown_turns: 3, ...settings.config.fork_policy } });
+    output, sessionOnly: true, forkPolicy: { enabled: false, minimum_observations: 3, cooldown_turns: 3,
+      ...settings.config.fork_policy, ...settings.config.application?.fork_policy } });
   try {
     if (submission.goal) await client.control('set', { objective: submission.goal, channel: 'cli' });
     if (submission.prompt || submission.goal) await client.input(submission.prompt || submission.goal, { channel: 'cli' });

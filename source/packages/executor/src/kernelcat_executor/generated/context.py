@@ -8,7 +8,7 @@ from .rsi import KnowledgeContextItem
 from .runtime import ContextCommit
 from .runtime_control import CreditBudget, ExecutionStamp
 
-SCHEMA_SHA256 = "a95a813ed00a1cb54e64722d73947aa931de8657e946bc40f32f5276540f5cc1"
+SCHEMA_SHA256 = "742370bf96c5bc2543695006dcdce2531acc0411c347a9950aed9319901077aa"
 SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/draft/2020-12/schema',
  '$id': 'https://kernelcat.local/contracts/execution/v1/context.schema.json',
  'title': 'Bounded parent context wire for finite worker requests',
@@ -84,7 +84,8 @@ SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/draft/2020-12/sche
                                             'knowledge': {'$ref': 'https://kernelcat.local/contracts/lab/v1/objects.schema.json#/$defs/TrialKnowledgeBinding'},
                                             'rsi': {'type': 'array',
                                                     'maxItems': 100,
-                                                    'items': {'$ref': 'https://kernelcat.local/contracts/execution/v1/rsi.schema.json#/$defs/KnowledgeContextItem'}}},
+                                                    'items': {'$ref': 'https://kernelcat.local/contracts/execution/v1/rsi.schema.json#/$defs/KnowledgeContextItem'}},
+                                            'goal_progress': {'$ref': '#/$defs/GoalProgress'}},
                              'required': ['task',
                                           'skills',
                                           'policy',
@@ -98,7 +99,40 @@ SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/draft/2020-12/sche
                                                   'context': {'$ref': '#/$defs/ContextSource'},
                                                   'commit': {'$ref': 'https://kernelcat.local/contracts/execution/v1/runtime.schema.json#/$defs/ContextCommit'}},
                                    'required': ['route', 'context'],
-                                   'additionalProperties': False}}}
+                                   'additionalProperties': False},
+           'GoalProgress': {'type': 'object',
+                            'description': 'Journal observation before this '
+                                           'model request; remaining calls '
+                                           'include this request and are '
+                                           'shared with concurrent models. '
+                                           'This is a projection, never '
+                                           'admission authority.',
+                            'properties': {'goal_id': {'type': ['string',
+                                                                'null']},
+                                           'observed_seq': {'type': 'integer',
+                                                            'minimum': 0,
+                                                            'maximum': 9007199254740991},
+                                           'max_model_turns': {'type': 'integer',
+                                                               'minimum': 1,
+                                                               'maximum': 9007199254740991},
+                                           'model_calls_admitted': {'type': 'integer',
+                                                                    'minimum': 0,
+                                                                    'maximum': 9007199254740991},
+                                           'remaining_calls_including_this_request': {'type': 'integer',
+                                                                                      'minimum': 0,
+                                                                                      'maximum': 9007199254740991},
+                                           'current_request_cost': {'const': 1},
+                                           'counting': {'const': 'all_model_calls_including_compact_child_review'},
+                                           'concurrent_calls_may_consume_remaining': {'const': True}},
+                            'required': ['goal_id',
+                                         'observed_seq',
+                                         'max_model_turns',
+                                         'model_calls_admitted',
+                                         'remaining_calls_including_this_request',
+                                         'current_request_cost',
+                                         'counting',
+                                         'concurrent_calls_may_consume_remaining'],
+                            'additionalProperties': False}}}
 
 JsonValue = None | bool | str | int | float | list['JsonValue'] | dict[str, 'JsonValue']
 
@@ -118,11 +152,22 @@ class ContextBudget(TypedDict):
     spent: int
     reserved: int
 
+class GoalProgress(TypedDict):
+    goal_id: str | None
+    observed_seq: int
+    max_model_turns: int
+    model_calls_admitted: int
+    remaining_calls_including_this_request: int
+    current_request_cost: Literal[1]
+    counting: Literal['all_model_calls_including_compact_child_review']
+    concurrent_calls_may_consume_remaining: Literal[True]
+
 class ContextSource(TypedDict):
     task: JsonObject
     skills: list[JsonObject]
     policy: JsonObject
     budget: ContextBudget
+    goal_progress: NotRequired[GoalProgress]
     history: list[JsonObject]
     projection: Projection
     turns: NotRequired[list[JsonObject]]

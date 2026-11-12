@@ -40,6 +40,7 @@ ABBA 配对。不能把候选与自身输出相等当作独立正确性验证，
 | --- | --- | --- |
 | A | `pipeline_bind` | task、oracle 源码、suite、measurement；初始 baseline 可空 |
 | B/C | `pipeline_plan` | workload 家族、假设、反例、引用的诊断证据 |
+| D/E/F | `pipeline_evaluate` | 一次有界调用冻结、启动或恢复原任务、收集、完整检查；各内部阶段独立保留回执 |
 | D | `pipeline_freeze` | 显式文件映射和来源，冻结源码 SHA256 |
 | E | `pipeline_run`，stage `E` | 配置的 launch/collect 驱动；collect 必须使用原 handle |
 | F | `pipeline_run`，stage `F` | build、semantics、full 全通过；精确 case IDs 和 oracle 哈希 |
@@ -52,6 +53,35 @@ ABBA 配对。不能把候选与自身输出相等当作独立正确性验证，
 `pipeline_pair` 当前报告各 case 的样本中位数、等权几何平均加速比和家族汇总。
 它不是 CANNBench 官方加权分数；官方校准结果通过独立驱动/回执保留。
 诊断不能替代完整验收，模拟时间不能替代板上性能。
+
+### 一次评测与原任务恢复
+
+实现候选后，优先调用 `pipeline_evaluate`，传入 `files` 和 `origin`；
+可用 `launch_driver`、`collect_driver`、`check_driver` 显式选择 profile 中的驱动。
+每类只有一个驱动时可省略选择；没有独立 launch 驱动的本地流程直接执行 F。
+`wait_seconds` 限制本次等待，不保证设备会在期限内结束，也不允许替换原任务。
+G 配对、H 晋升仍是独立步骤；该工具不会自动把正确性通过当成性能收益。
+
+结果返回 `evaluation_status`、冻结源码哈希、`source_changed`、实际发生的阶段、
+原始 `check_receipt`、具体错误反馈及有效后续动作。未改变源码时复用已有检查或原任务，
+不靠新 action ID 重复启动。同一候选失败后应按原错误修改源码，再评测新身份。
+
+正常返回 `pending` 时使用回执的 `continuation`，以 `resume_run` 续查原评测，
+不再传替换源码。若外层调用本身崩溃或回执未知，仍必须先由宿主恢复原 Journal action；
+`resume_run` 不绕过未知效应隔离。内部 F 已完成但外层未返回时可以核验并复用原 F，
+其源码、原 admission、内部 manifest 和回执哈希必须同时匹配。
+
+大结果保留紧凑反馈和 `pipeline_read` 入口。分页结果注明 `encoding`、总字节数、
+文件 SHA256 和是否到达末尾；`next_offset` 按原文件字节计数。任意二进制或不完整
+UTF-8 起始位置可返回 base64，不能把编码文本直接当原始诊断内容。
+自动诊断是原 F/G 结果之外的独立反馈，不修改验收使用的原始结果。
+
+显式设置 `max_model_turns` 时，模型请求附带 Journal 的 `goal_progress` 观察快照，
+计入父代理、子代理、压缩、review 和失败/未决调用。剩余次数包含本次请求，
+并发调用可能继续消耗；该快照不预留额度。未设置上限时不生成默认预算。
+20 次模型调用不等于 20 次候选优化或上板实验。
+
+新增工具需要重新 prepare 配置并启动新会话；已有封存 profile、旧试验和原回执保持原样。
 
 ## 测评后的自动诊断
 
@@ -80,7 +110,7 @@ ABBA 配对。不能把候选与自身输出相等当作独立正确性验证，
   时阻止晋升。它不改变正确性或正向配对条件。
 
 未提供 `diagnostics` 时仍为手动 J 阶段；普通 codegen 没有隐式上板。该策略覆盖
-`pipeline_run(stage="F")` 与 `pipeline_pair`，独立的 `operator_check` /
+`pipeline_run(stage="F")`、`pipeline_evaluate` 的内部 F 与 `pipeline_pair`，独立的 `operator_check` /
 `operator_evaluate` 不会被拦截。采用自动流程的 NPU campaign 应走这些 pipeline 入口。
 
 驱动仍收到冻结的 `source`、`contract`、`binding`、`output` 和原 `handle`，额外的

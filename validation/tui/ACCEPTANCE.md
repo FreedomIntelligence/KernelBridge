@@ -1,4 +1,37 @@
-# Local TUI acceptance — 2026-11-10
+# TUI and subagent acceptance — 2026-11-11
+
+Current scope: native Pi TUI, concurrent/background subagents and local host recovery in `/Users/jerry/.codex/worktrees/harness-20turn/KernelBridge` (`codex/harness-20turn`). The core behavior below passed. This is combined evidence from separate runs; it is not a claim that every historical acceptance scenario passed in one run or that all original redesign checks are complete. [Redesign §6](../../docs/architecture/tui-subagent-redesign.md#6-实施与验收核对2026-11-11) records the remaining checks and adopted design changes.
+
+Context-retention follow-up: successful outputs now remain available until the
+owner-composed request approaches its authoritative byte limit. Native Pi
+shell/extension/fork/compact messages use the SDK's conversion before trusted
+prefix and receipt-index checks. Final verification: 15 directed checks;
+86 npm tests plus types/managed checks (two original-artifact replay cases skipped
+in discovery and passed separately); codegen 10 checks / 35 ordinary turns /
+48 provider requests, advanced 11 checks, and parallel/background 8 checks.
+Original evidence is `.validation/context-retention-{codegen-r3,advanced-r2,parallel-r2}`.
+Python discovery had 185 passes, one optional skip and one portable-import error;
+the portable module's two tests passed after the native conversion correction.
+Failed/interrupted initial runs remain preserved in `.validation/`; this is
+combined verification and does not imply a device optimization result.
+
+| Current check | Verified result and evidence under `.validation/` |
+| --- | --- |
+| JavaScript and types | 65 tests passed, with TypeScript/managed-continuation checks: `harness-npm-r1.log` |
+| TUI unit checks | 35 passed: `harness-tui-unit-r1.log` |
+| Python and Torch | Base discovery: 155 passed, 2 skipped, 5 Torch import errors. Torch-enabled follow-up: 20 passed, 1 module-path import error; corrected precision follow-up: 3 passed. Original logs retained: `harness-python-suite-r2.log`, `harness-torch-unit-r1.log`, `harness-torch-precision-r2.log`. These are separate runs, not a single all-green discovery result |
+| Concurrent/background PTY | 8 checks passed: `subagent-parallel-final-r3/scenario.json`. Journal proves child-model overlap and ordered results. A gated background child stays running while both its original parent input and a second parent prompt complete. Report expansion, `/agents`, tool rows, completion continuation and Esc followed by a new prompt also pass |
+| Real DeepSeek | Five behavior stages passed across **two fresh sessions**, indexed by `subagent-final-validation.json`: simple parent lookup and natural automatic delegation in `subagent-live-final-r3`; explicit two-child evidence return, user prohibition of delegation and two background children with parent synthesis in `subagent-live-remaining-r1/scenario.json` |
+| Real background result | Parent returned while both children remained active; two distinct durable completion notifications delivered once, followed by a parent answer containing both newly generated evidence markers. Final pending calls were empty; omitted budget remained `null` with zero reserved credits. This exercises the real `deepseek-flash` route and local files, not NPU evaluation |
+| Narrow terminal and selected stop | Historical 48-column real-Pi fixture evidence remains in the **old checkout** `/Users/jerry/Desktop/KernelBridge/.validation/subagent-panel-pty-r5` (6 checks) and `subagent-stop-pty-r2` (3 checks). Covers three background children, 3→2→1 waiting counts, report updates, notification/resume deduplication and selected-child stopping. These were not rerun in the new tree |
+
+The first live session's later explicit-delegation assertion failed because ambiguous marker wording was interpreted as technical keywords. That assertion is **not** counted as passed; the remaining stages ran in a fresh session with explicit marker wording. Failed runs and their Journals remain available. The final index states this session boundary; it does not turn the earlier failure into a full-session pass.
+
+Implemented design differences: default concurrency is 6 with optional limits otherwise unset; no implicit budget is created. Background results use durable agent-originated follow-up inputs, `agents_status` and `stop_agent`, rather than a blocking `wait_agents` tool. Esc cancels current foreground work; selected background work can be stopped separately. Known effects settle before cleanup, unknown effects remain fenced, and resume does not replay original effects. Tester commands run in the shared project only in the foreground; writable background workers use Git worktrees and retain branches/diffs for parent review.
+
+Outstanding original-plan validation: the complete success/failure PTY matrix for every native tool, live DeepSeek thinking-mode display, and the remaining historical linked-worktree/session matrix beyond the current advanced and ordinary-codegen runs. Existing protocol, boundary and selected PTY tests do not stand in for these checks. NPU compilation/correctness, eager-NPU baselines, profiler/IR device evidence and optimization-round results are separate campaign records; **this TUI acceptance makes no NPU performance claim**. No Linux/cross-host or all-provider parity is claimed.
+
+## Historical local TUI acceptance — 2026-11-10
 
 Status: local deterministic acceptance passed on macOS, Node 22.19.0 and Python 3.12. The implementation was completed before test authoring. Device qualification was initially deferred. The later supplied SLAI transport now reaches the authorized NPU target, and device discovery completed. Scatter optimization rounds and eager-NPU qualification are still pending; the discovered torch scatter_reduce fallback to CPU is not an NPU baseline.
 
@@ -76,7 +109,7 @@ Newly exposed failures were corrected: stale Goal completion reason, Goal tools 
 
 The no-Torch path separates correctness oracle, optional performance baseline and accepted incumbent. First complete correctness establishes an incumbent with `speedup: null`; subsequent comparisons explicitly select it as baseline. The paired-promotion fixture's 100/99 ratio is a protocol check, not a measured optimization claim. CPU diagnostics and generic driver protocols are locally verified; AscendC source candidates are included, but NPU compilation/correctness/performance and official calibration remain pending by user choice.
 
-The subagent component is the community `pi-subagents@0.87.0`, not an official Pi built-in. Current child execution is sequential foreground analysis/read-only, with no child writes or device actions. Goal/session behavior is documented against Codex/Claude Code, but Claude Code's separate fresh-context completion evaluator is not implemented and exact feature parity is not claimed. See [workflow contracts](../../docs/operator-workflow.md), [TUI semantics](../../docs/tui.md) and [reproduction commands](README.md).
+At this earlier checkpoint, the community `pi-subagents@0.87.0` component supported sequential foreground analysis/read-only children only, and a separate fresh completion evaluator was not yet implemented. The current concurrent/background, tester and worker behavior is qualified above; the Fresh Goal review follow-up records the later evaluator. The component remains a community plugin, not an official Pi built-in, and exact Codex/Claude Code feature parity is not claimed. See [workflow contracts](../../docs/operator-workflow.md), [TUI semantics](../../docs/tui.md) and [reproduction commands](README.md).
 
 ## Native Pi startup and official DeepSeek follow-up
 
@@ -169,3 +202,10 @@ Checks: `subagent-presentation.mjs` (8), `interaction.mjs` (5), `trace-projectio
 `pty_scenario.py` and `advanced_scenario.py` first failed by timeout, never by assertion, at a different step each run, while unrelated processes held this workstation's load average between 18 and 70 with the data volume full. Both pass when run without contention; the earlier failures are recorded as environmental, not as passes.
 
 Not qualified here: the plan surface (`/plan` or todo) decision, an editor placeholder, a narrow-width sweep of every host-rendered block, and the O(journal) read-only `status` path noted in the plan.
+## Shared Journal admission stress follow-up
+
+Four stress scenarios passed in `.validation/propose-admit-stress-summary.json`: 32 independent Gateway/Journal instances issued 320 proposals (192 original HTTP completions and 128 budget rejections); 64 concurrent copies of one ID dispatched once; parent admission survived 32 concurrent child proposals; 32 real child permits retained an unknown-result fence until original-receipt recovery. Every Journal prefix was checked for nonnegative reservations, no overspend and unique admission/start/settlement. All final reservations were zero. The first child fixture omitted its parent dependency and was correctly rejected; that failed fixture log remains retained. No runtime policy was weakened.
+
+## Final ordinary and advanced TUI regression
+
+`harness-codegen-final-r1/scenario.json` passed ten checks, including 35 ordinary turns without an implicit limit, compact/new, interruption, opt-in Goal completion, provider failure and original-session resume without replay (48 provider requests). `harness-advanced-final-r2/scenario.json` passed eleven checks, including registered A-J fixture calls, two children and count rejection, failure recovery, manual fork hints, semantic compaction, native fork, Goal blocking/resume and session picker cancellation. The earlier advanced run retained a child timeout on the loaded machine; its fixture deadline was raised from 15 to 120 seconds because this scenario tests count limits and recovery, while dedicated cancellation/deadline tests retain their original bounds. All behavioral assertions remain unchanged.

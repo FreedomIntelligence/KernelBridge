@@ -235,7 +235,7 @@ class ApplicationJournal:
                     if goal["status"] not in {"completed", "cleared"}:
                         goal = {**goal, "status": {"pause": "paused", "resume": "active", "interrupt": "awaiting_user"}[operation]}
                         if operation == "resume":
-                            goal = {key: value for key, value in goal.items() if key != "reason"}
+                            goal = {key: value for key, value in goal.items() if key not in {"reason", "ended_at_ns"}}
                             goal["resume_seq"] = len(rows)
                 elif operation == "on-detach" and data.get("value") in {"pause", "continue"}:
                     goal = {**goal, "on_detach": data["value"]}
@@ -301,7 +301,19 @@ class ApplicationJournal:
                 emit("call_reconciled", data)
             elif method in {"checkpoint", "configuration"}:
                 lease()
+                if method == "configuration" and data.get("operation") == "harness_failure":
+                    summary = data.get("summary")
+                    if (data.get("reason") != "harness_failure" or not isinstance(summary, str)
+                            or not summary.strip() or len(summary.encode()) > 8192):
+                        raise Conflict("harness failure requires a bounded error summary")
                 emit(method, data)
+                if method == "configuration" and data.get("operation") == "harness_failure":
+                    goal = state["goal"]
+                    # Report a worker failure without attributing it to the user,
+                    # resolving unknown effects, or replacing a newer control.
+                    if goal and goal["goal_id"] == data.get("goal_id") and goal["status"] == "active":
+                        emit("goal", {**goal, "status": "failed", "reason": "harness_failure",
+                            "summary": summary, "ended_at_ns": time.time_ns()})
             elif method == "trial":
                 lease()
                 stable()

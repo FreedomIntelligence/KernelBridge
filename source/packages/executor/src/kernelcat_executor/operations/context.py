@@ -26,7 +26,7 @@ def _preview(value: object, limit: int) -> object:
 
 
 def source(task: Task, policy: Policy, state: Json, skills: list[Json], *,
-           agent: Json | None = None) -> Json:
+           agent: Json | None = None, goal_progress: Json | None = None) -> Json:
     """Acquire bounded candidates without deciding which exchanges fit the prompt."""
     task_view = task.model_dump(mode="json", exclude={"seed_files"})
     task_view["seed_manifest"] = {
@@ -62,6 +62,8 @@ def source(task: Task, policy: Policy, state: Json, skills: list[Json], *,
                               "history_omitted": len(actions) - len(history),
                               "authority": "journal", "context_byte_limit": policy.context_bytes,
                               "latest_action_id": latest_action_id}}
+    if goal_progress is not None:
+        context["goal_progress"] = goal_progress
     if turns:
         context["turns"] = turns[-policy.history_items:]
         context["projection"]["latest_model_action_id"] = turns[-1]["proposal_id"]
@@ -78,9 +80,9 @@ def source(task: Task, policy: Policy, state: Json, skills: list[Json], *,
 
 
 def project(task: Task, policy: Policy, state: Json, skills: list[Json], *,
-            agent: Json | None = None) -> Json:
+            agent: Json | None = None, goal_progress: Json | None = None) -> Json:
     """Legacy embedded projection; the product ContextCompiler owns prompt fitting."""
-    context = source(task, policy, state, skills, agent=agent)
+    context = source(task, policy, state, skills, agent=agent, goal_progress=goal_progress)
     history = context["history"]
     while True:
         if _size(context) <= policy.context_bytes:

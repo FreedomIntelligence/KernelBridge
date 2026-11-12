@@ -10,7 +10,7 @@ import shutil
 def prepare(profile, output, python):
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=False)
-    config = dict(profile, state=str(output.parent / 'operator-pipeline'), python=str(Path(python).absolute()))
+    config = dict(profile, state=str(output.parent / 'operator-pipeline'), python=str(Path(python).absolute()), evaluation_enabled=True)
     config['read_roots'] = [str(Path(p).resolve(strict=True)) for p in profile['read_roots']]
     config['drivers'] = json.loads(json.dumps(profile.get('drivers', {})))
     for name, driver in config['drivers'].items():
@@ -41,12 +41,15 @@ def prepare(profile, output, python):
         for value in config['drivers'].values()), default=0)
     tool_timeout = max(3600, driver_seconds + diagnostic_seconds + 30)
     shutil.copyfile(Path(__file__).with_name('pipeline.py'), output / 'pipeline.py')
+    shutil.copyfile(Path(__file__).with_name('evaluation.py'), output / 'evaluation.py')
     shutil.copyfile(Path(__file__).with_name('diagnostic_policy.py'), output / 'diagnostic_policy.py')
+    shutil.copyfile(Path(__file__).with_name('qualification.py'), output / 'qualification.py')
+    shutil.copyfile(Path(__file__).with_name('job_identity.py'), output / 'job_identity.py')
     (output / 'config.json').write_text(json.dumps(config, indent=2) + '\n')
     pins = [{'path': str(p), 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()} for p in sorted(output.iterdir())]
     string = {'type': 'string', 'minLength': 1}
-    source_files = {'type': 'object', 'description': 'Map bundle-relative filenames to existing absolute source file paths. Values are paths, never source text or hashes.',
-                    'additionalProperties': {'type': 'string', 'minLength': 1, 'description': 'Existing absolute source file path'}}
+    source_files = {'type': 'object', 'description': 'Map bundle-relative filenames to existing source paths relative to the current workspace, or explicitly accessible absolute paths. Values are paths, never source text or hashes.',
+                    'additionalProperties': {'type': 'string', 'minLength': 1, 'description': 'Existing workspace-relative or explicitly accessible absolute source file path'}}
     obj = {'type': 'object'}
     specs = [
         ('pipeline_bind', 'A: bind task, independent correctness oracle, measurement and optional performance baseline. Changing them invalidates earlier acceptance.',
@@ -55,6 +58,10 @@ def prepare(profile, output, python):
          {'stage': {'enum': ['B', 'C']}, 'record': obj}, ['stage', 'record']),
         ('pipeline_freeze', 'D: freeze explicit candidate files and origin before execution. Never evaluates mutable workspace bytes.',
          {'files': source_files, 'origin': obj}, ['files', 'origin']),
+        ('pipeline_evaluate', 'D/E/F: freeze actual candidate bytes, execute once, wait within a bounded deadline, recover/collect the original handle, and retain the original F correctness receipt. Start with files and origin after A/B/C. Unchanged bytes reuse their original job/check. Follow continuation to resume; never relaunch an uncertain effect. G/H remain separate. Complete errors and artifact byte/hash/page metadata are available through returned read links.',
+         {'files': source_files, 'origin': obj, 'launch_driver': string, 'collect_driver': string, 'check_driver': string,
+          'wait_seconds': {'type': 'number', 'minimum': 0, 'maximum': 1800, 'default': 120},
+          'resume_run': {'type': 'string', 'pattern': '^[a-f0-9]{64}$'}}, []),
         ('pipeline_run', 'E/F/I/J: invoke a configured driver on frozen source. F automatically runs configured IR/profiler diagnostics when policy requires them. Read returned diagnostics and revise the hypothesis in C. Collect with the original handle; after an uncertain launch use a collect driver with recover_run from pipeline_status. Never relaunch to recover.',
          {'stage': {'enum': ['E', 'F', 'I', 'J']}, 'driver': string, 'handle': obj, 'recover_run': string}, ['stage', 'driver']),
         ('pipeline_pair', 'G: run baseline-candidate-candidate-baseline measurements with the same pinned driver. Configured failure/regression/required policy invokes source-bound IR/profiler diagnostics. Read their actual artifacts before proposing the next candidate. No baseline means no improvement claim.',
@@ -65,7 +72,7 @@ def prepare(profile, output, python):
         ('pipeline_archive', 'I: archive accepted source bytes and retained evidence hashes, and record mechanisms/failure conditions. Does not submit or publish.',
          {'knowledge': obj}, ['knowledge']),
         ('pipeline_status', 'Start or resume an explicitly requested operator task here. Read durable A-J state, executable workflow.next_actions, required arguments, diagnostic evidence and original handles; then invoke the recommended tools autonomously within the user scope. Unavailable/unknown diagnostics are not completed analysis.', {}, []),
-        ('pipeline_read', 'Read a bounded page from a hash-verified original workflow artifact.',
+        ('pipeline_read', 'Read an exact byte page from a hash-verified original workflow artifact. Returns encoding, size_bytes, sha256, eof/truncated and next_read. UTF-8 pages never insert replacement characters; binary or mid-character byte offsets return explicit base64. Read the manifest for the complete artifact index.',
          {'run': string, 'path': string, 'offset': {'type': 'integer', 'minimum': 0}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 16384}}, ['run', 'path']),
     ]
     return [{'name': name, 'description': description, 'parameters': {'type': 'object', 'properties': properties,

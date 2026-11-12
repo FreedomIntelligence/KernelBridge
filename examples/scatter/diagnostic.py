@@ -11,15 +11,15 @@ import shutil
 import subprocess
 import sys
 
-from driver import run as measure
+from driver import cxx_compiler, run as measure
 
 
 def run(request, kind):
     output = Path(request['output']); source = Path(request['source']['root']) / 'native.cpp'
     artifacts = []
     if kind == 'ir':
-        compiler = shutil.which('clang++')
-        if not compiler: raise ValueError('clang++ is required for local LLVM collection')
+        compiler = cxx_compiler()
+        if not compiler or 'clang' not in Path(compiler).name: raise ValueError('clang++ is required for local LLVM collection')
         for level in ('0', '2'):
             path = output / ('kernel-O' + level + '.ll')
             result = subprocess.run([compiler, '-std=c++17', '-S', '-emit-llvm', '-O' + level, str(source), '-o', str(path)], capture_output=True, text=True, timeout=60)

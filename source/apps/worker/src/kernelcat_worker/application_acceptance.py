@@ -12,6 +12,9 @@ from kernelcat_worker.candidate_retention import field
 def collect_acceptance(host):
     state = host.journal.state()
     declared = state["task"].get("contract", {}).get("acceptance", {})
+    if declared.get('kind') == 'operator_pipeline':
+        from kernelcat_worker.application_pipeline_acceptance import collect_pipeline_acceptance
+        return collect_pipeline_acceptance(host, state, declared)
     retention = host.config.candidate_retention
     if retention:
         tool, schema = retention.tool, retention.outcome_schema
@@ -56,5 +59,5 @@ def collect_acceptance(host):
         qualifies = required is not None and tier == required
         if target is not None:
             qualifies = qualifies and isinstance(score, (float, int)) and score >= target
-        if qualifies and state["goal"] and state["goal"]["status"] == "active":
+        if qualifies and host.config.application.complete_on_acceptance and state["goal"] and state["goal"]["status"] == "active":
             host.journal.command("goal_outcome", {"status": "completed", "evidence_ref": identity})

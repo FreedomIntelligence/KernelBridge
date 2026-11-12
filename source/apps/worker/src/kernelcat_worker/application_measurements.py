@@ -83,6 +83,6 @@ def collect_paired(host):
             "source_snapshot": value.get("source_snapshot"), "calibration_ref": calibration["evidence_ref"]}
         host.journal.command("evidence", receipt)
         requirement = state["task"].get("contract", {}).get("acceptance", {})
-        if (state["goal"] and state["goal"]["status"] == "active" and requirement.get("evidence_tier") == tier
+        if (host.config.application.complete_on_acceptance and state["goal"] and state["goal"]["status"] == "active" and requirement.get("evidence_tier") == tier
                 and (requirement.get("target") is None or receipt["score"] >= requirement["target"])):
             host.journal.command("goal_outcome", {"status": "completed", "evidence_ref": record["record_id"]})

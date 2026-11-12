@@ -23,19 +23,19 @@
 
    工具输出用的是 Pi 原生样式，和 Claude Code / Codex 差距明显：没有 ⏺/⎿ 层级和成功/失败状态色；read 折叠后什么都不显示；write 直接铺出文件内容；错误样式不一致且暴露绝对路径；working 行没有耗时、tokens 和 Esc 提示。见 §2.3、§3.5、§5.7。
 
-## 实施状态（2026-11-11，分支 `feat/tui-subagent-redesign`）
+## 实施状态（2026-11-11，验收树 `codex/harness-20turn`）
 
-§6 的功能已实现；逐项验证范围和原始失败记录见 `validation/tui/ACCEPTANCE.md` 顶部。对原方案作了以下具体调整：
+并行、后台通知、取消后继续输入、tester/worker 与展示功能已落地。§6 区分已验证项、采用的替代设计和仍待补充的验收，不能把功能实现等同于原计划的全部测试完成。当前证据来自 `/Users/jerry/.codex/worktrees/harness-20turn/KernelBridge`；旧树的 48 列验收单独标明。完整边界见 [验收记录](../../validation/tui/ACCEPTANCE.md)。
 
 | 项 | 结果 |
 | --- | --- |
-| P0-1/2/3 | 已完成。T5 根因是启动竞态导致重复提交；流式输出只扣留可能构成密钥前缀的后缀 |
-| 阶段 1 / 1B | 已完成。1-7 按用户要求改为对齐 Claude Code/Codex：取消单子代理的默认步数、读取和时长上限，只保留 `max_concurrent`（默认 6，超出排队）；接近上下文上限时改为最后一次总结调用。1-8 的 `/agents` 改为"可用类型 + 本会话运行记录"，不显示策略和数值。1B-4 的 working 行显示耗时和 Esc，不显示 tokens（流式期间没有可靠的 token 计数） |
-| 阶段 2 | 已完成。2-0 结论：继续使用 pi-subagents，它可以同时处理多个委派请求。全是 delegate 的回复记录 `execution_mode: "delegation"` 批次计划 |
-| 阶段 3 | 已完成。后台运行由执行层的 `background` 表管理，结果写成原身份通知输入。不提供阻塞式 `wait_agents`：完成通知驱动父会话继续，`agents_status` 查询，`stop_agent` 取消实际进程组。退出时先结算已知效应；未知效应继续隔离，不能伪报中断成功。恢复补发遗漏通知且不重跑 |
-| 阶段 4 | 已完成。定义在网关封存工具规格之前发现；`kernel-tester` 前台执行并阻止父写入，后台命令使用隔离的 `kernel-worker`。worker 只在有 committed HEAD 的 Git 项目里可用，基于 `git stash create` 快照（不含未跟踪文件）。已完成的 checkout 被清理，分支和 diff 保留；未知执行保留 checkout |
-| 阶段 5 | 已完成。默认 `--tui-mode regular`，`fullscreen` 可选 |
-| V-3 | 真实 DeepSeek 验收见 ACCEPTANCE |
+| P0-1/2/3 | 重复输入与流式前缀扣留已修复，有输入结算、流式单元及 PTY 证据；本次使用独立 worktree |
+| 阶段 1 / 1B | 展示已实现。单子代理步数、读取和时长默认不设限，只保留 `max_concurrent` 默认 6（超出排队）；接近上下文上限时保留最后一次总结调用。`/agents` 显示可用类型与运行记录。Working 显示耗时和 Esc，不估算流式 tokens。逐工具成功/失败完整 PTY 矩阵及真实 thinking 模式仍待补 |
+| 阶段 2 | 社区 pi-subagents 保留；全为 delegate 的批次并行，混合批次串行。当前 PTY 验证 Journal 调用区间重叠、乱序结果、Esc 后继续输入；预算边界与未知效应有定向测试，独立高并发 `propose` 压测仍待补 |
+| 阶段 3 | 执行层 `background` 表管理生命周期，不新增 `ChildScheduler` 类；用持久化 `follow_up` 通知、`agents_status` 与 `stop_agent` 代替阻塞式 `wait_agents`。父输入及下一条输入在子代理仍运行时均可结算，已由 PTY 验证；真实模型也验证了父先返回、两个唯一通知及最终汇总 |
+| 阶段 4 | 自定义定义在工具规格封存前加载；`kernel-tester` 仅前台并阻止父写入，后台命令用隔离的 `kernel-worker`。worker 要求 committed HEAD，`git stash create` 快照不含未跟踪文件；完成后清理 checkout、保留分支与 diff，未知效应保留 checkout。实执行、停止和恢复由定向测试覆盖 |
+| 阶段 5 | 默认 `--tui-mode regular`，`fullscreen` 可选；当前并行和真实模型 PTY 使用默认模式，不等于重新跑完所有历史模式/resize 矩阵 |
+| V-3 | 真实 DeepSeek 五项行为跨两个新会话通过，见 `.validation/subagent-final-validation.json`。第一会话中后续显式委派的歧义校验词失败保留，不计为通过；不是单会话全程通过 |
 
 后续真实验收还修复了并发预算 CAS 冲突、generation 误认导致的流串台、
 首帧原生预算页脚、中断收尾窗口拒收输入，以及展示队列溢出时关闭控制连接的问题。
@@ -46,6 +46,7 @@ effect、control、observer 分连接；有界预览允许合并，最终完整�
 不以繁忙开发机上的固定 1.6 倍墙钟阈值判定。流式 token 数没有可靠中途计数时不展示伪估值。
 reasoning 的解析和展示链由协议测试覆盖；真实模型验收使用配置中的默认 DeepSeek 路由，
 不宣称已覆盖所有 provider 的 thinking 模式或与 Codex/Claude Code 每个细节完全相同。
+本轮没有由上述 TUI 验收得出的 NPU 性能结论；scatter 的 eager-NPU 比较与优化回合另行记录。
 
 ---
 
@@ -394,77 +395,79 @@ Ctrl+O 展开后看到的是原始回执 JSON：`{"outcome":{"data":{"advisory":
 
 ---
 
-## 6. TODO（按依赖排序）
+## 6. 实施与验收核对（2026-11-11）
 
-每项格式：`[ ] 编号 内容 — 位置 — 验收标准`。大小：S < 0.5 天，M 约 1–2 天，L > 2 天。
+`[x]` 表示按本节注明的实现或替代设计交付，并有对应证据；`[ ]` 表示原要求的完整验收仍待补，不代表该功能没有实现。第 1–5 节保留原设计，不作为当前行为说明。
 
-### P0：先修
+证据索引：当前树 `.validation/harness-npm-r1.log`（65 项 JS 及类型检查）、`.validation/harness-tui-unit-r1.log`（35 项 TUI 单元）；Python 分批运行边界见 [ACCEPTANCE](../../validation/tui/ACCEPTANCE.md)。当前并行 PTY 为 `.validation/subagent-parallel-final-r3/scenario.json`（8 项）；真实模型汇总为 `.validation/subagent-final-validation.json`。48 列 panel/stop 是旧树 `/Users/jerry/Desktop/KernelBridge/.validation/subagent-panel-pty-r5`、`subagent-stop-pty-r2` 的保留证据，不算新树重跑。
 
-- [ ] **P0-1** 修复同一输入被提交两次（S）— `host-actions.mjs` 的 `initial()`、patch 中的 `run()` — `initial()` 跳过 `delivered` 中的回执，或者在 `initial()` 完成前把编辑器设为不可提交。验收：启动后 50ms 内回车，Journal 中只有一次执行，界面没有错误条目；补 PTY 回归（"界面一出现就立即提交"）。根因见 T5。
-- [ ] **P0-2** 与并发会话协调（S）— 工作区 — 停掉 Codex 会话或改用独立 worktree；`./kernelagent` 清单校验通过后再开工。
-- [ ] **P0-3** 流式扣留只保留密钥前缀匹配部分（S）— `capabilities/streaming.py` `emit_text` — 单测覆盖密钥被切成 2 段或 3 段、多字节字符；DeepSeek 实测中，文字与收到的 delta 之间不再有固定的 35 字符延迟。
+### P0：输入与流式
 
-### 阶段 1B：流式与工具输出对齐（可与阶段 1 并行）
+- [x] **P0-1** `host-actions.mjs` 用 `delivered` 防止 initial/native 重复交付；输入结算窗口按 follow-up 入队。`input-settlement.mjs` 验证恰好一次，旧树首帧立即提交 PTY 及当前 Esc 后继续输入通过；不把首帧触发测试写成固定 50ms 时限证明。
+- [x] **P0-2** 使用独立 `codex/harness-20turn` worktree 验收；运行时源清单固定，不修改另一活跃 checkout。
+- [x] **P0-3** `streaming.py` 只扣留可能构成密钥前缀的后缀。分段密钥、多字节及普通文字及时输出由测试覆盖；真实模型流式 PTY 通过，不宣称测量了端到端延迟指标。
 
-- [ ] **1B-1** `tool-render.mjs`：统一 ⏺ 头部、⎿ 摘要、状态色（M）— 新文件，接入 `workspace-tools.mjs`、`runtime-factory.mjs` 的 `directTools` — 按 §3.5 的样例断言 PTY 屏幕；`tools_sha256` 不变。
-- [ ] **1B-2** 各工具摘要规则：read/write/edit diff/grep/find/ls/bash 头尾策略（M）— 同上 — 每种工具的成功和失败各一个 PTY 断言；错误路径为项目相对路径。
-- [ ] **1B-3** Ctrl+O 展开显示全文和易读回执（S）— 同上，并与 1-3 合并。
-- [ ] **1B-4** Working 行显示耗时、tokens、Esc 提示（S）— `setWorkingMessage` — 每秒刷新，回合结束后恢复。
-- [ ] **1B-5** 思考内容流式显示（M）— `streaming.py` 解析 `reasoning_content`；`runtime-factory.mjs` 的 `stream()` 推送 thinking 事件 — DeepSeek 思考模式下能看到折叠的"思考中…"，展开后可见；回执结论字段不包含思考内容。
-- [ ] **1B-6** 探索合并（M，spike 后实施）— patch `ToolExecutionComponent` 或用汇总组件 — 连续 3 个探索调用只占一行。
-- [ ] **1B-7** 助手消息前缀 ⏺ 与 Markdown 主题微调（S，可选）— patch。
+### 阶段 1B：流式与工具输出
 
-### 阶段 1：展示与限额（不改协议，风险最低）
+- [x] **1B-1** `tool-render.mjs` 统一状态头部、摘要与颜色，接入原工具显示，工具语义和回执不变；展示单元和当前 PTY 的工具行断言通过。
+- [ ] **1B-2** read/write/edit/grep/find/ls/bash 摘要及相对错误路径已实现，有展示单元和选定工具 PTY 覆盖；原计划“每种工具成功、失败各一条 PTY 断言”的完整矩阵未逐项验收。
+- [x] **1B-3** Ctrl+O 展开完整正文与易读回执；当前并行 PTY 验证报告无原始 JSON。
+- [x] **1B-4** Working 显示耗时与 Esc，结束恢复。替代设计：没有可靠中途 usage 时不显示估算 tokens；子代理显示已结算的实际用量。
+- [ ] **1B-5** `reasoning_content` → thinking 事件的解析、generation 隔离及完成消息已实现并通过协议测试；真实 DeepSeek thinking 模式的折叠/展开 PTY 尚未验收。默认非 thinking 路由的通过不能代替此项。
+- [x] **1B-6** 连续探索调用合并，展示单元验证三项合为一行且边界正确。
+- [x] **1B-7** 助手前缀与 Markdown 主题已接入受哈希校验的 Pi patch；真实模型 PTY 使用该显示路径。
 
-- [ ] **1-1** `delegate` 增加 `description` 参数（S）— `delegation.py`、`delegated.py`、`authority.py` 的 outcome、`product-ui.mjs` — 调用块只显示一行标题；旧回执里没有 description 时回退到截断后的 task。
-- [ ] **1-2** 实时进度 `onUpdate`（M）— `runtime-factory.mjs:39`、`application_host.py:427`（补耗时和 tokens）、新的 `subagent_progress` 事件 — 运行中调用块显示当前工具、读取次数、模型次数、tokens、耗时，每秒刷新。
-- [ ] **1-3** 完成行与 Ctrl+O 报告（S）— `renderReceiptResult` — 收起时一行 `完成 · 读取 · 模型 · tokens · 耗时`，展开时显示 Markdown 报告，不出现 JSON。
-- [ ] **1-4** 页脚收敛、屏蔽 FleetView（S）— `product-ui.mjs`、`plugin.mjs` — 运行中只有一行聚合信息，空闲时没有子代理行，界面上不出现 `↓/← to inspect`。
-- [ ] **1-5** 等待指示（S/M）— working message（API 或 patch）— 显示 `✻ 等待 N 个子代理完成 · 耗时`。
-- [ ] **1-6** 父模型拿到精简结果（S）— 工具结果 content — 模型上下文中没有 receipt id 和插件名；回归测试确认父代理仍能引用 summary。
-- [ ] **1-7** 调整默认限额，统一插件超时（S）— `configuration.py:96-103`、`plugin.mjs:29` — 新默认值生效，文档和测试同步更新。
-- [ ] **1-8** `/agents` 面板（M）— 新增组件，复用会话选择器的风格 — 列表、查看报告、Esc 返回；48 列宽度下不出现 `undefined` 和换行错乱。
-- [ ] **1-9** Pi 原生文案汉化（M）— patch 扩展到 `tui-renderer.js`，更新 `.json` 中的哈希 — Working、提示行、`Tool output`、滚动提示全部为中文；patch 不匹配时拒绝启动的机制保持不变。
-- [ ] **1-10** 启动页脚闪烁（S）— T7 — 首帧即显示产品页脚。
+### 阶段 1：展示与限额
+
+- [x] **1-1** `delegate.description` 用作一行标题，旧回执回退到截断的 task；展示测试覆盖。
+- [x] **1-2** 子代理进度包含当前工具、模型/工具次数、已结算用量与耗时；单元和两个同时运行的 PTY 断言通过。
+- [x] **1-3** 收起显示完成摘要，展开显示 Markdown 报告；当前 Ctrl+O PTY 通过。
+- [x] **1-4** 页脚聚合且不再挂载 FleetView；子代理全部结算后无存活行，展示单元和 PTY 覆盖。
+- [x] **1-5** Working 显示等待数量；旧树 48 列三路 PTY 验证 3 → 2 → 1 与逐个通知。
+- [x] **1-6** 父模型接收精简结果，原回执仍在 Journal；真实模型可引用子代理读取出的原始证据。
+- [x] **1-7** 默认仅 `max_concurrent: 6`，超出排队；步数、工具数、时长、每轮与总数可显式配置。省略预算仍为无预算。配置和限额测试通过。
+- [x] **1-8** `/agents` 列出类型与运行记录，可查看报告、Esc 返回；当前 PTY 覆盖操作，旧树 48 列 panel 证据覆盖窄屏及报告实时更新。
+- [x] **1-9** 原生启动提示、Working、工具展开提示与滚动提示已本地化，KernelBridge 品牌和 patch 哈希拒绝机制保留；当前原生 Pi PTY 通过。
+- [x] **1-10** 替代设计：产品状态未就绪时隐藏原生 token/预算页脚，就绪后显示产品页脚；不要求宿主尚未 ready 时显示伪造状态。旧树首帧 PTY 已断言不闪现原生页脚。
 
 ### 阶段 2：前台并行
 
-- [ ] **2-0** Spike：pi-subagents 能否同时处理多个 REQUEST，对比自建子会话运行器（M）— `plugin.mjs` — 给出结论文档：保留插件，或用 Pi SDK 自建运行器。
-- [ ] **2-1** Pi 并行批次（S）— `runtime-factory.mjs:81` 及所有工具定义 — 只有全部为 delegate 的批次并行，混合批次仍串行（加测试）。
-- [ ] **2-1b** delta 按 `generation_id` 过滤（S，2-4 的前置条件）— `application/worker.mjs:35`、`runtime-factory.mjs:134`、宿主 `model_started` 事件 — 两个并发子代理的流式文字互不串台（单测加 PTY）。
-- [ ] **2-2** 核实宿主 store 并发安全（M）— Journal、预算预留、`propose` — 写出并发 `propose` 的压力测试，预留额度不出现负数或重复。
-- [ ] **2-3** `laneRpc` 和 `controlledModels` 多 permit（M）— `clients/serial-rpc.ts`、`loopx/model-control.ts` — lane 内有序、lane 间并发；父 lane 的 `end_turn` 等所有子 lane 清空。
-- [ ] **2-4** 宿主连接按 permit 派发并发请求（L）— `application_host.py:886` `Connection.run` — 两个子代理的模型调用在 Journal 中时间重叠。
-- [ ] **2-5** `ExecutionRPC` 多子代理与槽位结算（L）— `authority.py:524-638`、`delegation.py`、`delegated.py` — 乱序完成但 outcomes 顺序正确；单个子代理取消或失败不影响其他子代理；未知效应隔离父代理。
-- [ ] **2-6** Esc 取消全部存活子代理（M）— `plugin.mjs`、`host-actions.mjs` — 取消后可以继续发父 prompt；未知效应仍被隔离。
-- [ ] **2-7** 更新提示词和工具描述（S）— `delegation-prompt.mjs`、`delegation.py` — 真实模型下，"分别调查两个独立模块"会在同一回复中发出两个 delegate。
+- [x] **2-0** 保留社区 `pi-subagents@0.87.0`，并非 Pi 官方内置组件；多请求路径已通过真实 Pi 验收。
+- [x] **2-1** 全为 delegate 的回复记录 delegation 批次并行执行，混合工具批次保持源顺序；两种分支均有测试。
+- [x] **2-1b** 模型调用前分配 `generation_id`，受控流独立过滤。隔离测试还验证预览丢片段后以完整 effect 正文结束；当前 PTY 验证并发输出。
+- [x] **2-2** Journal/网关原子准入、共享预算、并发上下文 CAS 已实现；定向测试覆盖并行支出后准入、实际限额和伪造上下文拒绝，真实并行最终无挂起预留。独立压力验收4项也已通过：32路320次propose、64路同ID去重、32个真实child permit及未知回执恢复，见 `.validation/propose-admit-stress-summary.json`。
+- [x] **2-3** lane 内有序、lane 间并发，多 permit 独立结算。修正原设计：父回合只等待所属前台任务，后台任务不能成为父 `end_turn` 屏障；当前 PTY 在子任务被阻塞时验证父连续两条输入均完成。
+- [x] **2-4** 宿主按 permit 派发子模型请求；当前 Journal 证明两子模型调用区间重叠。
+- [x] **2-5** 多子任务乱序完成但结果顺序稳定；已知失败/取消局部结算，未知效应隔离父会话。定向单元和并行 PTY 覆盖。
+- [x] **2-6** Esc 取消当前前台并行任务，结算后父输入可继续；后台任务由 `stop_agent` 或面板停止，不能把 Esc 宣称为无条件停止全部后台工作。未知效应仍保留。当前并行 PTY、旧树面板停止 PTY 通过。
+- [x] **2-7** 自然任务自动委派、显式双子任务以及用户禁止委派均通过真实 DeepSeek 验收；证据跨两个会话，不宣称同一会话一次全部通过。
 
 ### 阶段 3：后台子代理
 
-- [ ] **3-1** 宿主 `ChildScheduler`（L）— 新模块 — 负责 lane、`max_concurrent`、生命周期；子代理结束后父 turn 照常结算。
-- [ ] **3-2** `delegate{background}`、`wait_agents`、`agents_status`、`stop_agent`（M）— `delegation.py`、`business_tools.py` 的 RESERVED 列表 — 工具 schema 和测试。
-- [ ] **3-3** 完成通知输入（M）— 输入队列 `kind: "notification"` — 父代理空闲时自动续写，忙碌时作为 follow-up 送达；不出现 T5 类错误。
-- [ ] **3-4** detach / 重启语义（M）— `on_detach`、宿主恢复 — pause 时子代理中断并在 attach 后显示；不会重跑。
-- [ ] **3-5** 通知条目和页脚的后台计数（S）— `product-ui.mjs` — 呈现为 §3.2 的样子。
+- [x] **3-1** 替代设计：由执行层 `background` 表、独立 lane 与插件并发槽管理，不新增 `ChildScheduler` 类。子代理仍运行时父输入及下一条输入均可完成，当前 PTY 已直接断言。
+- [x] **3-2** 暴露 `delegate{background}`、`agents_status`、`stop_agent`。以事件通知代替阻塞式 `wait_agents`，文档与工具 schema 一致；停止作用于实际执行并保留原回执。
+- [x] **3-3** 替代设计：完成通知使用 `kind: follow_up`、`initiator: agent` 和持久化子任务身份，不新增 notification 输入类型。空闲自动继续、忙碌排队；真实后台两个唯一通知及最终证据汇总通过。
+- [x] **3-4** detach/恢复先结算已知效应，未知效应继续隔离；遗漏通知从原身份恢复，不重新执行子任务。恢复、通知去重、命令停止及 worktree 保留测试通过；旧树 panel PTY 验证 resume 不重复执行/通知。
+- [x] **3-5** 完成条目与后台计数已实现；当前后台 PTY 与真实模型分别通过，不以等待文案代替真实运行证明。
 
-### 阶段 4：可执行与可写子代理（需先决策 §8-3）
+### 阶段 4：可执行与可写子代理
 
-- [ ] **4-1** `kernel-tester`（bash，前台，与写入方互斥）（M）
-- [ ] **4-2** `kernel-worker` 加 worktree 隔离，返回 diff（L）
-- [ ] **4-3** 自定义 agent 文件 `.kernelbridge/agents/*.md`（M）
+- [x] **4-1** `kernel-tester` 可运行命令，仅前台并与父写入互斥；命令环境脱敏、输出限量及原进程停止由实执行测试覆盖。共享项目上的命令执行不等于操作系统只读沙箱。
+- [x] **4-2** `kernel-worker` 在独立 Git worktree 修改并返回分支/diff，不自动合入父目录；要求 committed HEAD，快照不包含未跟踪文件。已完成 checkout 清理、提交保留、未知执行不清理均有测试。
+- [x] **4-3** `.kernelbridge/agents/*.md` 定义在网关封存前加载；格式、限制及真实 Pi 子会话执行测试通过。
 
 ### 阶段 5：TUI 模式
 
-- [ ] **5-1** `regular` 模式 spike（M）— 编辑器、页脚、补全、resize、中文输入、PTY 测试 — 给出是否切换默认模式的结论。
-- [ ] **5-2** 按结论切换默认模式，或实现自动回到底部（S/M）。
+- [x] **5-1** 已决定采用 `regular`；当前并行与真实模型 PTY 验证实际编辑器/页脚/中文/报告交互。完整 resize、补全及 fullscreen 组合仍沿用历史验收，不称本轮重新覆盖。
+- [x] **5-2** 默认 `regular`，保留显式 `fullscreen`。
 
 ### 贯穿：验收与文档
 
-- [ ] **V-1** fixture PTY：两个子代理各延迟 1.5s，并行总耗时 < 单个的 1.6 倍；断言两条进度同屏、等待指示、完成行、Ctrl+O 报告、空闲页脚干净、无 T5 错误。
-- [ ] **V-2** Python 单元测试：多 permit、乱序完成、单个取消、未知效应隔离、`max_per_turn` 并发计数、预算并发。
-- [ ] **V-3** 真实 DeepSeek（显式开启）：更新 `validation/tui/subagent_live.py`，加入并行和后台场景。
-- [ ] **V-4** 回归：现有 11 项子代理测试、`advanced_scenario.py`、会话恢复、39 项 JS 测试、TypeScript 检查。
-- [ ] **V-5** 更新 `docs/tui.md` 的子代理章节和 `validation/tui/ACCEPTANCE.md`，失败记录保留。
+- [x] **V-1** 当前并行 PTY 8 项通过。替代固定 1.6 倍墙钟阈值：用 Journal 调用区间重叠证明并行，用人为阻塞后台子任务时父两条输入已完成证明后台独立；同时验证 Ctrl+O、面板、完成通知及 Esc 后继续输入。
+- [x] **V-2** 多 permit、结果顺序、取消、未知隔离、限额和预算边界的 Python 定向测试已通过；2-2 的独立压力验收亦已完成。分批运行和跳过项见 ACCEPTANCE。
+- [x] **V-3** 真实 DeepSeek 的简单父任务、自动委派、显式双任务、禁止委派、双后台通知/汇总五项行为跨两个新会话通过，保留第一会话歧义断言失败记录。
+- [ ] **V-4** 当前树 65 项 JS/TypeScript、35 项 TUI 单元、Python 分批检查及上述 PTY 已通过；新树 ordinary codegen 10项（35轮、恢复不重放）和 advanced 11项（fork/compact/恢复/Goal）已通过；其余历史 linked-worktree 等矩阵未在本轮全量重跑，不宣称整个历史套件一次全绿。
+- [x] **V-5** `docs/tui.md` 已记录当前行为，本表与 ACCEPTANCE 同步标明证据、替代设计及待验项；原失败记录保留。
 
 ---
 

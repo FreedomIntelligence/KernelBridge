@@ -7,6 +7,7 @@ import ctypes
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import platform
 import random
@@ -20,10 +21,25 @@ import time
 def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def cxx_compiler():
+    """CXX, else Apple's SDK-matched clang++ on macOS, else clang++/g++ on PATH.
+
+    A conda clang++ ahead of /usr/bin on PATH is older than the SDK's libc++
+    ("Libc++ only supports Clang 16 and later") and fails on <cmath>.
+    """
+    if os.environ.get('CXX'):
+        return shutil.which(os.environ['CXX']) or os.environ['CXX']
+    # /usr/bin/clang++ is Apple's xcrun shim: it selects the SDK, so <cmath> resolves even
+    # in a minimal environment (the toolchain binary called directly does not).
+    if sys.platform == 'darwin' and os.access('/usr/bin/clang++', os.X_OK):
+        return '/usr/bin/clang++'
+    return shutil.which('clang++') or shutil.which('g++')
+
+
 def run(request, mode):
     source = Path(request['source']['root'])
     output = Path(request['output'])
-    compiler = shutil.which('clang++') or shutil.which('g++')
+    compiler = cxx_compiler()
     if not compiler: raise ValueError('C++ compiler required')
     library = output / 'scatter.so'
     argv = [compiler, '-std=c++17', '-O2', '-shared', '-fPIC', str(source / 'native.cpp'), '-o', str(library)]

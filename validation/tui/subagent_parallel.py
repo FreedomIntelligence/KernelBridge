@@ -205,6 +205,8 @@ def main():
         settle(1)
         screen = ui.text(); (output / 'background-done-screen.txt').write_text(screen)
         assert '⏺ kernel-scout「后台扫描」已完成' in screen, screen
+        notice = next(line.strip() for line in screen.splitlines() if 'kernel-scout「后台扫描」已完成' in line)
+        assert notice.startswith('⏺ '), notice  # A managed result must not acquire the user input gutter.
         state = client.call('status')
         background = state['subagents'][-1]
         assert background['background'] and background['status'] == 'completed' and 'CHILD_BG' in background['summary']
