@@ -15,6 +15,7 @@ import socket
 import ssl
 import sys
 import time
+import xml.etree.ElementTree as ET
 from urllib.parse import parse_qs, unquote, urlencode, urljoin, urlsplit, urlunsplit
 
 
@@ -81,12 +82,26 @@ def public_url(url):
 
 class PinnedHTTPS(http.client.HTTPSConnection):
     """TLS hostname verification with a socket to an already checked public IP."""
-    def __init__(self, hostname, address, timeout):
-        super().__init__(hostname, 443, timeout=timeout, context=ssl.create_default_context())
+    def __init__(self, hostname, address, timeout, ca_bundle, http_proxy=None):
+        super().__init__(hostname, 443, timeout=timeout, context=ssl.create_default_context(cafile=ca_bundle))
         self.address = address
+        self.http_proxy = http_proxy
 
     def connect(self):
-        sock = socket.create_connection((self.address, 443), self.timeout)
+        if self.http_proxy:
+            proxy = urlsplit(self.http_proxy)
+            # Only the explicitly pinned loopback transport may be local. The
+            # CONNECT authority is the already validated public destination IP;
+            # the proxy is not allowed to choose a different DNS resolution.
+            tunnel = http.client.HTTPConnection(proxy.hostname, proxy.port, timeout=self.timeout)
+            try:
+                tunnel.set_tunnel(self.address, 443)
+                tunnel.connect()
+                sock, tunnel.sock = tunnel.sock, None
+            finally:
+                tunnel.close()
+        else:
+            sock = socket.create_connection((self.address, 443), self.timeout)
         try:
             self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
         except BaseException:
@@ -94,26 +109,112 @@ class PinnedHTTPS(http.client.HTTPSConnection):
             raise
 
 
+def doh_addresses(payload, host):
+    if (not isinstance(payload, dict) or payload.get('Status') != 0 or payload.get('TC') is not False
+            or payload.get('Question') != [{'name': host + '.', 'type': 1}]):
+        raise Unavailable('invalid_or_failed_doh_response')
+    answers = payload.get('Answer')
+    if not isinstance(answers, list) or not 1 <= len(answers) <= 128:
+        raise Unavailable('doh_answer_missing_or_unbounded')
+    cnames, addresses = {}, {}
+    for answer in answers:
+        if not isinstance(answer, dict): raise Unavailable('invalid_doh_answer')
+        kind = answer.get('type')
+        if kind not in (1, 5): continue
+        name, data, ttl = answer.get('name'), answer.get('data'), answer.get('TTL')
+        if not isinstance(name, str) or not isinstance(data, str) or type(ttl) is not int or ttl < 0:
+            raise Unavailable('invalid_doh_answer')
+        name = name.lower().rstrip('.')
+        public_url('https://' + name + '/')
+        if kind == 5:
+            target = data.lower().rstrip('.')
+            public_url('https://' + target + '/')
+            if name in cnames and cnames[name] != target: raise Unavailable('conflicting_doh_cname')
+            cnames[name] = target
+        else:
+            if ipaddress.ip_address(data).version != 4 or not public_address(data):
+                raise Unavailable('doh_returned_nonpublic_address')
+            addresses.setdefault(name, []).append(data)
+    visited, current = set(), host
+    for _ in range(16):
+        if current in visited: raise Unavailable('cyclic_doh_cname')
+        visited.add(current)
+        if current not in cnames: break
+        if current in addresses: raise Unavailable('doh_cname_address_conflict')
+        current = cnames[current]
+    else:
+        raise Unavailable('doh_cname_chain_too_long')
+    if set(cnames) - visited or set(addresses) - visited or not addresses.get(current):
+        raise Unavailable('unbound_doh_answer')
+    return list(dict.fromkeys(addresses[current]))
+
+
+def resolve_public(host, config, output, hop, deadline):
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = None
+    if address is not None:
+        if not public_address(host): raise Unavailable('private_or_local_target')
+        return [host], {'resolver': 'literal_public_ip'}
+    transport = config['transport']
+    if transport['dns_resolver'] == 'system':
+        addresses = list(dict.fromkeys(item[4][0] for item in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)))
+        if not addresses or any(not public_address(ip) for ip in addresses):
+            raise Unavailable('dns_resolved_private_or_nonpublic_target')
+        return addresses, {'resolver': 'system', 'addresses': addresses}
+    if transport['dns_resolver'] != 'google_doh': raise Unavailable('unsupported_dns_resolver')
+    remaining = deadline - time.monotonic()
+    if remaining <= 0: raise Deadline()
+    metadata = {'resolver': 'google_doh', 'hostname': host, 'endpoint': transport['resolver_endpoint'],
+                'bootstrap_ip': transport['resolver_bootstrap_ip'], 'response_complete': False}
+    connection = PinnedHTTPS('dns.google', transport['resolver_bootstrap_ip'], remaining,
+                             config['tls']['ca_bundle'], transport['http_proxy'])
+    try:
+        target = '/resolve?' + urlencode({'name': host, 'type': 'A', 'edns_client_subnet': '0.0.0.0/0'})
+        connection.request('GET', target, headers={'Accept': 'application/dns-json', 'Accept-Encoding': 'identity',
+                                                  'User-Agent': 'KernelBridge-OnlineResearch/1.0'})
+        response = connection.getresponse()
+        raw = response.read(65537)
+        complete = len(raw) <= 65536 and response.length in (None, 0)
+        raw = raw[:65536]
+        save(output / f'dns-{hop}.bin', raw)
+        metadata.update(status=response.status, response_complete=complete, retained_sha256=sha(raw),
+                        full_response_sha256=sha(raw) if complete else None, bytes=len(raw))
+        if response.status != 200 or not complete:
+            raise Unavailable('doh_http_error_or_incomplete_response')
+        try:
+            payload = json.loads(raw)
+        except ValueError:
+            raise Unavailable('invalid_doh_json') from None
+        addresses = doh_addresses(payload, host)
+        metadata.update(addresses=addresses, dnssec_validated=payload.get('AD') is True)
+        return addresses, metadata
+    finally:
+        connection.close()
+        save(output / f'dns-{hop}.json', metadata)
+
+
 def get(url, config, output, *, credential=None, redirects=True):
     deadline = time.monotonic() + config['timeout_seconds']
     hops = []
     try:
-        for _ in range(config['max_redirects'] + 1):
+        for hop_index in range(config['max_redirects'] + 1):
             parts, host = public_url(url)
             url = parts._replace(fragment='').geturl()
-            addresses = list(dict.fromkeys(item[4][0] for item in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)))
-            if not addresses or any(not public_address(ip) for ip in addresses):
-                raise Unavailable('dns_resolved_private_or_nonpublic_target')
+            addresses, resolution = resolve_public(host, config, output, hop_index, deadline)
             remaining = deadline - time.monotonic()
             if remaining <= 0: raise Deadline()
-            connection = PinnedHTTPS(host, addresses[0], remaining)
+            proxy = config['transport']['http_proxy']
+            connection = PinnedHTTPS(host, addresses[0], remaining, config['tls']['ca_bundle'], proxy)
             headers = {'User-Agent': 'KernelBridge-OnlineResearch/1.0', 'Accept': 'text/html,application/json,text/plain;q=0.9,*/*;q=0.1', 'Accept-Encoding': 'identity'}
             if credential: headers['X-Subscription-Token'] = credential
             try:
                 target = urlunsplit(('', '', parts.path or '/', parts.query, ''))
                 connection.request('GET', target, headers=headers)
                 response = connection.getresponse()
-                hop = {'url': url, 'status': response.status, 'connected_ip': addresses[0],
+                hop = {'url': url, 'status': response.status, 'destination_ip': addresses[0],
+                       'connected_ip': urlsplit(proxy).hostname if proxy else addresses[0], 'http_connect_proxy': proxy, 'resolution': resolution,
                        'content_type': response.getheader('Content-Type', ''), 'content_encoding': response.getheader('Content-Encoding', 'identity')}
                 if credential and credential in json.dumps(hop):
                     hops.append({'url': url, 'status': response.status, 'headers_withheld': True})
@@ -245,7 +346,21 @@ def echoed_credential(raw, credential):
 def query_results(raw, metadata, config):
     body = decoded(raw, metadata['content_type'])
     if challenged(body): raise Unavailable('upstream_challenge_no_results')
-    if config['provider'] == 'duckduckgo_html':
+    if config['provider'] == 'bing_rss':
+        if re.search(r'<!DOCTYPE|<!ENTITY', body, re.I): raise Unavailable('unsupported_rss_declaration')
+        try:
+            rss = ET.fromstring(body)
+        except ET.ParseError:
+            raise Unavailable('invalid_search_rss') from None
+        if rss.tag != 'rss' or not rss.findtext('./channel/title') or not rss.findtext('./channel/link'):
+            raise Unavailable('unrecognized_search_rss')
+        rows = []
+        for item in rss.findall('./channel/item'):
+            title, url = item.findtext('title'), item.findtext('link')
+            if not title or not url: raise Unavailable('invalid_search_rss_item')
+            rows.append({'title': title, 'url': url, 'snippet': item.findtext('description') or ''})
+        warnings = []
+    elif config['provider'] == 'duckduckgo_html':
         parser = DDGHTML()
         parser.feed(body)
         if not parser.results and not re.search(r'(?:No results found|class=["\']no-results)', body, re.I):
@@ -301,6 +416,7 @@ def run(action, config, output):
         parameters = {'q': query}
         if config['provider'] == 'brave': parameters['count'] = count
         if config['provider'] == 'searxng': parameters['format'] = 'json'
+        if config['provider'] == 'bing_rss': parameters['format'] = 'rss'
         raw, metadata = get(config['endpoint'] + '?' + urlencode(parameters), config, output, credential=credential, redirects=False)
         rows, warnings = query_results(raw, metadata, config)
         if credential and credential in json.dumps([rows, warnings], ensure_ascii=False):
@@ -354,7 +470,7 @@ def read(args, root):
     data = {'run': identity, 'path': name, 'sha256': sha(raw), 'offset': offset,
             'next_offset': offset + len(page), 'total_bytes': len(raw), 'eof': offset + len(page) >= len(raw)}
     # Byte offsets are unambiguous, including pages split across UTF-8 characters.
-    data.update({'encoding': 'base64', 'base64': base64.b64encode(page).decode()} if name == 'response.bin'
+    data.update({'encoding': 'base64', 'base64': base64.b64encode(page).decode()} if name.endswith('.bin')
                 else {'encoding': 'utf-8', 'text': page.decode(errors='replace'), 'base64': base64.b64encode(page).decode()})
     return {'status': 'completed', 'data': data}
 

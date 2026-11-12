@@ -7,7 +7,8 @@ from pathlib import Path
 import re
 import sys
 
-from npu_trial import attempt_records, attempt_number, invoke_remote, save, transport, trial, same_handle, wire_handle, wire_summary
+from npu_trial import LOG_PAGE_BYTES, MAX_LOG_BYTES, attempt_records, attempt_number, invoke_remote, recover_run_log, save, transport, trial, same_handle, wire_handle, wire_summary
+from npu_diagnostics import MAX_ARTIFACT
 try:
     from preflight import PROTOCOL, contract_differences, digest as preflight_digest, make_rejection
 except ModuleNotFoundError:
@@ -101,6 +102,14 @@ def original(config, request):
     return folder, result, summary, evidence
 
 
+def verify_log_binding(record, evidence):
+    if (record.get('source_sha256') != evidence['native_candidate_sha256']
+            or record.get('remote_result_sha256') != evidence['remote_result_sha256']
+            or record.get('remote_attempt', '').rstrip('/') + '/job' != evidence['original_job']
+            or not same_handle(record.get('original_handle'), evidence['original_handle'])):
+        raise ValueError('Original run log binding changed')
+
+
 def terminal_feedback(folder, request, result, evidence):
     """Project already verified terminal evidence; never execute or repair work."""
     if result.get('status') not in {'completed', 'failed'}:
@@ -126,11 +135,52 @@ def terminal_feedback(folder, request, result, evidence):
     # CPU-fallback qualification may differ from the raw original. Retain both.
     retain('qualified-result.json', (json.dumps(result, indent=2, allow_nan=False) + '\n').encode())
     texts = []
+    log = {'status': 'unavailable', 'complete': False,
+           'reason': 'Legacy observation has no retained full log; no remote job was contacted'}
+    log_receipt = folder / 'run-log.json'
+    if log_receipt.exists():
+        record = json.loads(log_receipt.read_text())
+        verify_log_binding(record, evidence)
+        retain('run-log.json', (json.dumps(record, indent=2, allow_nan=False) + '\n').encode())
+        log = {key: record[key] for key in ('status', 'complete', 'bytes', 'sha256', 'reason', 'recovery', 'recovery_error') if key in record}
+        log['receipt'] = artifacts['run-log.json']
+        if record.get('fragments'):
+            observed = observation.get('log') or {}
+            if (record.get('status') != 'partial' or record.get('complete') is not False
+                    or record.get('observed') != observed
+                    or set(record['fragments']) != {'run.log.head', 'run.log.tail'}):
+                raise ValueError('Original run log fragment metadata changed')
+            log.update(original_bytes=observed['bytes'], original_sha256=observed['sha256'], fragments={})
+            for name, part in sorted(record['fragments'].items()):
+                path = folder / name
+                if (path.resolve() != path or not path.is_file() or type(part.get('offset')) is not int
+                        or type(part.get('bytes')) is not int or not 0 < part['bytes'] <= LOG_PAGE_BYTES
+                        or not 0 <= part['offset'] <= observed['bytes'] - part['bytes']
+                        or path.stat().st_size != part['bytes'] or sha(path) != part.get('sha256')):
+                    raise ValueError('Original retained log fragment identity or length changed')
+                data = path.read_bytes(); retain(name, data)
+                log['fragments'][name] = {**part, 'artifact': artifacts[name]}
+                texts.append((name, data.decode('utf-8', errors='replace')))
+        elif record.get('status') in {'completed', 'partial'}:
+            path = folder / 'run.log'; observed = observation.get('log') or {}
+            if (record.get('path') != 'run.log' or path.resolve() != path or not path.is_file()
+                    or type(record.get('bytes')) is not int or not 0 <= record['bytes'] <= MAX_LOG_BYTES
+                    or path.stat().st_size != record['bytes'] or sha(path) != record.get('sha256')
+                    or observed.get('bytes') != record['bytes'] or observed.get('sha256') != record['sha256']
+                    or record.get('complete') is not (observed.get('complete') is True)):
+                raise ValueError('Original retained run log identity or length changed')
+            data = path.read_bytes(); retain('run.log', data)
+            log['artifact'] = artifacts['run.log']
+            texts.append(('run.log', data.decode('utf-8', errors='replace')))
+    if 'run.log' not in artifacts and observation.get('log_tail'):
+        # Old receipts remain readable offline. A tail is explicitly incomplete.
+        retain('legacy-log-tail.txt', observation['log_tail'].encode())
+        log['legacy_tail'] = artifacts['legacy-log-tail.txt']
     for field in ('message', 'traceback'):
         text = result.get(field)
         if not isinstance(text, str) or not text: continue
         retain(field + '.txt', text.encode())
-        texts.append((field, text))
+        texts.append((field + '.txt', text))
 
     def first_matching_line(pattern, flags=0):
         for field, text in texts:
@@ -141,11 +191,11 @@ def terminal_feedback(folder, request, result, evidence):
                     if number > 1 and re.search(r':\d+(?::\d+)?:\s*$', lines[number - 2]):
                         previous = lines[number - 2].encode()
                         context.append({'text': previous[:1024].decode('utf-8', errors='ignore'),
-                                        'line': number - 1, 'artifact': field + '.txt',
+                                        'line': number - 1, 'artifact': field,
                                         'truncated': len(previous) > 1024})
-                    return {'text': line[:2048], 'line': number, 'artifact': field + '.txt',
+                    return {'text': line[:2048], 'line': number, 'artifact': field,
                             'truncated': len(line) > 2048, 'context_before': context,
-                            'read': artifacts[field + '.txt'].get('read')}
+                            'read': artifacts[field].get('read')}
         return None
 
     # A C++ symbol such as c10::Error::Error is a stack frame, not a diagnostic.
@@ -153,7 +203,8 @@ def terminal_feedback(folder, request, result, evidence):
     first = first_matching_line(r'\b(?:fatal )?error\s*:(?!:)|static assertion failed', re.IGNORECASE)
     if first is None:
         first = first_matching_line(r'CMake Error')
-    runtime_error = None if first else first_matching_line(r'^\s*(?:[\w.]+\.)?\w+(?:Error|Exception)\s*:(?!:)')
+    runtime_error = None if first else first_matching_line(
+        r'^\s*(?:[\w.]+\.)?\w+(?:Error|Exception)\s*:(?!:)|\[(?:ERROR|FATAL)\]|\bERR\d{5}\b')
     diagnostics = result.get('diagnostics') or {}
     reports = []
     for kind in ('ir', 'profiler'):
@@ -166,7 +217,8 @@ def terminal_feedback(folder, request, result, evidence):
     return {'status': result['status'], 'correct': result.get('correct'),
         'case_count': len(result.get('cases') or []), 'geomean_speedup': result.get('geomean_speedup'),
         'error_type': str(result.get('error') or '')[:256], 'first_compiler_diagnostic': first,
-        'first_runtime_error': runtime_error,
+        'first_runtime_error': runtime_error, 'run_log': log,
+        'build_completed': result.get('build_completed'), 'failure_stage': result.get('failure_stage'),
         'error_excerpt': None if first else (runtime_error['text'] if runtime_error else str(result.get('message') or '')[:2048]),
         'diagnostics': {'required': diagnostics.get('required'), 'satisfied': diagnostics.get('satisfied'), 'reports': reports},
         'artifacts': artifacts, 'native_candidate_sha256': evidence['native_candidate_sha256'],
@@ -174,12 +226,85 @@ def terminal_feedback(folder, request, result, evidence):
         'qualification': 'Original terminal evaluation feedback only; success still requires original F/G/H receipts.'}
 
 
-READ_ARTIFACT = r'''import base64,hashlib,json,sys
+READ_ARTIFACT = r'''import base64,hashlib,json,os,stat,sys
 from pathlib import Path
-root=Path(sys.argv[1]).resolve(); path=(root/sys.argv[2]).resolve()
-if not path.is_relative_to(root) or not path.is_file() or not 0<path.stat().st_size<=8*1024*1024:raise ValueError('Original artifact is missing or outside bounded job')
-data=path.read_bytes();print(json.dumps({'sha256':hashlib.sha256(data).hexdigest(),'data':base64.b64encode(data).decode()}))
-'''
+r=json.load(sys.stdin); root=Path(sys.argv[1]); relative=Path(sys.argv[2]); path=root/relative
+if (not root.is_absolute() or root.resolve()!=root or relative.is_absolute() or '..' in relative.parts
+    or path.resolve()!=path or not path.is_relative_to(root) or not path.is_file()):raise ValueError('Original artifact is missing, linked or outside bounded job')
+folder=root.parent
+def original_file(name):
+ p=folder/name
+ if p.resolve()!=p or not p.is_file():raise ValueError('Original job evidence missing or linked: '+name)
+ return p
+def wire(handle):
+ value=dict(handle); stamp=value.get('started_ns')
+ if stamp is not None:
+  if isinstance(stamp,bool) or not isinstance(stamp,(str,int)) or str(int(stamp))!=str(stamp):raise ValueError('Invalid exact original timestamp')
+  value['started_ns']=str(stamp)
+ return value
+handle=json.loads(original_file('launch.json').read_text())
+if wire(handle)!=wire(r['handle']) or handle.get('attempt')!=str(folder):raise ValueError('Original diagnostic handle changed')
+intent=json.loads(original_file('intent.json').read_text())
+if intent.get('attempt',intent.get('round'))!=r['attempt'] or intent.get('source_sha256')!=r['source_sha256']:raise ValueError('Original diagnostic intent changed')
+if hashlib.sha256(original_file('candidate.py').read_bytes()).hexdigest()!=r['source_sha256']:raise ValueError('Original diagnostic candidate changed')
+if hashlib.sha256(original_file('job/result.json').read_bytes()).hexdigest()!=r['result_sha256']:raise ValueError('Original diagnostic result changed')
+offset=r['offset']; limit=r['limit']
+if type(offset)is not int or offset<0 or type(limit)is not int or not 1<=limit<=262144:raise ValueError('Invalid bounded diagnostic page')
+with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as stream:
+ before=os.fstat(stream.fileno()); identity=lambda s:[s.st_dev,s.st_ino,s.st_mtime_ns,s.st_size]
+ if not stat.S_ISREG(before.st_mode) or before.st_size<=0:raise ValueError('Original artifact is missing or empty')
+ if before.st_size>__MAX_ARTIFACT__:
+  print(json.dumps({'status':'unavailable','reason':'Original artifact exceeds the __MAX_ARTIFACT__-byte collection bound','bytes':before.st_size,'expected_sha256':r['sha256']}));sys.exit()
+ if offset>before.st_size:raise ValueError('Diagnostic offset exceeds original file')
+ if r.get('identity') is not None and r['identity']!=identity(before):raise ValueError('Original diagnostic artifact changed during collection')
+ if offset==0:
+  digest=hashlib.sha256()
+  while chunk:=stream.read(65536):digest.update(chunk)
+  if digest.hexdigest()!=r['sha256']:raise ValueError('Original diagnostic artifact hash changed')
+ stream.seek(offset); data=stream.read(limit)
+ if identity(os.fstat(stream.fileno()))!=identity(before):raise ValueError('Original diagnostic artifact changed during read')
+print(json.dumps({'status':'completed','bytes':before.st_size,'identity':identity(before),'offset':offset,
+ 'sha256':r['sha256'],'page_sha256':hashlib.sha256(data).hexdigest(),'data':base64.b64encode(data).decode()}))
+'''.replace('__MAX_ARTIFACT__', str(MAX_ARTIFACT))
+
+
+def download_artifact(run, evidence, relative, expected, destination, remaining):
+    """Reconstruct one original diagnostic without a large transport frame."""
+    if not isinstance(expected, str) or not re.fullmatch('[a-f0-9]{64}', expected):
+        raise ValueError('Original diagnostic artifact hash is invalid')
+    request = {'handle': evidence['original_handle'], 'source_sha256': evidence['native_candidate_sha256'],
+               'result_sha256': evidence['remote_result_sha256'], 'attempt': evidence['attempt'],
+               'sha256': expected, 'offset': 0, 'limit': LOG_PAGE_BYTES}
+    temporary = destination.with_name(destination.name + '.tmp')
+    digest = hashlib.sha256(); total = None; offset = 0
+    try:
+        with temporary.open('wb') as stream:
+            while True:
+                reply = invoke_remote(run, READ_ARTIFACT, evidence['original_job'], relative, body=request)
+                if reply.get('status') == 'unavailable':
+                    return {'path': relative, 'expected_sha256': expected, 'status': 'unavailable',
+                            'bytes': reply.get('bytes'), 'reason': str(reply.get('reason', 'Artifact not collected'))[:2048]}
+                size = reply.get('bytes')
+                if type(size) is not int or not 0 < size <= MAX_ARTIFACT or (total is not None and size != total):
+                    raise ValueError('Original diagnostic artifact length changed')
+                if size > remaining:
+                    return {'path': relative, 'expected_sha256': expected, 'status': 'unavailable', 'bytes': size,
+                            'reason': 'Diagnostic set exceeds the bounded local retention budget'}
+                data = base64.b64decode(reply['data'], validate=True)
+                if (reply.get('sha256') != expected or reply.get('offset') != offset
+                        or len(data) != min(LOG_PAGE_BYTES, size - offset)
+                        or hashlib.sha256(data).hexdigest() != reply.get('page_sha256')
+                        or (request.get('identity') is not None and reply.get('identity') != request['identity'])):
+                    raise ValueError('Original diagnostic artifact page identity or hash changed')
+                total = size; digest.update(data); stream.write(data); offset += len(data)
+                if offset == total: break
+                request.update(offset=offset, identity=reply['identity'])
+            stream.flush(); os.fsync(stream.fileno())
+        if digest.hexdigest() != expected: raise ValueError('Original diagnostic artifact hash changed')
+        temporary.replace(destination)
+        return {'status': 'completed', 'bytes': total, 'sha256': expected}
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def diagnostic(config, request, kind, result, evidence):
@@ -187,19 +312,24 @@ def diagnostic(config, request, kind, result, evidence):
     if len(found) != 1:
         return {'kind': kind, 'status': 'unavailable', 'reason': 'Original job did not collect this diagnostic; no replacement job was launched', **evidence}
     report = found[0]
-    paths = report.get('artifacts', {}) if report.get('status') == 'completed' else report.get('attempt_evidence', {})
+    paths = {**report.get('attempt_evidence', {}), **report.get('artifacts', {})}
     local = Path(request['output']) / 'artifacts'; local.mkdir()
-    copied = {}
-    for index, (relative, expected) in enumerate(sorted(paths.items())[:2]):
-        response = invoke_remote(transport(config), READ_ARTIFACT, evidence['original_job'], relative)
-        data = base64.b64decode(response['data'])
-        if response['sha256'] != expected or hashlib.sha256(data).hexdigest() != expected:
-            raise ValueError('Original diagnostic artifact hash changed')
+    copied = {}; unavailable = []; remaining = 4 * MAX_ARTIFACT
+    # Keep diagnostic failures and any validated partial output together.
+    # The bounded index tells readers explicitly if more original files exist.
+    for index, (relative, expected) in enumerate(sorted(paths.items())[:32]):
         name = f'{kind}-{index}' + Path(relative).suffix
-        (local / name).write_bytes(data); copied['artifacts/' + name] = expected
-    return {'kind': kind, 'status': report.get('status', 'completed'), 'reason': report.get('reason'),
+        collected = download_artifact(transport(config), evidence, relative, expected, local / name, remaining)
+        if collected['status'] != 'completed':
+            unavailable.append(collected); continue
+        remaining -= collected['bytes']; copied['artifacts/' + name] = expected
+    incomplete = bool(unavailable) or len(paths) > 32
+    status = ('failed' if copied else 'unavailable') if incomplete else report.get('status', 'completed')
+    return {'kind': kind, 'status': status, 'reason': report.get('reason'),
             **evidence, 'scope': 'npu_diagnostic', 'candidate_sha256': request['source']['sha256'],
-            'artifacts': copied, 'original_artifacts': paths}
+            'partial': report.get('partial', False) or (incomplete and bool(copied)), 'artifacts': copied, 'original_artifacts': paths,
+            'attempt_evidence': report.get('attempt_evidence', {}), 'artifact_index_truncated': len(paths) > 32,
+            'collection_complete': not incomplete, 'unavailable_artifacts': unavailable}
 
 
 def pairing_record(request, result, evidence, environment):
@@ -270,6 +400,11 @@ def execute(config, operation, request):
             outcome = trial(config, recover=attempt_number(intent))
             if outcome['status'] != 'completed': raise RuntimeError('Original NPU job is still unresolved')
     folder, result, summary, evidence = original(config, request)
+    if operation == 'collect' and request.get('handle') and (folder / 'run-log.json').is_file():
+        log = json.loads((folder / 'run-log.json').read_text())
+        verify_log_binding(log, evidence)
+        if log.get('status') != 'completed':
+            recover_run_log(folder, transport(config))
     if operation in ('launch', 'collect'):
         return {'status': 'completed', 'phase': 'complete', 'handle': summary['original_handle'], 'job_status': result['status'],
                 'evaluation': terminal_feedback(folder, request, result, evidence),
@@ -279,7 +414,7 @@ def execute(config, operation, request):
     expected = sorted(case['id'] for case in request['contract']['suite'])
     correct = result.get('correct') is True and summary.get('correct') is True and sorted(case['id'] for case in cases) == expected
     if operation == 'check':
-        return {'checks': {'build': result['status'] == 'completed', 'semantics': correct, 'full': correct},
+        return {'checks': {'build': result.get('build_completed', result['status'] == 'completed') is True, 'semantics': correct, 'full': correct},
                 'case_count': len(cases), 'case_ids': [case['id'] for case in cases],
                 'oracle_sha256': request['contract']['oracle']['files']['sha256'], 'error': result.get('message'), **evidence}
     if operation == 'measure':

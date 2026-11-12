@@ -19,7 +19,7 @@ import traceback
 
 from npu_matmul_eager import matmul_eager
 from npu_candidate_audit import audit_wrapper, audit_native_binding
-from npu_diagnostics import collect_ir
+from npu_diagnostics import collect_ir, validated_ir_artifacts
 try:
     from diagnostic_policy import assess_diagnostics, diagnostic_reason
 except ModuleNotFoundError:
@@ -135,12 +135,14 @@ def measure(function, torch, device, *, samples, warmup=3):
 
 
 def paired(functions, cases, torch, device, *, pairs=12, repeats=20, warmup=3, checkpoint=None,
-           order=('eager', 'candidate', 'candidate', 'eager')):
+           order=('eager', 'candidate', 'candidate', 'eager'), on_phase=None):
     arms = []
     for pair in range(pairs):
         case = cases[pair % len(cases)]
         for position, name in enumerate(order):
+            if on_phase is not None: on_phase('correctness')
             subchecks = check(functions[name], cases, torch, device)
+            if on_phase is not None: on_phase('measurement')
             sample = measure(lambda: functions[name](case['a'], case['b']), torch, device, samples=repeats, warmup=warmup)
             arms.append({'pair': pair, 'position': position, 'arm': name, 'seed': case['seed'], 'input_sha256': case['input_sha256'],
                          'correctness': subchecks, **sample})
@@ -170,11 +172,16 @@ def run(args):
                'driver_sha256': digest(__file__), 'candidate_audit_sha256': digest(Path(__file__).with_name('npu_candidate_audit.py')), 'diagnostic_driver_sha256': digest(Path(__file__).with_name('npu_diagnostics.py')),
                'protocol': PROTOCOL, 'protocol_id': PROTOCOL, 'contract': CONTRACT, 'contract_sha256': canonical_digest(CONTRACT)}
     save_json(job / 'request.json', request)
-    result = {'status': 'running', 'correct': False, **request, 'started_at_ns': time.time_ns(), 'cases': []}
+    result = {'status': 'running', 'correct': False, **request, 'started_at_ns': time.time_ns(),
+              'build_completed': False, 'phase': 'setup', 'cases': []}
     save_json(job / 'status.json', result)
     policy = {'on_failure': True, 'on_regression': True, 'required': bool(args.profile), 'scope': 'npu_diagnostic'}
     runtime = None
     profiler_error = None
+    phase = 'setup'
+    def set_phase(value):
+        nonlocal phase
+        phase = value
     try:
         import torch
         import torch_npu
@@ -183,24 +190,33 @@ def run(args):
         from kernelcat_executor.build.inputs import BuildSettings
         import kernelcat_executor.backends.ascend.compiler as compiler
 
+        phase = 'source_validation'
         parsed = sources(job / 'candidate.py')
         result['audit'] = audit_sources(parsed)
+        phase = 'compile'
         build = job / 'build'
         shutil.copytree(Path(compiler.__file__).parent / 'templates/CppExtension', build / 'CppExtension')
         settings = BuildSettings('matmul', build, args.soc, args.device)
         compiled = compile_sources(parsed, settings, diagnostic_options=('-save-temps', '--save-temp-files'))
+        phase = 'build_record'
+        result['build_completed'] = True
         result['build_outputs'] = [{'path': str(item.path), 'sha256': item.sha256} for item in compiled.files]
         result['build_source_digest'] = compiled.source_digest
         result['build_target'] = compiled.target
+        result['phase'] = phase = 'load'
+        save_json(job / 'status.json', result)
         runtime = AscendRuntime(settings)
         runtime.load(compiled, parsed['model_src'])
         model = runtime.context['ModelNew']().eval().to(runtime.device)
+        phase = 'input_preparation'
         cases = suite(torch, runtime.device)
         result['environment'] = {'torch': torch.__version__, 'torch_npu': torch_npu.__version__,
                                  'device': torch.npu.get_device_name(args.device), 'timer': 'npu_event'}
         with torch.no_grad():
+            phase = 'correctness'
             subchecks = {'candidate': check(model, cases, torch, runtime.device), 'eager': check(matmul_eager, cases, torch, runtime.device)}
             first = cases[0]
+            phase = 'measurement'
             result['F'] = {'correctness': subchecks, 'seed': first['seed'], 'input_sha256': first['input_sha256'],
                            'warmup': 3, 'samples': 100,
                            **measure(lambda: model(first['a'], first['b']), torch, runtime.device, samples=100)}
@@ -208,7 +224,7 @@ def run(args):
             input_sha = canonical_digest([case['input_sha256'] for case in cases])
             noise_arms = paired({'eager': matmul_eager}, cases, torch, runtime.device,
                                 order=('eager',) * 4,
-                                checkpoint=lambda rows: save_json(job / 'noise-arms.json', rows))
+                                checkpoint=lambda rows: save_json(job / 'noise-arms.json', rows), on_phase=set_phase)
             noise = {key: request[key] for key in ('pairs', 'warmup', 'repeats', 'device', 'soc',
                                                   'baseline_sha256', 'driver_sha256', 'source_sha256', 'contract_sha256')}
             noise.update(schema_version='kernelbridge.noise-calibration/v1', protocol='independent_eager_aaaa',
@@ -216,7 +232,7 @@ def run(args):
             save_json(job / 'noise.json', noise)
             result.update(noise_calibration=noise, noise_calibration_sha256=digest(job / 'noise.json'))
             arms = paired({'eager': matmul_eager, 'candidate': model}, cases, torch, runtime.device,
-                          checkpoint=lambda rows: save_json(job / 'arms.json', rows))
+                          checkpoint=lambda rows: save_json(job / 'arms.json', rows), on_phase=set_phase)
             speeds = []
             for pair in range(args.pairs):
                 block = arms[4 * pair:4 * pair + 4]
@@ -227,9 +243,10 @@ def run(args):
             row = {'id': CASE_ID, 'input_sha256': input_sha,
                    'correct': True, 'subchecks': subchecks, 'arms': arms, 'pair_speedups': speeds,
                    **values, 'speedup': values['eager'] / values['candidate']}
-            result.update(status='completed', correct=True, cases=[row], geomean_speedup=row['speedup'])
+            result.update(status='completed', correct=True, phase='completed', cases=[row], geomean_speedup=row['speedup'])
             save_json(job / 'measurements.json', {'F': result['F'], 'cases': result['cases']})
             if diagnostic_reason(policy, failed=False, regression=row['speedup'] <= 1):
+                phase = 'profiler'
                 try:
                     with torch_npu.profiler.profile(activities=[torch_npu.profiler.ProfilerActivity.CPU, torch_npu.profiler.ProfilerActivity.NPU],
                             schedule=torch_npu.profiler.schedule(wait=0, warmup=0, active=1, repeat=1),
@@ -243,40 +260,61 @@ def run(args):
                 except Exception as error:
                     profiler_error = str(error)
     except Exception as error:
-        result.update(status='failed', correct=False, error=type(error).__name__, message=str(error), traceback=traceback.format_exc())
+        result.update(status='failed', correct=False, phase=phase, failure_stage=phase,
+                      error=type(error).__name__, message=str(error), traceback=traceback.format_exc())
     finally:
         if runtime is not None:
             try:
                 runtime.close()
             except Exception as error:
-                result.update(status='failed', correct=False, cleanup_error=str(error))
+                if result['status'] == 'completed':
+                    result.update(status='failed', correct=False, phase='cleanup', failure_stage='cleanup')
+                result['cleanup_error'] = str(error)
     triggered = diagnostic_reason(policy, failed=result['status'] != 'completed',
                                   regression=any(row['speedup'] <= 1 for row in result['cases']))
     ir_error = None
+    ir_attempts = []
     if triggered:
         try:
-            attempts = collect_ir(job)
-            if not attempts:
+            ir_attempts = collect_ir(job)
+            if not ir_attempts:
                 ir_error = 'Original build produced no CANN compiler recipe'
-            elif any(record.get('returncode') != 0 for record in attempts):
-                ir_error = 'Pinned CANN compiler could not emit IR; inspect original ir receipts'
+            elif any(record.get('status') != 'completed' for record in ir_attempts):
+                ir_error = 'Some CANN IR recipes did not complete; inspect original ir receipts'
         except Exception as error:
             ir_error = str(error)
+            try:
+                retained = json.loads((job / 'ir/receipt.json').read_text())
+                if isinstance(retained, list): ir_attempts = retained
+            except (OSError, ValueError):
+                pass
+    try:
+        ir_artifacts = validated_ir_artifacts(job, ir_attempts)
+    except Exception as error:
+        ir_artifacts = {}
+        ir_error = 'IR artifact validation failed: ' + str(error)
     records = []
-    for kind, paths in [('ir', [p for p in (job / 'ir').rglob('*') if p.suffix in {'.ll', '.bc'}]),
+    for kind, paths in [('ir', []),
                         ('profiler', list((job / 'profile').rglob('kernel_details.csv')))]:
-        artifacts = {str(p.relative_to(job)): digest(p) for p in paths if p.is_file() and p.stat().st_size}
-        record = {'kind': kind, 'status': 'completed' if artifacts else 'unavailable', 'scope': policy['scope'],
+        artifacts = ir_artifacts if kind == 'ir' else {
+            str(p.relative_to(job)): digest(p) for p in paths if p.is_file() and p.stat().st_size}
+        reason = ir_error if kind == 'ir' else profiler_error
+        partial = bool(reason) and bool(artifacts)
+        record = {'kind': kind, 'status': 'failed' if partial else 'completed' if artifacts else 'unavailable', 'scope': policy['scope'],
                   'candidate_sha256': source_sha, 'artifacts': artifacts}
-        if not artifacts:
-            record['reason'] = (ir_error if kind == 'ir' else profiler_error) or 'No original artifact; failed candidates are not executed for diagnostics'
-            record['attempt_evidence'] = {str(p.relative_to(job)): digest(p) for p in (job / 'ir').glob('*') if p.is_file() and p.stat().st_size} if kind == 'ir' else {}
+        if partial or not artifacts:
+            record['partial'] = partial
+            record['reason'] = reason or 'No original artifact; failed candidates are not executed for diagnostics'
+        if kind == 'ir':
+            record['attempt_evidence'] = {str(p.relative_to(job)): digest(p) for p in (job / 'ir').rglob('*')
+                                          if p.suffix in {'.json', '.log'} and p.is_file() and p.stat().st_size}
         records.append(record)
     result['diagnostics'] = assess_diagnostics(policy, result, records, job, source_sha,
                                                binding=request, handle={'pid': os.getpid(), 'job': str(job)})
     result['ended_at_ns'] = time.time_ns()
     save_json(job / 'result.json', result)
-    save_json(job / 'status.json', {key: result[key] for key in ('status', 'correct', 'source_sha256', 'ended_at_ns')})
+    save_json(job / 'status.json', {key: result[key] for key in (
+        'status', 'correct', 'source_sha256', 'build_completed', 'phase', 'ended_at_ns')})
     print(json.dumps({key: value for key, value in result.items() if key not in ('cases', 'F', 'noise_calibration', 'build_outputs', 'traceback')}), flush=True)
     return result['status'] == 'completed'
 

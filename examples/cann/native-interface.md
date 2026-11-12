@@ -82,7 +82,11 @@ newly generated custom operator.
 ## Host, tiling and device entry interfaces
 
 Host registration uses `register/op_def_registry.h`, `ops::OpDef`, and
-`OP_ADD(<OperatorType>)`. Register the input/output names, CANN data types and
+`OP_ADD(<OperatorType>)`. `OP_ADD(T)` constructs `T(const char* name)`; declare
+that constructor and forward `name` to `ops::OpDef(name)`. Parameter-kind
+constants belong to the `ops` namespace (for example `ops::REQUIRED`). These
+are registration interfaces, not an operator implementation.
+Register the input/output names, CANN data types and
 formats consistently with the JSON and task. The relevant callback signatures
 are declarations only:
 
@@ -221,5 +225,5 @@ if one of these interfaces changes.
 | `source/packages/executor/src/kernelcat_executor/backends/ascend/templates/CppExtension/setup.py` | `318695abf92971c6adfe8aa64941afc4e1899a855df5e5328408452607f87355` |
 | `source/packages/executor/src/kernelcat_executor/backends/ascend/templates/CppExtension/csrc/pytorch_npu_helper.hpp` | `b092bd7c36b6aa38f4abc817d7fe939fa98c45ba71b51dcfb26989830b468968` |
 | `examples/scatter/npu_candidate_audit.py` | `d2820c66ca61bac88bbb83d87e8961bc8dc0b69262744df33419da33a8c63ed1` |
-| `examples/scatter/npu_benchmark.py` | `2f50c54083ce46e0e6f92ed522cf529a55ff3a0551b838a4cfe1d713561da504` |
-| `examples/scatter/npu_matmul_benchmark.py` | `fe714ccc3d11f3d4055ea4473ef0345871ae1799be5be5476c9c6ffefe7938a7` |
+| `examples/scatter/npu_benchmark.py` | `930a74528b697d07f0239afb935405a5b5429ca35d20becbf0404faa0b103365` |
+| `examples/scatter/npu_matmul_benchmark.py` | `63d4725a74f64efbefe642846049500c3724ac4b371b8875303c589959a80552` |

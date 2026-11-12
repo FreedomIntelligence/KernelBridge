@@ -238,6 +238,29 @@ Not claimed: NPU or device results, Linux qualification, publication of `pi-latt
 
 ## Shared Journal admission stress follow-up
 
+## Operator guidance and diagnostic feedback baseline (2026-11-12)
+
+On `codex/operator-guidance-tools` after merging `39d9c9f`, the source-frozen
+`.validation/operator-guidance-tui-r1/acceptance.json` passed **27/27** checks,
+with no flaky, failed or environmental result (timeout scale 1.36). This includes
+ordinary codegen, interruption, recovery, fork, compact, Goal review/plan and
+parallel/background subagent interactions. Evidence and original logs are
+hashed in that acceptance file. This is local deterministic acceptance, not NPU
+qualification or operator performance.
+
+Full Python discovery with the existing CPU Torch dependencies passed 359 tests
+and skipped two optional original-private-receipt replays (361 total). Both
+original replays subsequently passed separately. The initial discovery without
+Torch had five import errors and four obsolete task-file/budget assertions;
+those logs are retained. JavaScript passed 164 with three skips (167 total);
+the two original-session replays subsequently passed with their original bytes.
+The remaining JS skip requires a genuinely case-sensitive filesystem.
+
+The original uncapped NPU trial was subsequently paused at the user's request
+for complete session analysis. Newly discovered child-page truncation and
+successful-build diagnostic visibility defects are follow-up work; this baseline
+must not be represented as testing those later fixes.
+
 Four stress scenarios passed in `.validation/propose-admit-stress-summary.json`: 32 independent Gateway/Journal instances issued 320 proposals (192 original HTTP completions and 128 budget rejections); 64 concurrent copies of one ID dispatched once; parent admission survived 32 concurrent child proposals; 32 real child permits retained an unknown-result fence until original-receipt recovery. Every Journal prefix was checked for nonnegative reservations, no overspend and unique admission/start/settlement. All final reservations were zero. The first child fixture omitted its parent dependency and was correctly rejected; that failed fixture log remains retained. No runtime policy was weakened.
 
 ## Final ordinary and advanced TUI regression

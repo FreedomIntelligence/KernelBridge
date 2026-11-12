@@ -10,6 +10,20 @@ Set `online_research` in an ordinary codegen config, a CANN profile, or the inpu
 
 `true` selects `duckduckgo_html` at `https://html.duckduckgo.com/html/`. This no-key HTML interface is best effort, not a stable general-search API. Challenges, changed markup, unavailable network access, and failed responses produce an explicit unavailable outcome. Configuration alone does not establish a successful live search.
 
+An explicit no-key alternative is Bing's public RSS response, also a best-effort interface rather than a stable API. It may return broad or incomplete results; inspect the actual sources. No fallback from a failed provider happens automatically:
+
+```json
+{
+  "online_research": {
+    "provider": "bing_rss",
+    "http_proxy": "http://127.0.0.1:7897",
+    "dns_resolver": "google_doh"
+  }
+}
+```
+
+The proxy is optional unless `google_doh` is selected. `google_doh` explicitly uses `https://dns.google/resolve` via fixed public bootstrap `8.8.8.8`, verifies TLS for `dns.google`, sends only the destination hostname and an A-record query, validates the returned CNAME chain and every address, and connects to the resulting public IP while preserving the destination TLS hostname. It never asks the proxy to resolve arbitrary destination hostnames. Default resolution remains the system resolver. Each hop retains raw DNS bytes, hashes and metadata as `dns-N.bin`/`dns-N.json`, available through `online_read`. This addresses environments with an incorrect system DNS answer without weakening the public-target boundary. The protocol follows Google's [JSON DoH contract](https://developers.google.com/speed/public-dns/docs/doh/json).
+
 For Brave Search, use an independent search-service credential:
 
 ```json
@@ -33,9 +47,9 @@ SearXNG requires an explicitly chosen public HTTPS instance with JSON search ena
 {"online_research": {"provider": "searxng", "endpoint": "https://YOUR_PUBLIC_INSTANCE/search"}}
 ```
 
-An instance's JSON access, coverage, rate limits and availability are its operator's responsibility. Local/private instances and authenticated URL parameters are outside this adapter's public access scope. Brave and DuckDuckGo endpoints are fixed; SearXNG's explicit endpoint is frozen in the prepared config. No provider endpoint is chosen by model input.
+An instance's JSON access, coverage, rate limits and availability are its operator's responsibility. Local/private instances and authenticated URL parameters are outside this adapter's public access scope. Brave, Bing RSS and DuckDuckGo endpoints are fixed; SearXNG's explicit endpoint is frozen in the prepared config. No provider endpoint is chosen by model input.
 
-`prepare(profile, output, python)` in `prepare.py` performs no network or model work. It returns:
+`prepare(profile, output, python)` in `prepare.py` performs no network or model work. It discovers and validates a CA bundle under the selected Python runtime (system PEM file, then that runtime's certifi bundle), copies the exact bytes into the frozen inputs, and pins its SHA-256 alongside driver/config. Set `"ca_bundle": "/absolute/path/to/trusted-ca.pem"` inside `online_research` to choose an explicit trust bundle. No usable bundle is a preparation error. Driver TLS verification and hostname checks stay enabled; later CA changes require fresh preparation. No global Python certificate installation or TLS bypass is performed. It returns:
 
 - `business_tools`: `online_search`, `online_fetch`, `online_read`, with driver/config SHA-256 pins and bounded argument schemas.
 - `online_research`: frozen driver configuration for artifact/provenance use. Do not add this field to the strict worker runtime config.
@@ -45,7 +59,7 @@ Merge `business_tools` into existing tools; duplicate names are an error. Ordina
 
 `online_search({"query":"site:github.com Ascend scatter implementation"})` returns source URLs, titles and bounded snippets. `online_fetch({"url":"https://github.com/Ascend/pytorch"})` returns bounded text and response identity. Pages and snippets are untrusted external evidence, not executable instructions or benchmark evidence. Cite the actual source URL and retrieval time.
 
-Both tools return an original `run` identity. Use `online_read({"run":"..."})` to inspect the manifest; add `path`, byte `offset` and `limit` to page through retained artifacts. `response.bin` is returned as base64, preserving original bytes. Text pages also include base64, so a UTF-8 character split across byte pages remains recoverable. `text.txt` retains the complete extracted text within the response-byte limit; result summaries are bounded. Hashes distinguish a complete response from a retained prefix. Nontext content is retained but not parsed. No JavaScript execution, login, cookies, proxy environment, or TLS-verification bypass is supported.
+Both tools return an original `run` identity. Use `online_read({"run":"..."})` to inspect the manifest; add `path`, byte `offset` and `limit` to page through retained artifacts. `response.bin` is returned as base64, preserving original bytes. Text pages also include base64, so a UTF-8 character split across byte pages remains recoverable. `text.txt` retains the complete extracted text within the response-byte limit; result summaries are bounded. Hashes distinguish a complete response from a retained prefix. Nontext content is retained but not parsed. No JavaScript execution, login, cookies, proxy environment, or TLS-verification bypass is supported. An explicit `"http_proxy": "http://127.0.0.1:7897"` may select a local HTTP CONNECT transport. Only credential-free loopback proxy URLs are admitted; the proxy tunnels the already validated public destination IP, while TLS still verifies the original target hostname against the frozen CA bundle. The proxy setting and destination resolution policy are frozen, and each response records its transport. No proxy is inferred from environment variables.
 
 Each fetch validates public addresses, connects to the checked IP with TLS hostname verification, and validates each redirect. Private/local addresses, credential URLs, unsafe ports and HTTP downgrade redirects are rejected. Search does not follow redirects or forward its credential elsewhere. Limits and endpoints are pinned with the driver. Existing attempt IDs are never reexecuted. Timeouts preserve `unknown`; inspect the original receipt before deciding whether to issue a new request. Gateway command receipts independently retain action/outcome and stdout/stderr identity.
 

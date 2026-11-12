@@ -1,4 +1,5 @@
 """Goal completion requires original F/G/H receipts, never a model's success text."""
+import base64
 import copy
 import hashlib
 import json
@@ -69,6 +70,24 @@ class OperatorAcceptanceTests(unittest.TestCase):
     def receipt(self):
         return promoted_receipt(self.host, self.state, self.declared, 'h', self.actions['h'], self.actions, self.contexts)
 
+    def checkpoint(self, action_id, files):
+        """Record a distinct admitted workspace, without changing pipeline receipts."""
+        records = []
+        for name, content in sorted(files.items()):
+            try:
+                encoded = {'text': content.decode('utf-8')}
+            except UnicodeDecodeError:
+                encoded = {'base64': base64.b64encode(content).decode('ascii')}
+            records.append({'path': name, **encoded, 'sha256': hashlib.sha256(content).hexdigest(), 'mode': 0o644})
+        return self.checkpoint_records(action_id, records)
+
+    def checkpoint_records(self, action_id, records):
+        identity = digest(records)
+        path = self.root / 'checkpoints' / (identity + '.json')
+        path.write_text(json.dumps({'source_sha256': identity, 'files': records}))
+        self.contexts[action_id]['source_sha256'] = identity
+        return path
+
     def test_original_full_pair_promotes_e1_and_e3_then_completes(self):
         collect_pipeline_acceptance(self.host, self.state, self.declared)
         self.assertEqual([name for name, _ in self.commands], ['evidence', 'evidence', 'goal_outcome'])
@@ -94,6 +113,69 @@ class OperatorAcceptanceTests(unittest.TestCase):
         self.assertIsNone(self.receipt())
         self.contexts['g']['source_sha256'] = self.contexts['h']['source_sha256']
         self.actions['g']['terminal'] = False
+        self.assertIsNone(self.receipt())
+
+    def test_scratch_only_changes_preserve_candidate_and_original_checkpoint_identities(self):
+        source = {'candidate.py': b'fixture candidate'}
+        self.checkpoint('f', {**source, 'analysis.txt': b'before correctness'})
+        self.checkpoint('g', {**source, 'helper.py': b'print(1)\n', '__pycache__/helper.pyc': b'\xff\x00\x80binary'})
+        self.checkpoint('h', {**source, 'analysis.txt': b'after pairing'})
+        identities = {name: context['source_sha256'] for name, context in self.contexts.items()}
+        self.assertEqual(len(set(identities.values())), 3)
+        evidence = copy.deepcopy(self.actions['h']['outcome']['data']['promotion_evidence'])
+        checkpoint_bytes = {path: path.read_bytes() for path in (self.root / 'checkpoints').iterdir()}
+
+        collect_pipeline_acceptance(self.host, self.state, self.declared)
+
+        self.assertEqual([name for name, _ in self.commands], ['evidence', 'evidence', 'goal_outcome'])
+        e1, e3 = [value for name, value in self.commands if name == 'evidence']
+        self.assertEqual((e1['evidence_ref'], e1['source_sha256']), ('f', identities['f']))
+        self.assertEqual((e3['evidence_ref'], e3['source_sha256']), ('h', identities['h']))
+        self.assertEqual((e3['original_f'], e3['original_g']), ('f', 'g'))
+        for receipt in (e1, e3):
+            self.assertEqual(receipt['source_files'], evidence['source_files'])
+            self.assertEqual(receipt['receipt_hashes'], evidence['receipts'])
+        self.assertEqual(self.actions['h']['outcome']['data']['promotion_evidence'], evidence)
+        self.assertEqual({path: path.read_bytes() for path in checkpoint_bytes}, checkpoint_bytes)
+
+    def test_changed_or_missing_candidate_in_any_admission_cannot_be_hidden_by_helpers(self):
+        originals = {name: context['source_sha256'] for name, context in self.contexts.items()}
+        for action_id in ('f', 'g', 'h'):
+            for candidate in (b'changed candidate', None):
+                with self.subTest(action=action_id, candidate=candidate):
+                    files = {'scratch/candidate.py': b'fixture candidate'}
+                    if candidate is not None:
+                        files['candidate.py'] = candidate
+                    self.checkpoint(action_id, files)
+                    self.assertIsNone(self.receipt())
+                    self.contexts[action_id]['source_sha256'] = originals[action_id]
+        self.assertIsNotNone(self.receipt())
+
+    def test_published_bundle_must_not_include_workspace_helpers(self):
+        self.checkpoint('h', {'candidate.py': b'fixture candidate', 'helper.py': b'print(1)\n'})
+        self.assertIsNotNone(self.receipt())
+        evidence = self.actions['h']['outcome']['data']['promotion_evidence']
+        evidence['source_files']['helper.py'] = hashlib.sha256(b'print(1)\n').hexdigest()
+        self.assertIsNone(self.receipt())
+
+    def test_candidate_projection_validates_full_checkpoint_content_and_admitted_identity(self):
+        path = self.checkpoint('h', {'candidate.py': b'fixture candidate', 'scratch.bin': b'\xff\x80'})
+        original = json.loads(path.read_text())
+        for name, update in (
+                ('candidate bytes', lambda rows: rows[0].update(text='tampered candidate')),
+                ('scratch hash', lambda rows: rows[1].update(sha256='0' * 64)),
+                ('scratch encoding', lambda rows: rows[1].update(base64='not-base64!'))):
+            with self.subTest(corruption=name):
+                records = copy.deepcopy(original['files'])
+                update(records)
+                # Even a matching outer digest must not hide a corrupt file.
+                self.checkpoint_records('h', records)
+                self.assertIsNone(self.receipt())
+        # A valid checkpoint copied under a different admitted identity is not
+        # the checkpoint originally frozen for that action.
+        impostor = self.root / 'checkpoints' / ('0' * 64 + '.json')
+        impostor.write_text(json.dumps(original))
+        self.contexts['h']['source_sha256'] = '0' * 64
         self.assertIsNone(self.receipt())
 
     def test_raw_receipt_tampering_and_unqualified_gain_are_rejected(self):
@@ -223,6 +305,29 @@ class OperatorAcceptanceTests(unittest.TestCase):
                 self.contexts['crashed-owner'][field] = prior
         del self.actions['crashed-owner']
         self.assertIsNone(self.receipt())
+
+    def test_orphan_f_can_reuse_original_receipt_after_scratch_only_changes(self):
+        result, folder = self.composite_f(origin='crashed-owner')
+        original_descriptor = copy.deepcopy(result['stages'][0])
+        original_receipt = (folder / 'driver/receipt.json').read_bytes()
+        candidate = {'candidate.py': b'fixture candidate'}
+        prior_path = self.checkpoint('crashed-owner', {**candidate, 'old-helper.bin': b'\xfe\x00'})
+        self.checkpoint('f', {**candidate, 'recovery-notes.txt': b'recovered original F'})
+        self.checkpoint('g', {**candidate, 'pair-notes.txt': b'paired candidate'})
+        self.checkpoint('h', candidate)
+
+        accepted = self.receipt()
+
+        self.assertIsNotNone(accepted)
+        self.assertEqual(accepted['original_f'], 'f')
+        self.assertEqual(result['stages'][0], original_descriptor)
+        self.assertEqual((folder / 'driver/receipt.json').read_bytes(), original_receipt)
+        self.assertEqual(accepted['receipt_hashes'][str(folder / 'driver/receipt.json')],
+                         hashlib.sha256(original_receipt).hexdigest())
+        self.checkpoint('crashed-owner', {'candidate.py': b'different original candidate'})
+        self.assertIsNone(self.receipt())
+        self.contexts['crashed-owner']['source_sha256'] = prior_path.stem
+        self.assertIsNotNone(self.receipt())
 
 
 if __name__ == '__main__': unittest.main()

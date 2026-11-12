@@ -122,6 +122,13 @@ clean task 的 `writable` 字段声明**候选运行源码集合**，用于冻�
 `prepare_npu_campaign.py --online-research` 是启用这一默认 provider 的便捷参数。
 不配置时不注册检索工具。
 
+另有显式的 `bing_rss` provider，使用公开 RSS 返回；它也是 best-effort 接口，不能保证
+长期可用性或检索相关性。存在网络或 DNS 问题时，可显式配置 loopback HTTP CONNECT
+代理和 `dns_resolver: "google_doh"`。每次仍校验公开目标 IP、TLS 证书与 hostname；
+不读取环境代理、不绕过证书校验，也不在 provider 之间自动 fallback。CA bundle 从
+指定运行时的可用系统 CA 或 certifi 验证、复制并绑定哈希，也可显式提供 `ca_bundle`。
+具体字段与真实验证边界见 [online research](../examples/online_research/README.md)。
+
 | 工具 | 实际行为 |
 | --- | --- |
 | `online_search` | 向配置的 provider 提交显式公开 query，保留真实 URL、摘要和回执 |

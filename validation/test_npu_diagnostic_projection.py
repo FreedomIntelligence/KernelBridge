@@ -11,6 +11,7 @@ import sys
 from types import SimpleNamespace
 import unittest
 import uuid
+from unittest.mock import patch
 
 import test_npu_pipeline_driver as fixture
 
@@ -25,6 +26,8 @@ class OriginalNpuDiagnosticFixture(unittest.TestCase):
     def setUp(self):
         fixture.NpuPipelineDriverTest.setUp(self)
         self.job = self.root / 'remote-original/job'; self.job.mkdir(parents=True)
+        self.handle = dict(self.handle, attempt=str(self.job.parent))
+        self.request['handle'] = adapter.wire_handle(self.handle)
         self.calls = self.root / 'transport-calls.jsonl'
         self.transport = self.root / 'read-only-transport.py'
         self.transport.write_text('''import hashlib,json,subprocess,sys
@@ -32,10 +35,12 @@ from pathlib import Path
 def run(argv, *, stdin, timeout):
     assert argv[:3] == ['python3', '-B', '-c']
     assert hashlib.sha256(argv[3].encode()).hexdigest() == SCRIPT_SHA, 'No dispatch or substitute script is allowed'
-    assert stdin == b'' and timeout == 45
+    request=json.loads(stdin); assert timeout == 45
+    assert request['limit'] <= 262144 and request['offset'] >= 0
     assert Path(argv[4]).resolve() == Path(JOB).resolve(), 'Only the original job is readable'
-    with Path(CALLS).open('a') as stream: stream.write(json.dumps({'operation': 'read_original_artifact', 'job': argv[4], 'path': argv[5]})+'\\n')
+    with Path(CALLS).open('a') as stream: stream.write(json.dumps({'operation': 'read_original_artifact', 'job': argv[4], 'path': argv[5], 'offset': request['offset'], 'limit': request['limit']})+'\\n')
     result = subprocess.run([sys.executable, *argv[1:]], input=stdin, capture_output=True, timeout=timeout)
+    assert len(result.stdout) < 360000, 'Artifact page exceeded bounded transport frame'
     return {'returncode': result.returncode, 'stdout': result.stdout, 'stderr': result.stderr}
 ''' + '\nSCRIPT_SHA = ' + repr(hashlib.sha256(adapter.READ_ARTIFACT.encode()).hexdigest())
             + '\nJOB = ' + repr(str(self.job)) + '\nCALLS = ' + repr(str(self.calls)) + '\n')
@@ -53,6 +58,10 @@ def run(argv, *, stdin, timeout):
         observation = {'result': self.result, 'result_sha256': digest, 'cpu_fallback': False, 'log_tail': ''}
         for name, value in [('device-result.json', self.result), ('result.json', summary), ('observation.json', observation)]:
             (self.folder / name).write_text(json.dumps(value))
+        (self.job / 'result.json').write_text(original)
+        (self.job.parent / 'launch.json').write_text(json.dumps(self.handle))
+        (self.job.parent / 'intent.json').write_bytes((self.folder / 'intent.json').read_bytes())
+        (self.job.parent / 'candidate.py').write_bytes((self.folder / 'candidate.py').read_bytes())
 
 
     def artifact(self, kind, data=None):
@@ -167,22 +176,57 @@ class NpuDiagnosticProjectionTests(OriginalNpuDiagnosticFixture):
                 if boundary == 'changed': path.write_bytes(b'tampered')
                 elif boundary == 'missing': path.unlink()
                 else:
-                    path.write_bytes(b'' if boundary == 'empty' else b'x' * (8 * 1024 * 1024 + 1))
+                    with path.open('wb') as stream: stream.truncate(0 if boundary == 'empty' else adapter.MAX_ARTIFACT + 1)
                     record['artifacts'][path.name] = adapter.sha(path)
                 self.result['diagnostics']['reports'] = [record]; self.seal_result()
-                expected = ValueError if boundary == 'changed' else RuntimeError
-                with self.assertRaisesRegex(expected, 'hash changed|missing or outside bounded job'):
-                    self.project('ir')
+                if boundary == 'oversize':
+                    result, output = self.project('ir')
+                    self.assertEqual(result['status'], 'unavailable')
+                    self.assertFalse(result['collection_complete']); self.assertEqual(result['artifacts'], {})
+                    self.assertEqual(result['original_artifacts'], record['artifacts'])
+                    failure = result['unavailable_artifacts'][0]
+                    self.assertEqual(failure['bytes'], adapter.MAX_ARTIFACT + 1)
+                    self.assertEqual(failure['expected_sha256'], record['artifacts']['ir.ll'])
+                    self.assertIn('collection bound', failure['reason'])
+                    self.assertEqual(list((output / 'artifacts').iterdir()), [])
+                else:
+                    with self.assertRaisesRegex(RuntimeError, 'hash changed|missing'):
+                        self.project('ir')
         self.assertEqual(len(self.reads()), 4)
 
 
-    def test_exact_eight_MiB_limit_is_readable(self):
-        record = self.artifact('ir', b'x' * (8 * 1024 * 1024))
+    def test_larger_than_eight_MiB_is_reconstructed_in_bounded_pages(self):
+        size = 9 * 1024 * 1024 + 17
+        record = self.artifact('ir', b'x' * size)
         self.result['diagnostics']['reports'] = [record]; self.seal_result()
         result, output = self.project('ir')
         path = output / next(iter(result['artifacts']))
-        self.assertEqual(path.stat().st_size, 8 * 1024 * 1024)
+        self.assertEqual(path.stat().st_size, size)
         self.assertEqual(adapter.sha(path), record['artifacts']['ir.ll'])
+        self.assertEqual([row['offset'] for row in self.reads()], list(range(0, size, adapter.LOG_PAGE_BYTES)))
+        self.assertTrue(result['collection_complete'])
+
+
+    def test_page_change_and_symlink_are_rejected_without_partial_artifact(self):
+        for kind in ('changed-page', 'symlink'):
+            record = self.artifact('ir', b'x' * (adapter.LOG_PAGE_BYTES + 17))
+            self.result['diagnostics']['reports'] = [record]; self.seal_result()
+            path = self.job / 'ir.ll'
+            real_transport = adapter.transport(self.config)
+            def read(argv, **kwargs):
+                reply = real_transport(argv, **kwargs)
+                if json.loads(kwargs['stdin'])['offset'] == 0:
+                    path.write_bytes(b'y' * (adapter.LOG_PAGE_BYTES + 17))
+                return reply
+            if kind == 'symlink':
+                target = self.root / 'outside.ll'; target.write_bytes(path.read_bytes())
+                path.unlink(); path.symlink_to(target)
+            with self.subTest(kind=kind), patch.object(adapter, 'transport', return_value=read if kind == 'changed-page' else real_transport), \
+                    self.assertRaisesRegex(RuntimeError, 'changed|linked'):
+                self.project('ir')
+            self.assertEqual(list(self.root.glob('projection-*/artifacts/*.ll')), [])
+            self.assertEqual(list(self.root.glob('projection-*/artifacts/*.tmp')), [])
+            if path.is_symlink(): path.unlink()
 
 
     def test_original_result_source_and_handle_are_checked_before_download(self):
@@ -198,6 +242,19 @@ class NpuDiagnosticProjectionTests(OriginalNpuDiagnosticFixture):
         with self.assertRaisesRegex(ValueError, 'Frozen source changed'):
             self.project('ir')
         self.assertEqual(self.reads(), [])
+
+
+    def test_remote_original_identity_is_checked_before_reading_a_page(self):
+        for kind in ('source', 'handle', 'result', 'intent'):
+            self.result['diagnostics']['reports'] = [self.artifact('ir')]; self.seal_result()
+            if kind == 'source': (self.job.parent / 'candidate.py').write_bytes(b'other source')
+            elif kind == 'handle':
+                (self.job.parent / 'launch.json').write_text(json.dumps(dict(self.handle, pid=99)))
+            elif kind == 'result': (self.job / 'result.json').write_text('{}\n')
+            else: (self.job.parent / 'intent.json').write_text('{}\n')
+            with self.subTest(kind=kind), self.assertRaisesRegex(RuntimeError, 'changed'):
+                self.project('ir')
+        self.assertEqual(list(self.root.glob('projection-*/artifacts/*.ll')), [])
 
 
     def test_prepare_defaults_and_explicit_boolean_overrides(self):

@@ -227,9 +227,12 @@ class NativePreflightRejectionTests(unittest.TestCase):
                 profile = self.root / 'cube-profile.json'; profile.write_text(json.dumps({'mode': mode, 'device': 1,
                     'transport_module': self.config['transport_module'], 'remote_root': '/no-dispatch',
                     'oracle_files': {'oracle.py': str(self.oracle)}, 'baseline_files': {'oracle.py': str(self.oracle)}}))
+            source_inputs = {path: path.read_bytes() for path in (runtime, task, profile) if path is not None}
             prepare(SimpleNamespace(output=output, task=task, profile=profile, runtime_profile=runtime,
                 mode=mode, device=1, transport=Path(self.config['transport_module']), remote_root='/no-dispatch',
                 python=Path(sys.executable)))
+            for path, original in source_inputs.items():
+                self.assertEqual(path.read_bytes(), original)
             config = json.loads((output / 'pipeline-tools/config.json').read_text())
             for name, driver in config['drivers'].items():
                 self.assertEqual(driver.get('preflight_rejection_protocol'),
@@ -242,7 +245,10 @@ class NativePreflightRejectionTests(unittest.TestCase):
             self.assertEqual(len(tools), 11)
             for tool in tools: self.assertIn({'path': str(copied), 'sha256': adapter.sha(copied)}, tool['files'])
             fresh = json.loads((output / 'profile.json').read_text())
-            self.assertEqual(fresh['application']['max_model_turns'], 20)
+            self.assertEqual(fresh['application'], {'max_model_turns': 123})
+            for name in ('profile-fragment.json', 'clean-input-manifest.json'):
+                prepared = json.loads((output / name).read_text())
+                self.assertEqual(prepared['application'], fresh['application'])
             self.assertEqual(fresh['config']['providers'], {'fixture': {'model': 'unchanged'}})
             self.assertFalse((output / 'project/candidate.py').exists())
             self.assertFalse(any((output / 'attempts').iterdir()))

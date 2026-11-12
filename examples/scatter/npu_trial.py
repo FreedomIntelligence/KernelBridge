@@ -23,8 +23,17 @@ except ModuleNotFoundError:
 
 
 def wire_summary(summary):
-    """Keep durable and measurement bytes intact; project only the job handle."""
-    return {**summary, 'original_handle': wire_handle(summary['original_handle'])} if 'original_handle' in summary else dict(summary)
+    """Keep durable evidence intact; avoid lossy OS identities on the JS wire."""
+    projected = {**summary, 'original_handle': wire_handle(summary['original_handle'])} if 'original_handle' in summary else dict(summary)
+    if isinstance(summary.get('run_log'), dict):
+        log = dict(summary['run_log'])
+        log['original_handle'] = wire_handle(log.get('original_handle'))
+        if isinstance(log.get('observed'), dict):
+            # Device/inode/nanosecond values remain exact in run-log.json. They
+            # are not model inputs and need not cross JSON number consumers.
+            log['observed'] = {key: value for key, value in log['observed'].items() if key != 'identity'}
+        projected['run_log'] = log
+    return projected
 
 
 def implementation_digest(parsed):
@@ -65,7 +74,7 @@ temp=folder/'launch.tmp';temp.write_text(json.dumps(handle));temp.replace(folder
 print(json.dumps({'existing':False,'handle':handle}))
 '''
 
-COLLECT = r'''import json,sys,hashlib
+COLLECT = r'''import json,sys,hashlib,os,stat
 from pathlib import Path
 folder=Path(sys.argv[1]); path=folder/'job/result.json'; handle_path=folder/'launch.json'
 handle=json.loads(handle_path.read_text()) if handle_path.exists() else None
@@ -74,22 +83,153 @@ alive=bool(proc and (proc/'cmdline').exists() and b'--candidate' in (proc/'cmdli
 result=json.loads(path.read_text()) if path.exists() else None
 log=folder/'run.log'
 markers=(b'fall back to run on the CPU',b'npu_cpu_fallback')
-overlap=b''; tail=b''; cpu_fallback=False
+overlap=b''; tail=b''; cpu_fallback=False; log_record=None
 if log.exists():
- with log.open('rb') as stream:
+ with os.fdopen(os.open(log,os.O_RDONLY|os.O_NOFOLLOW),'rb') as stream:
+  before=os.fstat(stream.fileno())
+  if not stat.S_ISREG(before.st_mode):raise ValueError('Original run.log is not a regular file')
+  digest=hashlib.sha256(); size=0
   while chunk:=stream.read(65536):
+   digest.update(chunk); size+=len(chunk)
    scanned=overlap+chunk
    cpu_fallback=cpu_fallback or any(marker in scanned for marker in markers)
    overlap=scanned[-(max(map(len,markers))-1):]
    tail=(tail+chunk)[-12000:]
-print(json.dumps({'handle':handle,'alive':alive,'result':result,'result_sha256':hashlib.sha256(path.read_bytes()).hexdigest() if result else None,'cpu_fallback':cpu_fallback,'log_tail':tail.decode(errors='replace')}))
+  after=os.fstat(stream.fileno())
+  identity=lambda s:[s.st_dev,s.st_ino,s.st_mtime_ns,s.st_size]
+  stable=identity(before)==identity(after) and size==after.st_size
+  log_record={'path':'run.log','bytes':size,'sha256':digest.hexdigest(),'identity':identity(after),'stable':stable,'complete':stable and not alive}
+print(json.dumps({'handle':handle,'alive':alive,'result':result,'result_sha256':hashlib.sha256(path.read_bytes()).hexdigest() if result else None,'cpu_fallback':cpu_fallback,'log_tail':tail.decode(errors='replace'),'log':log_record}))
 '''
+
+
+# Read only the observed original file, in bounded pages. No device work, log
+# rewriting or replacement launch is permitted on this recovery path.
+LOG_PAGE_BYTES = 256 * 1024
+MAX_LOG_BYTES = 64 * 1024 * 1024
+READ_RUN_LOG = r'''import base64,hashlib,json,os,stat,sys
+from pathlib import Path
+r=json.load(sys.stdin); folder=Path(r['remote_attempt'])
+if folder.resolve()!=folder:raise ValueError('Original attempt path contains a link')
+def original_file(name):
+ path=folder/name
+ if path.resolve()!=path or not path.is_file():raise ValueError('Original evidence missing or linked: '+name)
+ return path
+intent=json.loads(original_file('intent.json').read_text())
+for key in ('action_id','attempt','source_sha256'):
+ if intent.get(key)!=r[key]:raise ValueError('Original intent differs: '+key)
+if hashlib.sha256(original_file('candidate.py').read_bytes()).hexdigest()!=r['source_sha256']:raise ValueError('Original candidate changed')
+handle=json.loads(original_file('launch.json').read_text())
+if handle!=r['handle'] or handle.get('attempt')!=str(folder):raise ValueError('Original handle differs')
+if hashlib.sha256(original_file('job/result.json').read_bytes()).hexdigest()!=r['result_sha256']:raise ValueError('Original result changed')
+offset=r['offset']; limit=r['limit']; expected=r['log']
+if type(offset)is not int or not 0<=offset<=expected['bytes'] or type(limit)is not int or not 1<=limit<=262144:raise ValueError('Invalid original log page')
+path=original_file('run.log')
+with os.fdopen(os.open(path,os.O_RDONLY|os.O_NOFOLLOW),'rb') as stream:
+ before=os.fstat(stream.fileno()); identity=lambda s:[s.st_dev,s.st_ino,s.st_mtime_ns,s.st_size]
+ if not stat.S_ISREG(before.st_mode) or identity(before)!=expected['identity'] or before.st_size!=expected['bytes']:raise ValueError('Original log changed; collect the same handle again')
+ stream.seek(offset); data=stream.read(min(limit,expected['bytes']-offset))
+ if identity(os.fstat(stream.fileno()))!=expected['identity']:raise ValueError('Original log changed during read')
+print(json.dumps({'offset':offset,'bytes':len(data),'sha256':hashlib.sha256(data).hexdigest(),'data':base64.b64encode(data).decode()}))
+'''
+
+
+def capture_run_log(folder, intent, observation, run):
+    """Retain verified bytes without changing an original job's terminal status."""
+    metadata = observation.get('log')
+    binding = {'source_sha256': intent['source_sha256'], 'remote_attempt': intent['remote_attempt'],
+               'original_handle': observation.get('handle'), 'remote_result_sha256': observation.get('result_sha256')}
+    record = {'status': 'unavailable', 'complete': False, **binding}
+    temporary = folder / 'run.log.tmp'
+    try:
+        if not isinstance(metadata, dict):
+            raise ValueError('Original observation has no full-log metadata; legacy tail is not a complete log')
+        record['observed'] = metadata
+        size = metadata.get('bytes')
+        if type(size) is not int or size < 0:
+            raise ValueError('Original log length is invalid')
+        if metadata.get('stable') is not True:
+            raise ValueError('Original log was changing; recover the same attempt to read it again')
+        if hashlib.sha256((folder / 'candidate.py').read_bytes()).hexdigest() != intent['source_sha256']:
+            raise ValueError('Local original candidate identity changed')
+        launch = folder / 'launch.json'
+        if launch.exists():
+            acknowledged = json.loads(launch.read_text()).get('handle')
+            if acknowledged and not same_handle(acknowledged, observation.get('handle')):
+                raise ValueError('Observed handle differs from the original launch acknowledgement')
+        request = {**binding, 'handle': observation.get('handle'), 'result_sha256': observation.get('result_sha256'),
+                   'action_id': intent['action_id'], 'attempt': attempt_number(intent), 'log': metadata}
+        def read_page(offset, limit=LOG_PAGE_BYTES):
+            page = invoke_remote(run, READ_RUN_LOG, body={**request, 'offset': offset, 'limit': limit})
+            data = base64.b64decode(page['data'], validate=True)
+            if (page.get('offset') != offset or page.get('bytes') != len(data)
+                    or len(data) != min(limit, size - offset)
+                    or hashlib.sha256(data).hexdigest() != page.get('sha256')):
+                raise ValueError('Original log page identity or length differs')
+            return data
+        if size > MAX_LOG_BYTES:
+            # Preserve the beginning as well as the end, never disguise a tail
+            # as a full file. The receipt keeps the original total size/hash.
+            fragments = {}
+            for name, offset in (('run.log.head', 0), ('run.log.tail', size - LOG_PAGE_BYTES)):
+                data = read_page(offset)
+                (folder / name).write_bytes(data)
+                fragments[name] = {'offset': offset, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
+            record.update(status='partial', complete=False, fragments=fragments,
+                          reason=f'Original log exceeds the {MAX_LOG_BYTES}-byte local retention bound; only explicit head/tail byte ranges retained.')
+            save(folder / 'run-log.json', record)
+            return record
+        digest = hashlib.sha256()
+        with temporary.open('wb') as stream:
+            for offset in range(0, max(size, 1), LOG_PAGE_BYTES):
+                data = read_page(offset)
+                digest.update(data); stream.write(data)
+            stream.flush(); os.fsync(stream.fileno())
+        if digest.hexdigest() != metadata.get('sha256'):
+            raise ValueError('Original complete log hash differs')
+        temporary.replace(folder / 'run.log')
+        record.update(status='completed' if metadata.get('complete') is True else 'partial', path='run.log',
+                      bytes=size, sha256=digest.hexdigest(), complete=metadata.get('complete') is True)
+        if not record['complete']:
+            record['reason'] = 'All observed bytes retained; original process was still alive. Recover the same attempt for its final log.'
+    except Exception as error:
+        record['reason'] = str(error)[:2048]
+        record['recovery'] = 'Read-only recovery of this original attempt; never launch a replacement for missing logs.'
+    finally:
+        temporary.unlink(missing_ok=True)
+    save(folder / 'run-log.json', record)
+    return record
 
 
 def transport(config):
     spec = importlib.util.spec_from_file_location('task_npu_transport', config['transport_module'])
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
     return module.run
+
+
+def recover_run_log(folder, run):
+    """Explicit log-only recovery; never replace terminal F/G measurements."""
+    with (folder.parent / 'lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        intent = json.loads((folder / 'intent.json').read_text())
+        original = json.loads((folder / 'observation.json').read_text())
+        record = json.loads((folder / 'run-log.json').read_text())
+        try:
+            observed = invoke_remote(run, COLLECT, intent['remote_attempt'])
+        except Exception as error:
+            record['recovery_error'] = str(error)[:2048]
+            save(folder / 'run-log.json', record)
+            return record
+        if (observed.get('result_sha256') != original['result_sha256']
+                or observed.get('result') != original['result']
+                or not same_handle(observed.get('handle'), original.get('handle'))
+                or observed['result'].get('source_sha256') != intent['source_sha256']):
+            raise ValueError('Original result or handle changed during log-only recovery')
+        record = capture_run_log(folder, intent, observed, run)
+        # Preserve original result, qualification, log-tail scan and measurement
+        # receipt bytes. Only the separately bound log artifact is enriched.
+        save(folder / 'observation.json', {**original, 'log': observed.get('log')})
+        return record
 
 
 def invoke_remote(run, script, *args, body=None):
@@ -113,6 +253,7 @@ def collect(config, folder, run):
             result = observation['result']
             if result.get('source_sha256') != intent['source_sha256']:
                 raise ValueError('Original result source identity differs')
+            log_record = capture_run_log(folder, intent, observation, run) if observation.get('log') is not None else None
             if observation.get('cpu_fallback') or 'fall back to run on the CPU' in observation['log_tail'] or 'npu_cpu_fallback' in observation['log_tail']:
                 result = {**result, 'status': 'failed', 'correct': False, 'message': 'CPU fallback detected; not qualified NPU timing'}
             save(folder / 'device-result.json', result)
@@ -125,6 +266,8 @@ def collect(config, folder, run):
                        'record': str(folder / 'device-result.json'), 'diagnostic': observation['log_tail'] if result['status'] != 'completed' else None,
                        'diagnostics': result.get('diagnostics'),
                        'promotion': 'none; compare rounds as best-observed only'}
+            if log_record is not None:
+                summary['run_log'] = {**log_record, 'original_handle': wire_handle(log_record['original_handle'])}
             save(folder / 'result.json', summary)
             save(Path(config['candidate']).parent / 'feedback.json', summary)
             return {'status': 'completed', 'data': wire_summary(summary)}

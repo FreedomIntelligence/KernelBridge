@@ -702,3 +702,53 @@ The first upload lost its connection; a subsequent read-only query failed at
 the SLAI handshake. No fresh model trial starts before recovering and verifying
 that exact deployment identity. No alternate namespace, candidate or device
 job has been substituted.
+
+### Operator guidance and usable diagnostic feedback — 2026-11-12
+
+The later user instruction removes model-turn and total-token limits. Counters
+remain usage, not implicit budgets. The original uncapped DeepSeek trial remains
+unchanged at source `08f1178`; the wrapper's one-hour observer timeout did not
+stop its original host. At journal seq 2191 it had admitted 90 calls (71 parent,
+19 child), with five original device jobs, zero passing cases and no E1/E3/H.
+Three builds reached ACLNN execution failure. Its single explicit IR request
+returned the old unsupported `-emit-llvm` error, not usable IR. This snapshot is
+not the final result of that still-running trial.
+
+The next harness hypothesis is that missing admitted instructions and unusable
+feedback obstruct independent recovery. Clean campaign preparation now freezes
+the existing generic operator AGENTS guidance, exact workflow inputs and actual
+tool names. The host also delivers those immutable instructions to the child
+provider system message. Workspace helpers and private temporary files are
+allowed while references, instructions and candidate acceptance remain protected.
+F/G/H compare declared source inputs, independently from workspace scratch.
+
+Public-source comparison preceded implementation; see
+[the pinned audit](operator-guidance-alignment.md). Codex supplies a complete
+open implementation. Claude Code's public repository does not contain its full
+CLI core; the checked implementations are sandbox-runtime, official plugins and
+the Python SDK. These changes do not claim complete upstream compatibility.
+
+Real online search, official-page fetch and receipt reads passed through the
+admitted command tools using explicitly configured Bing RSS, loopback CONNECT
+and Google DoH. Earlier certificate, DNS and DDG challenge failures are retained,
+not counted as searches. The implementation pins an actual CA bundle and keeps
+TLS validation. No model key, conversation or candidate is sent to search.
+
+The original job's full log is now paged and identity-bound: its large trailing
+calibration JSON had hidden the earlier concrete error in the old tail-only
+response. Diagnostics likewise expose bounded pages with original paths and
+hashes. CANN IR extraction preserves the original compilation mode and validates
+bitcode, decoded target, compiler and source. An independent compiler-only empty
+kernel probe succeeded with the real CANN 9.2 bisheng compiler; this qualifies the
+collector, not a candidate or NPU performance. Failed builds and partial profiler
+output remain failures. Evidence is under `.validation/ir-qualification/remote-01`.
+
+Initial full JavaScript regression: 164 passed, 3 explicit skips, zero failures.
+The first Python discovery used a venv without CPU Torch and reported five
+import errors, plus four obsolete task-input/budget assertions. Reusing the
+existing CPU dependencies passed all 35 affected dependency tests; updated
+contract tests passed 11 with one original-private-receipt skip. All failed logs
+remain in `.validation/operator-guidance-tests`. Final full and PTY results will
+be recorded after source freeze. New model trials must start without candidates
+or inherited sessions. This bundle repairs several independently evidenced
+defects; a subsequent speedup cannot be attributed to one change alone.

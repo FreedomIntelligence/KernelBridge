@@ -48,7 +48,15 @@ test('clean task freezes documents and comparator while preserving strict shared
   assert.equal(config.application.max_trials, 1);
   assert.equal(config.application.complete_on_acceptance, false);
   assert.equal(config.credits, undefined);
-  assert.deepEqual(config.writable_paths, ['candidate.py']);
+  assert.equal(config.writable_paths, null);
+  assert.deepEqual(task.contract.acceptance.source_paths, ['candidate.py']);
+  assert(config.readonly_paths.includes('refs'));
+  assert(config.readonly_paths.includes('.kernelbridge/agents'));
+  const prepared = JSON.parse(await readFile(join(args.output, 'prepared.json'), 'utf8'));
+  assert.deepEqual(prepared.writable, ['candidate.py']);
+  assert.deepEqual(prepared.candidate_source_paths, ['candidate.py']);
+  assert.equal(prepared.workspace_write_policy.writable_paths, null);
+  assert.equal(prepared.workspace_write_policy.shell_persistence, 'successful_authorized_regular_file_diff');
   assert.match(task.contract.acceptance.baseline_files['eager.py'], /^[a-f0-9]{64}$/);
   assert.equal(config.business_tools.every(tool => tool.files.length === 2), true);
   await assert.rejects(readFile(join(config.workspace, 'candidate.py')), { code: 'ENOENT' });
@@ -104,6 +112,10 @@ test('generated resource paths cannot collide with authored readonly or writable
   args.task.readonly = ['contract.txt']; args.task.files = { 'contract.txt': 'contract' };
   args.task.writable = ['refs/candidate.py'];
   await assert.rejects(prepareOperatorTask(args), /conflict with generated reference/);
+  for (const path of ['.kernelbridge', '.kernelbridge/agents', '.kernelbridge/agents/role.md']) {
+    args.task.writable = [path];
+    await assert.rejects(prepareOperatorTask(args), /host-owned agent definitions/);
+  }
 });
 
 test('reference text keeps exact UTF-8 bytes including BOM', async t => {
@@ -132,6 +144,7 @@ test('non-UTF8 and NUL references retain their original pins and pipeline bindin
     assert(map.resources.every(row => row.read_path === null && row.access === 'host_only_binary'
       && row.binding_path === path && row.sha256 === sha256));
     assert.equal(Object.keys(task.seed_files).some(name => name.startsWith('refs/')), false);
+    assert(config.readonly_paths.includes('refs'), 'absent binary-only refs root stays protected');
     assert.equal(task.contract.acceptance.pipeline_contract.oracle.files['oracle.py'], sha256);
     assert.equal(task.contract.acceptance.baseline_files['oracle.py'], sha256);
     assert(config.business_tools.every(tool => tool.files.length === 1

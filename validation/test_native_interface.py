@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'examples/scatter'))
-from prepare_npu_campaign import NATIVE_INTERFACE, NATIVE_INTERFACE_VERSION, prepare, scatter_contract
+from prepare_npu_campaign import NATIVE_INTERFACE, NATIVE_INTERFACE_VERSION, OPERATOR_GUIDANCE, prepare, scatter_contract
 
 
 class NativeInterfaceTest(unittest.TestCase):
@@ -27,6 +27,7 @@ class NativeInterfaceTest(unittest.TestCase):
 
     def test_same_interface_reaches_scatter_and_cube_without_implementation_or_contract_change(self):
         document = NATIVE_INTERFACE.read_text()
+        guidance = OPERATOR_GUIDANCE.read_text()
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)
             transport = folder / 'transport.py'
@@ -56,13 +57,24 @@ class NativeInterfaceTest(unittest.TestCase):
                     task = json.loads((output / 'task.json').read_text())
                     workflow = json.loads((output / 'project/workflow-inputs.json').read_text())
                     manifest = json.loads((output / 'clean-input-manifest.json').read_text())
-                    self.assertEqual(set(task['files']), {'ABI.md', 'contract.json', 'workflow-inputs.json'})
+                    self.assertEqual(set(task['files']),
+                                     {'ABI.md', 'AGENTS.md', 'AGENTS.task.md', 'contract.json', 'workflow-inputs.json'})
                     self.assertEqual(task['writable'], ['candidate.py'])
+                    self.assertEqual(task['readonly'], sorted(task['files']))
+                    self.assertTrue(set(task['writable']).isdisjoint(task['readonly']))
+                    for path, text in task['files'].items():
+                        self.assertEqual(text, (output / 'project' / path).read_text())
+                    self.assertEqual(task['files']['AGENTS.md'], guidance)
+                    self.assertEqual(manifest['operator_guidance'], {
+                        'source': 'examples/cann/instructions/AGENTS.md',
+                        'sha256': hashlib.sha256(guidance.encode()).hexdigest()})
                     self.assertFalse((output / 'project/candidate.py').exists())
                     self.assertFalse(manifest['candidate_present'])
                     self.assertIsNone(manifest['seed_implementation'])
                     self.assertEqual(manifest['formal_device_jobs'], 0)
-                    self.assertEqual(manifest['application'], {'max_model_turns': 20})
+                    self.assertEqual(manifest['application'], {'max_model_turns': None})
+                    fragment = json.loads((output / 'profile-fragment.json').read_text())
+                    self.assertEqual(fragment['application'], manifest['application'])
                     self.assertEqual(manifest['native_interface'], {
                         'version': NATIVE_INTERFACE_VERSION, 'source': 'examples/cann/native-interface.md',
                         'sha256': hashlib.sha256(document.encode()).hexdigest()})
