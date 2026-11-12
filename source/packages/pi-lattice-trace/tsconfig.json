@@ -5,5 +5,5 @@
     "typeRoots": ["../../apps/agent/node_modules/@types"],
     "paths": { "@earendil-works/pi-coding-agent": ["../../apps/agent/node_modules/@earendil-works/pi-coding-agent/dist/index.d.ts"] }
   },
-  "include": ["src/**/*.ts", "extensions/**/*.ts"]
+  "include": ["src/**/*.ts", "extensions/**/*.ts", "bin/**/*.ts"]
 }

@@ -7,6 +7,13 @@ A Pi package that adds `/trace`: it opens the current session's live trajectory 
 /trace --no-open           print the URL only
 /trace --offline           do not load web fonts (system fonts instead)
 /trace --port 8765         fixed port (first call only)
+/trace --otlp              send the session once to an OpenTelemetry collector
+```
+
+For a saved or running session file outside Pi:
+
+```
+node bin/lattice-trace.ts ~/.pi/agent/sessions/.../SESSION.jsonl [--no-open] [--offline] [--port N] [--otlp]
 ```
 
 ## Install
@@ -42,6 +49,10 @@ One server serves the whole Pi process. After `/new`, `/resume`, `/fork` or `/tr
 - Over SSH, `/trace` does not try to open a browser; forward the port with `ssh -L PORT:127.0.0.1:PORT HOST`.
 - Without `--offline`, the page loads the Geist fonts from Google Fonts. No session data is sent, and the referrer is suppressed.
 - Set `PI_LATTICE_NO_BROWSER=1` to never open a browser.
+
+## OpenTelemetry export
+
+`--otlp` posts OpenTelemetry GenAI spans (`invoke_agent`, `chat`, `execute_tool`, with OpenInference kinds) as OTLP/HTTP JSON to `OTEL_EXPORTER_OTLP_ENDPOINT`. No message content is sent unless `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true` or `KERNELBRIDGE_OTEL_CAPTURE=prompts,tools,outputs` selects it. See `docs/trace.md` in the KernelBridge repository for the mapping.
 
 ## Not shown yet
 

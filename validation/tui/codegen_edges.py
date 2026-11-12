@@ -23,11 +23,23 @@ from pty_scenario import Client, stop_child
 from timing import SCALE, StepTimeout, slow
 
 
+def write_cast(path, events, started, width, height):
+    """asciicast v2: a header line, then [seconds, "o", text] output events (replay with asciinema play)."""
+    import codecs
+    decoder = codecs.getincrementaldecoder('utf-8')('replace')
+    lines = [json.dumps({'version': 2, 'width': width, 'height': height, 'timestamp': int(started), 'env': {'TERM': 'xterm-256color'}})]
+    for at, data in events:
+        text = decoder.decode(data)
+        if text: lines.append(json.dumps([round(at, 4), 'o', text], ensure_ascii=False))
+    path.write_text('\n'.join(lines) + '\n')
+
+
 class Terminal:
     def __init__(self, command, cwd, env):
         self.master, self.slave = pty.openpty()
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack('HHHH', 30, 100, 0, 0))
         self.screen = pyte.Screen(100, 30); self.stream = pyte.ByteStream(self.screen); self.transcript = bytearray()
+        self.started = time.time(); self.events = []; self.size = (100, 30)  # asciicast recording: (seconds, bytes), (columns, rows)
         self.child = subprocess.Popen(command, cwd=cwd, env=env, stdin=self.slave, stdout=self.slave, stderr=self.slave, start_new_session=True)
 
     def text(self): return '\n'.join(self.screen.display)
@@ -36,7 +48,7 @@ class Terminal:
         if select.select([self.master], [], [], .1)[0]:
             try: data = os.read(self.master, 65536)
             except OSError: return
-            self.transcript.extend(data); self.stream.feed(data)
+            self.transcript.extend(data); self.stream.feed(data); getattr(self, 'events', []).append((time.time() - getattr(self, 'started', 0), data))
             if b'\x1b[6n' in data: os.write(self.master, b'\x1b[1;1R')
     def until(self, predicate, timeout=90):
         """Wait for predicate; the base timeout is scaled by KB_TIMEOUT_SCALE and reported as SLOW, then TIMEOUT."""
@@ -53,9 +65,13 @@ class Terminal:
         raise StepTimeout(f'TIMEOUT after {timeout * SCALE:.0f}s (base {timeout}s x scale {SCALE}); '
                           f'last PTY output {time.monotonic() - last_output:.1f}s ago\n' + self.text())
     def close(self, output):
-        stop_child(self.child)
-        output.write_bytes(self.transcript)
-        os.close(self.master); os.close(self.slave)
+        # Evidence first: a stalled shutdown must not lose the transcript of a failure.
+        try:
+            stop_child(self.child)
+        finally:
+            output.write_bytes(self.transcript)
+            write_cast(output.with_suffix('.cast'), getattr(self, 'events', []), getattr(self, 'started', time.time()), *getattr(self, 'size', (100, 30)))
+            os.close(self.master); os.close(self.slave)
 
 
 def main():

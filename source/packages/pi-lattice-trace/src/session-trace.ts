@@ -3,7 +3,7 @@
 // ctx.sessionManager (getHeader(), getBranch()) plus the live state Pi has not
 // persisted yet: tools that are executing and an assistant reply that is streaming.
 import {
-  MAIN, TRACE_SCHEMA, clip, contentText, finishSteps, firstLine, recordFileChange, round2, summarize, text, tokens, toolTitle,
+  MAIN, TRACE_SCHEMA, clip, clipped, contentText, finishSteps, firstLine, recordFileChange, round2, summarize, text, tokens, toolTitle,
   type Json, type Step, type Trace, type TraceLabels,
 } from './trace-core.ts';
 
@@ -108,6 +108,7 @@ export function projectSession(entries: Json[], options: SessionTraceOptions = {
           t0: at(begin), t1: round2(Math.max(at(end), at(begin) + 0.01)),
           title: failed ? (m.stopReason === 'aborted' ? '模型调用被中断' : '模型调用失败') : firstLine(said) || (names.length ? '调用 ' + [...new Set(names)].join('、') : '思考'),
           status: failed ? 'error' : 'ok', tokIn, tokOut, cacheRead: 0, cacheReal: reported ? usage.cacheRead ?? 0 : null,
+          cacheWrite: reported ? usage.cacheWrite ?? 0 : null, reasoningOut: reported ? usage.reasoning ?? null : null,
           turnNo: ++turnNo, thought: clip(failed ? text(m.errorMessage ?? m.stopReason) + (said ? '\n\n' + said : '') : said), ctx: tokIn + tokOut,
           model: m.responseModel ?? m.model ?? null };
         if (m.model) model = [m.provider, m.model].filter(Boolean).join('/');
@@ -116,14 +117,14 @@ export function projectSession(entries: Json[], options: SessionTraceOptions = {
           const live = running.get(call.id);
           const tool: Step = { id: `T${entry.id}.${index}`, agent: MAIN, branch: 'M', src: 'tool', kind: 'call', t0: step.t1,
             t1: live ? round2(Math.max(at(now), step.t1 + 0.05)) : round2(step.t1 + 0.01), title: toolTitle(call.name, call.arguments),
-            status: live ? 'running' : 'warn', tool: call.name, args: call.arguments ?? {}, out: live ? '' : '（没有记录结果：调用未完成或被中断）', outTok: 0, turn: step.id, ctx };
+            status: live ? 'running' : 'warn', tool: call.name, callId: call.id, args: call.arguments ?? {}, out: live ? '' : '（没有记录结果：调用未完成或被中断）', outTok: 0, turn: step.id, ctx };
           steps.push(tool); calls.set(call.id, { step: tool, tool: call.name, args: call.arguments ?? {} });
         });
       } else if (m.role === 'toolResult') {
         const call = calls.get(m.toolCallId); if (!call) continue;
-        const step = call.step; const body = clip(contentText(m.content));
+        const step = call.step; const output = clipped(contentText(m.content)); const body = output.out;
         step.t1 = round2(Math.max(at(ms(m.timestamp) ?? time), step.t0 + 0.01));
-        step.status = m.isError ? 'error' : 'ok'; step.out = body; step.outTok = body ? tokens(body) : 0;
+        step.status = m.isError ? 'error' : 'ok'; Object.assign(step, output); step.outTok = body ? tokens(body) : 0;
         ctx += step.outTok; step.ctx = ctx;
         if (!m.isError) recordFileChange(step, call.tool, call.args, files, commits);
       }

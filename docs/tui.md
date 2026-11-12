@@ -121,7 +121,7 @@ Tool calls render like other coding CLIs: a status header `⏺ Tool(main argumen
 
 Assistant text streams as it arrives; only a suffix that could still form a credential is held back. Reasoning deltas (`reasoning_content`) display as a collapsible thinking block while streaming and are not part of the settled reply.
 
-`--tui-mode regular` renders inline, keeping output in the terminal's own scrollback like Claude Code; `--tui-mode fullscreen` uses Pi's alternate screen with in-app scrolling (`Ctrl+End` returns to the latest message). `KERNELBRIDGE_TUI_MODE` sets the same choice.
+`--tui-mode regular` renders inline, keeping output in the terminal's own scrollback like Claude Code; `--tui-mode fullscreen` uses Pi's alternate screen with in-app scrolling (`Ctrl+End` returns to the latest message). `KERNELBRIDGE_TUI_MODE` sets the same choice. `KERNELBRIDGE_UI_DETERMINISTIC=1` freezes the spinner and the UI's own clocks (elapsed time shows `—`) so screens can be compared byte for byte; durations reported by the host are still shown as reported.
 
 Operator tools and no-Torch self iteration are documented in [operator-workflow.md](operator-workflow.md).
 
@@ -146,6 +146,8 @@ E0 is compilation, E1 full correctness, E2 a single complete timing observation,
 After an incumbent exists, another branch replaces it only with a qualifying pair against that incumbent under the same measurement profile. An improvement over an older parent remains recorded evidence. Changing task version clears the current best projection while preserving its historical receipts.
 
 ## Recovery and artifacts
+
+The Journal is append-only and hash-chained. Each process verifies the whole chain once, then only what was appended since. It refuses a shorter file, a changed last record, or a replacement that does not extend the history it already verified. The whole chain is verified again every five minutes and on restart. Every transaction takes the exclusive lock. On macOS each append is flushed with `F_FULLFSYNC`, because `fsync` there leaves data in the drive cache; this costs about 3 ms per append.
 
 `state/events.jsonl` and `state/pi-sessions/` are authoritative. `events.jsonl`, `loopx/state.json`, `manifest.json`, `result.json`, `acceptance.json`, and `state/host/projection.json` are rebuildable exports. The manifest records Pi/patch versions, prompt/tool/resource hashes and evaluator identity. Host diagnostics are in `logs/host.log` and background-worker diagnostics in `logs/worker.log`; production keystrokes are not recorded.
 

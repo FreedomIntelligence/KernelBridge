@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.0] - 2026-11-12
+
+- `--otlp` exports the session as OpenTelemetry GenAI spans (OTLP/HTTP JSON); no message content unless selected.
+- `bin/lattice-trace.ts` opens a saved Pi session file and follows appends.
+- Model steps record cache writes and reasoning tokens; clipped tool outputs record `truncated` and `originalLength`; tool steps record the provider call id.
+
 ## [0.1.0] - 2026-11-12
 
 - `/trace` serves the current Pi session's live trajectory in the Lattice Trace viewer on 127.0.0.1.

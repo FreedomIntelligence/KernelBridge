@@ -31,6 +31,7 @@ class Terminal(codegen_edges.Terminal):
         self.master, self.slave = pty.openpty()
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack('HHHH', rows, columns, 0, 0))
         self.screen = pyte.Screen(columns, rows); self.stream = pyte.ByteStream(self.screen); self.transcript = bytearray()
+        self.started = time.time(); self.events = []; self.size = (columns, rows)
         self.child = subprocess.Popen(command, cwd=cwd, env=env, stdin=self.slave, stdout=self.slave, stderr=self.slave,
                                       start_new_session=True)
 

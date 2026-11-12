@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { InputQueue } from '../../application/input-queue.mjs';
 import { workspaceTools } from './workspace-tools.mjs';
 import { goalSummary, statePresentation, installProductUI, showProductFeedback, workingMessage } from './product-ui.mjs';
-import { updateSubagentProgress, explorationBoundary, seedExplorationGroups } from './tool-render.mjs';
+import { DETERMINISTIC, updateSubagentProgress, explorationBoundary, seedExplorationGroups } from './tool-render.mjs';
 import { agentsPanel, BUILTIN_AGENTS } from './agents-panel.mjs';
 import { COMMAND_POLICY_VERSION, PRODUCT_COMMANDS, PRODUCT_COMMAND_NAMES, parseGoalCommand, commandHelp } from './command-policy.mjs';
 import { sessions } from '../../application/host.mjs';
@@ -45,6 +45,10 @@ export function createHostActions(control, effects, { observer = control } = {})
   let applying = [];
   let persistedInputs = [];
   const runningInputs = new Set();
+  // Turn settlement (input transitions and the boundary checkpoint) must finish before
+  // the next input is applied; otherwise a queued notification's __input__ admission
+  // can land between them and the host refuses the checkpoint as unsettled.
+  let settlement = Promise.resolve();
   let exiting = false;
   let approvedSwitch = false;
   let inputDelivery = Promise.resolve();
@@ -110,7 +114,7 @@ export function createHostActions(control, effects, { observer = control } = {})
         installProductUI(context, () => state, { demo: process.env.KERNELBRIDGE_DEMO === '1' });
         context.ui.setHiddenThinkingLabel?.('思考中…');
         const accent = text => context.ui.theme?.fg?.('accent', text) ?? text;
-        context.ui.setWorkingIndicator?.({ frames: SPINNER.map(accent), intervalMs: 120 });
+        context.ui.setWorkingIndicator?.({ frames: (DETERMINISTIC ? ['✻'] : SPINNER).map(accent), intervalMs: 120 });
       }
       if (governed && state.pending_transition) {
         const parent = state.pending_transition.parent;
@@ -196,6 +200,14 @@ export function createHostActions(control, effects, { observer = control } = {})
       tick(workingTimer.started);
     });
     pi.on('agent_settled', async event => {
+      let finished;
+      settlement = new Promise(resolve => { finished = resolve; });
+      try { await settleTurn(event); }
+      // A failed settlement is reported as host feedback, never as a raw stack in the transcript.
+      catch (error) { report(error instanceof Error ? error.message : error); }
+      finally { finished(); }
+    });
+    async function settleTurn(event) {
       stopWorking();
       const providerFailed = governed?.controller.stopResult?.status === 'providers_failed';
       const setupFailed = governed?.controller.stopResult?.status === 'seed_failed';
@@ -240,12 +252,18 @@ export function createHostActions(control, effects, { observer = control } = {})
         runningInputs.delete(inputId);
       }
       activeInput = undefined;
-      if (governed) await snapshot('checkpoint');
+      if (governed) {
+        try { await snapshot('checkpoint'); }
+        catch (error) {
+          // Another input already reached the host; its own application checkpoints this boundary.
+          if (!/settled execution boundary/.test(String(error?.message ?? error))) throw error;
+        }
+      }
       await refresh();
       const plateau = state.fork_suggestion;
       if (plateau) await suggestFork(plateau, 'plateau-' + state.model_turns);
       if (interactive && !event.aborted && !exiting) setImmediate(() => { void advance().catch(report); });
-    });
+    }
     pi.on('user_bash', async event => {
       const text = (event.excludeFromContext ? '!!' : '!') + event.command;
       const receipt = inputs.consume(text);
@@ -314,6 +332,7 @@ export function createHostActions(control, effects, { observer = control } = {})
   const report = error => { showProductFeedback(context, String(error), true); };
 
   async function persistInput(receipt, entryId) {
+    await settlement;
     const manager = governed.session.sessionManager;
     const path = manager.getSessionFile();
     if (!path) throw new Error('Applied input has no persistent native session file');

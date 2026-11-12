@@ -1,12 +1,32 @@
 {
   "name": "pi-lattice-trace",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Live trajectory viewer for Pi sessions: /trace opens the session's timeline, context, tool calls and file history in the browser.",
   "type": "module",
   "license": "UNLICENSED",
-  "keywords": ["pi-package"],
-  "engines": { "node": ">=22.19.0" },
-  "pi": { "extensions": ["./extensions/trace.ts"] },
-  "files": ["extensions/", "src/", "viewer/", "README.md", "CHANGELOG.md"],
-  "peerDependencies": { "@earendil-works/pi-coding-agent": "*" }
+  "keywords": [
+    "pi-package"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/trace.ts"
+    ]
+  },
+  "files": [
+    "extensions/",
+    "src/",
+    "bin/",
+    "viewer/",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "bin": {
+    "lattice-trace": "./bin/lattice-trace.ts"
+  }
 }

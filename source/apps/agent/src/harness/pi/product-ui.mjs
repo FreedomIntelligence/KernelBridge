@@ -1,7 +1,7 @@
 import { CURSOR_MARKER, renderFakeCursor, truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@earendil-works/pi-tui';
 import { CustomEditor } from '@earendil-works/pi-coding-agent';
 import { homedir } from 'node:os';
-import { childMetrics, delegateTitle, reasonLabel } from './tool-render.mjs';
+import { DETERMINISTIC, clock, childMetrics, delegateTitle, reasonLabel } from './tool-render.mjs';
 
 const STATUSES = { active: '进行中', paused: '已暂停', awaiting_user: '等待输入', completed: '已完成',
   budget_limit: '预算耗尽', failed: '失败', cleared: '已清除' };
@@ -26,8 +26,8 @@ export function planFooter(plan) {
 }
 
 export function workingMessage(state, startedAt, activity = '执行中', columns) {
-  const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
-  const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, '0')}s`;
+  const seconds = DETERMINISTIC ? 0 : Math.max(0, Math.floor((clock() - startedAt) / 1000));
+  const elapsed = DETERMINISTIC ? '—' : seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, '0')}s`;
   const children = runningChildren(state).length;
   const queued = queuedInputs(state);
   const head = children ? `等待 ${children} 个子代理完成` : activity;
@@ -44,7 +44,7 @@ export function subagentStatus(child) {
   const status = child.partial ? `部分结果（${reasonLabel(child.reason)}）`
     : child.status === 'failed' ? `失败${child.reason ? '：' + reasonLabel(child.reason) : ''}` : CHILD_STATUS[child.status] ?? child.status;
   const elapsed = child.elapsed_ms ?? child.duration_ms ?? (child.started_at_ns == null ? undefined
-    : Math.max(0, (child.ended_at_ns == null ? Date.now() : Number(child.ended_at_ns) / 1e6) - Number(child.started_at_ns) / 1e6));
+    : Math.max(0, (child.ended_at_ns == null ? clock() : Number(child.ended_at_ns) / 1e6) - Number(child.started_at_ns) / 1e6));
   return plain([child.agent, status, childMetrics(child, elapsed), delegateTitle(child)].filter(Boolean).join(' · '));
 }
 

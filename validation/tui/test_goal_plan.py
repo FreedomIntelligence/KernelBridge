@@ -128,5 +128,33 @@ class ReviewerInputTests(unittest.TestCase):
         self.assertIn('"status":"pending","step":"fix"', content)
 
 
+class CompactionTests(unittest.TestCase):
+    def test_compaction_summary_restates_the_active_plan(self):
+        from kernelcat_worker.application_host import ApplicationHost
+        from kernelcat_executor.contracts.models import Outcome
+        host = object.__new__(ApplicationHost)
+        store = SimpleNamespace(policy=lambda: Policy(max_steps=4))
+        host.owner = SimpleNamespace(gateway=SimpleNamespace(store=store), proposers={store.policy().routes[0]: None})
+        host.task = SimpleNamespace(id="task")
+        plan = {"plan": [step("reproduce", "completed"), step("fix", "in_progress")]}
+        state = {"goal": {"goal_id": "g", "status": "active"}, "plan": plan}
+        host.status = lambda: state
+        seen = {}
+        def propose(*args, harness, **kwargs):
+            seen["system"] = harness["system_prompt"]
+            return Outcome(data={"content": [{"type": "text", "text": "summary of earlier work"}], "usage": {}})
+        with mock.patch("kernelcat_executor.operations.requests.propose", propose), \
+             mock.patch("kernelcat_executor.contracts.harness.validate_replay", lambda value, _kind: value):
+            result = host.compact({"input_id": "c1", "harness": {"system_prompt": "Summarize.", "messages": [], "tools": []}})
+        self.assertIn('"plan":', seen["system"], "the summarizer is told to keep the plan")
+        self.assertTrue(result["text"].startswith("summary of earlier work"))
+        self.assertIn("Current Goal plan (1/2 complete) [x] reproduce; [>] fix.", result["text"])
+        state["goal"]["status"] = "completed"
+        with mock.patch("kernelcat_executor.operations.requests.propose", propose), \
+             mock.patch("kernelcat_executor.contracts.harness.validate_replay", lambda value, _kind: value):
+            result = host.compact({"input_id": "c2", "harness": {"system_prompt": "Summarize.", "messages": [], "tools": []}})
+        self.assertNotIn("Current Goal plan", result["text"], "an ended Goal's plan is not carried forward")
+
+
 if __name__ == "__main__":
     unittest.main()

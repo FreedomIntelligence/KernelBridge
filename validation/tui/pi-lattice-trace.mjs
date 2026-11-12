@@ -169,3 +169,54 @@ test('the shared server follows a replaced source and pushes it over SSE', async
     stream.destroy();
   } finally { await server.close(); }
 });
+
+test('token fields follow OpenTelemetry semantics and clipped outputs say so', () => {
+  parent = null;
+  const long = 'x'.repeat(5000);
+  const entries = [
+    msg('us000009', 100, { role: 'user', content: [{ type: 'text', text: 'go' }] }),
+    { ...msg('as000009', 200, { role: 'assistant', provider: 'fixture', model: 'fixture-1', stopReason: 'toolUse',
+      usage: { input: 100, output: 50, cacheRead: 300, cacheWrite: 40, reasoning: 30, totalTokens: 490 },
+      content: [{ type: 'toolCall', id: 'call_x', name: 'read', arguments: { path: 'big.txt' } }] }), timestamp: iso(400) },
+    msg('tr000009', 500, { role: 'toolResult', toolCallId: 'call_x', toolName: 'read', isError: false, content: [{ type: 'text', text: long }] }),
+  ];
+  const trace = projectSession(entries, { header, now: T0 + 1000 });
+  const model = trace.steps.find(s => s.src === 'model');
+  assert.equal(model.tokIn, 440, 'input tokens include cache reads and writes (gen_ai.usage.input_tokens)');
+  assert.deepEqual([model.cacheReal, model.cacheWrite, model.reasoningOut], [300, 40, 30]);
+  const tool = trace.steps.find(s => s.tool === 'read');
+  assert.equal(tool.truncated, true); assert.equal(tool.originalLength, 5000);
+  assert.ok(tool.out.length < 5000 && tool.out.includes('截断'));
+});
+
+test('lattice-trace CLI: the resumed branch of a session file, followed as it grows', async () => {
+  const { sessionBranch } = await import('../../source/packages/pi-lattice-trace/bin/lattice-trace.ts');
+  const { mkdtemp, writeFile, appendFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os'); const { join } = await import('node:path'); const { spawn } = await import('node:child_process');
+  const entries = session();
+  // An abandoned branch from the first user message, written before the resumed leaf.
+  const abandoned = { type: 'message', id: 'ab000001', parentId: 'us000001', timestamp: iso(250),
+    message: { role: 'user', content: [{ type: 'text', text: 'abandoned idea' }], timestamp: T0 + 250 } };
+  const lines = [header, ...entries.slice(0, 5), abandoned, ...entries.slice(5)].map(row => JSON.stringify(row)).join('\n') + '\n';
+  const branch = sessionBranch(lines + '{"type":"message","id":"torn"');
+  assert.equal(branch.header.id, 'sess-1');
+  assert.ok(!branch.entries.some(entry => entry.id === 'ab000001'), 'the abandoned branch is not on the resumed path');
+  assert.equal(branch.entries.at(-1).id, entries.at(-1).id);
+  const directory = await mkdtemp(join(tmpdir(), 'lattice-cli-')); const file = join(directory, 'session.jsonl');
+  await writeFile(file, lines);
+  const child = spawn(process.execPath, [new URL('../../source/packages/pi-lattice-trace/bin/lattice-trace.ts', import.meta.url).pathname, file, '--no-open'], { stdio: ['ignore', 'pipe', 'inherit'] });
+  try {
+    const url = await new Promise((accept, reject) => {
+      let out = ''; child.stdout.on('data', chunk => { out += chunk; const found = out.match(/http:\/\/127\.0\.0\.1:\d+\/[0-9a-f]{32}\//); if (found) accept(found[0]); });
+      child.once('exit', code => reject(new Error('CLI exited ' + code)));
+    });
+    const fetchTrace = async () => JSON.parse(await (await fetch(url + 'trace.json')).text());
+    const before = await fetchTrace();
+    assert.equal(before.session.title, 'Greeting module'); assert.equal(before.labels.harness, 'Pi');
+    await appendFile(file, JSON.stringify({ type: 'message', id: 'us000003', parentId: entries.at(-1).id, timestamp: iso(4000),
+      message: { role: 'user', content: [{ type: 'text', text: 'one more' }], timestamp: T0 + 4000 } }) + '\n');
+    let after = before;
+    for (let i = 0; i < 60 && after.steps.length === before.steps.length; i++) { await new Promise(r => setTimeout(r, 100)); after = await fetchTrace(); }
+    assert.equal(after.steps.length, before.steps.length + 1);
+  } finally { child.kill('SIGTERM'); await rm(directory, { recursive: true, force: true }); }
+});

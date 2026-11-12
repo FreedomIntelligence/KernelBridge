@@ -517,7 +517,7 @@ class ApplicationHost:
         state = self.status()
         if state.get("takeover_requested"):
             raise Conflict("compaction is fenced while an interactive worker takes over")
-        facts = {key: state.get(key) for key in ("goal", "task_version", "checkpoint", "best", "platform", "budget", "pending_effect_ids")}
+        facts = {key: state.get(key) for key in ("goal", "task_version", "checkpoint", "best", "platform", "budget", "pending_effect_ids", "plan")}
         harness = {**harness, "system_prompt": harness["system_prompt"] + "\nRetain these authoritative facts verbatim in the summary:\n" + canonical(facts)}
         if len(canonical(harness).encode()) > policy.context_bytes:
             raise Conflict("compaction input and authoritative facts exceed the configured context budget")
@@ -531,7 +531,13 @@ class ApplicationHost:
         blocks = outcome.data.get("content", [])
         if any(block.get("type") != "text" for block in blocks):
             raise Conflict("compaction returned an unexpected tool call")
-        return {"text": "\n".join(block["text"] for block in blocks), "calls": [], "usage": outcome.data.get("usage", {})}
+        text = "\n".join(block["text"] for block in blocks)
+        plan = state.get("plan") if (state.get("goal") or {}).get("status") in {"active", "awaiting_user"} else None
+        if plan:
+            # The host restates the plan itself instead of trusting the summary to keep it.
+            from kernelcat_executor.state.goal_progress import plan_text
+            text += "\n\nCurrent Goal plan " + plan_text(plan) + ". Continue from the in-progress step."
+        return {"text": text, "calls": [], "usage": outcome.data.get("usage", {})}
 
     def status(self):
         # One shared read serves the application projection, the execution

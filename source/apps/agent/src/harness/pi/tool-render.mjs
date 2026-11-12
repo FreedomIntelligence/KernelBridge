@@ -17,6 +17,10 @@ const splitLines = text => {
   return rows.length === 1 && !rows[0] ? [] : rows;
 };
 const PREVIEW = 5;
+/** KERNELBRIDGE_UI_DETERMINISTIC=1 freezes animation and clocks so screens can be compared byte for byte. */
+export const DETERMINISTIC = process.env.KERNELBRIDGE_UI_DETERMINISTIC === '1';
+/** UI clock; frozen at 0 in deterministic mode. Host-reported durations are shown as reported. */
+export const clock = () => DETERMINISTIC ? 0 : Date.now();
 
 export function formatDuration(ms) {
   if (ms == null || !Number.isFinite(ms)) return '';
@@ -66,7 +70,7 @@ function hanging(rows, width, theme) {
 }
 
 function dot(theme, context) {
-  if (context.isPartial) return theme.fg(Math.floor(Date.now() / 600) % 2 ? 'muted' : 'dim', '⏺');
+  if (context.isPartial) return theme.fg(Math.floor(clock() / 600) % 2 ? 'muted' : 'dim', '⏺');
   return theme.fg(context.isError ? 'error' : 'success', '⏺');
 }
 
@@ -144,7 +148,7 @@ const NATIVE = {
       if (status) { code = Number(status[1]); rows = rows.slice(0, -1); }
       while (rows.length && !rows.at(-1).trim()) rows.pop();
       if (context.isPartial) {
-        const elapsed = context.state.startedAt ? formatDuration(Date.now() - context.state.startedAt) : '';
+        const elapsed = context.state.startedAt ? formatDuration(clock() - context.state.startedAt) : '';
         return [...rows.slice(-PREVIEW).map(row => theme.fg('toolOutput', row)),
           theme.fg('muted', `运行中${elapsed ? ' · ' + elapsed : ''}${rows.length > PREVIEW ? ` · 共 ${rows.length} 行` : ''}`)];
       }
@@ -228,7 +232,7 @@ function groupSummary(group) {
 
 function groupRows(group, theme, context, width) {
   const { text, failed, running } = groupSummary(group);
-  const dot = running ? theme.fg(Math.floor(Date.now() / 600) % 2 ? 'muted' : 'dim', '⏺') : theme.fg(failed ? 'error' : 'success', '⏺');
+  const dot = running ? theme.fg(Math.floor(clock() / 600) % 2 ? 'muted' : 'dim', '⏺') : theme.fg(failed ? 'error' : 'success', '⏺');
   const rows = wrapTextWithAnsi(`${dot} ${theme.fg('toolTitle', theme.bold('浏览'))} ${theme.fg('muted', text)}`, width);
   return [...rows, ...hanging([(failed ? theme.fg('error', `${failed} 次失败 · `) : '') + theme.fg('muted', `${expandKey(context)} 展开`)], width, theme)];
 }
@@ -241,7 +245,7 @@ export function withProductRenderers(tool) {
     ...tool,
     renderShell: 'self',
     renderCall(args, theme, context) {
-      if (context.executionStarted && !context.state.startedAt) context.state.startedAt = Date.now();
+      if (context.executionStarted && !context.state.startedAt) context.state.startedAt = clock();
       const group = joinGroup(context.toolCallId, tool.name);
       if (group?.members[0].id === context.toolCallId) group.leaderView = context.invalidate;
       return new Rows(width => {
@@ -311,12 +315,12 @@ function activityLine(child, elapsed) {
 }
 
 function delegateCall(args, theme, context) {
-  if (context.executionStarted && !context.state.startedAt) context.state.startedAt = Date.now();
+  if (context.executionStarted && !context.state.startedAt) context.state.startedAt = clock();
   subagentViews.set(context.toolCallId, context.invalidate);
   return new Rows(width => {
     const rows = headerRows(theme, context, oneLine(args?.agent) || '子代理', delegateTitle(args), width);
     if (!context.isPartial) return rows;
-    const elapsed = context.state.startedAt ? Date.now() - context.state.startedAt : undefined;
+    const elapsed = context.state.startedAt ? clock() - context.state.startedAt : undefined;
     return [...rows, ...hanging([theme.fg('muted', activityLine(subagentRows.get(context.toolCallId), elapsed))], width, theme)];
   }, context.outputPad);
 }
@@ -349,10 +353,10 @@ function delegateResult(result, options, theme, context) {
     if (data.background) {
       const child = { ...data, ...live };
       if (!live || live.status === 'running') {
-        const elapsed = context.state.startedAt ? Date.now() - context.state.startedAt : undefined;
+        const elapsed = context.state.startedAt ? clock() - context.state.startedAt : undefined;
         return hanging([theme.fg('accent', '后台运行') + theme.fg('muted', ' · ' + activityLine(live, elapsed))], width, theme);
       }
-      context.state.finishedAt ??= Date.now();
+      context.state.finishedAt ??= clock();
       const duration = context.state.startedAt ? context.state.finishedAt - context.state.startedAt : undefined;
       return settledRows(child, duration, options.expanded, theme, context, width);
     }

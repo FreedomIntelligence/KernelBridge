@@ -60,6 +60,19 @@ COMPACT_ROWS = 64
 READ_CHUNK = 1 << 26  # macOS pread rejects reads of 2 GiB or more
 
 
+def durable_sync(fd: int) -> None:
+    """Flush to stable storage. On macOS fsync leaves data in the drive cache
+    (Apple fsync(2)); F_FULLFSYNC does not. Measured about 3 ms per append,
+    small next to a model call. Falls back to fsync where it is unsupported."""
+    if hasattr(fcntl, "F_FULLFSYNC"):
+        try:
+            fcntl.fcntl(fd, fcntl.F_FULLFSYNC)
+            return
+        except OSError:
+            pass
+    os.fsync(fd)
+
+
 @dataclass(frozen=True)
 class _Verified:
     """A verified journal prefix: [0, offset) of the file with this identity."""
@@ -222,7 +235,7 @@ class Journal:
                 pending = memoryview(data)
                 while pending:
                     pending = pending[os.write(fd, pending):]
-                os.fsync(fd)
+                durable_sync(fd)
                 # The durable append is part of what this process has verified, so a
                 # later replacement that drops it is caught as not extending history.
                 with self._verified_lock:

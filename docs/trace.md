@@ -74,3 +74,24 @@ KernelBridge loads Pi with `noExtensions` and an explicit factory list, so an in
 
 - `node validation/tui/pi-lattice-trace.mjs`: Pi session projection (token counts, parallel tools, errors, compaction, markers, `!!` commands, file history, running and streaming steps, stable ids), the Pi page and source switching on the shared server.
 - `python3 validation/tui/pi_plugin_trace_scenario.py --output DIR`: real Pi 1.5.0 in RPC mode with an isolated `PI_CODING_AGENT_DIR` and a scripted provider. It checks the served trace, a running tool, SSE growth, a headless Chrome render with Pi labels, `/new` on the same URL, and the server stopping when Pi exits.
+
+## OpenTelemetry export
+
+`kernelagent trace ID --otlp`, `/trace --otlp` in Pi, or `lattice-trace FILE --otlp` sends a session once as OTLP/HTTP JSON to `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, or to `OTEL_EXPORTER_OTLP_ENDPOINT` + `/v1/traces`; `OTEL_EXPORTER_OTLP_HEADERS` is honoured. Nothing is sent unless you run one of these commands.
+
+| Trace | Span |
+| --- | --- |
+| main lane, subagent lane | `invoke_agent main`, `invoke_agent NAME` (a subagent under its delegate call) |
+| model step | `chat MODEL`: `gen_ai.usage.input_tokens` (including cached tokens), `output_tokens`, `cache_read.input_tokens`, `cache_write.input_tokens`, `reasoning.output_tokens`, `finish_reasons` |
+| tool step | `execute_tool TOOL` under the model call that made it, with `gen_ai.tool.call.id` where the source records it |
+| compaction | `kernelbridge.compaction` with `tokens_before` / `tokens_after`; the next model span sets `gen_ai.conversation.compacted` |
+| input, fork, checkpoint | events on the lane span |
+
+Spans also carry OpenInference kinds (`AGENT`, `LLM`, `TOOL`), so Phoenix and Langfuse group them the same way. The OpenTelemetry GenAI conventions are still at Development status; the resource records which conventions were used. Ids derive from the session and step ids, so exporting the same session again produces the same ids.
+
+No message content is exported by default. `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true` exports all of it; `KERNELBRIDGE_OTEL_CAPTURE=prompts,tools,outputs` selects parts. Withheld content is marked `kernelbridge.content.redacted`, never sent as an empty value. Clipped tool outputs carry `kernelbridge.output.truncated` and `original_length`.
+
+## Saved Pi session files
+
+`node source/packages/pi-lattice-trace/bin/lattice-trace.ts SESSION.jsonl [--port N] [--no-open] [--offline] [--otlp]` opens a Pi session file in the same viewer and follows appends. It shows the branch Pi resumes: from the last entry back to the root.
+

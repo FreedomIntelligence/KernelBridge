@@ -192,6 +192,29 @@ class JournalReadPathTests(unittest.TestCase):
             for process in readers: process.wait(timeout=60)
         self.assertLess(max(waits), 5.0, waits)
 
+    def test_appends_reach_stable_storage(self):
+        calls = []
+        real_fcntl, real_fsync = journal_module.fcntl.fcntl, journal_module.os.fsync
+        def fcntl_spy(fd, op, *args):
+            calls.append(("fcntl", op)); return real_fcntl(fd, op, *args)
+        with mock.patch.object(journal_module.fcntl, "fcntl", fcntl_spy), \
+             mock.patch.object(journal_module.os, "fsync", side_effect=lambda fd: calls.append(("fsync",)) or real_fsync(fd)):
+            self.journal._transaction(note(950))
+        if hasattr(journal_module.fcntl, "F_FULLFSYNC"):
+            self.assertIn(("fcntl", journal_module.fcntl.F_FULLFSYNC), calls, "macOS needs F_FULLFSYNC to flush the drive cache")
+            def refuse(fd, op, *args):
+                if op == journal_module.fcntl.F_FULLFSYNC: raise OSError(45, "Operation not supported")
+                return real_fcntl(fd, op, *args)
+            calls.clear()
+            with mock.patch.object(journal_module.fcntl, "fcntl", refuse), \
+                 mock.patch.object(journal_module.os, "fsync", side_effect=lambda fd: calls.append(("fsync",)) or real_fsync(fd)):
+                self.journal._transaction(note(951))
+            self.assertIn(("fsync",), calls, "unsupported F_FULLFSYNC falls back to fsync")
+        else:
+            self.assertIn(("fsync",), calls)
+        last = 951 if hasattr(journal_module.fcntl, "F_FULLFSYNC") else 950
+        self.assertEqual(self.journal.events()[-1]["index"], last)
+
     def test_incremental_state_equals_a_full_rebuild(self):
         rng = random.Random(7)
         writer = AgentJournal(self.path)

@@ -22,6 +22,9 @@ export interface Trace {
 export const round2 = (value: number) => Math.round(value * 100) / 100;
 export const text = (value: unknown) => typeof value === 'string' ? value : value === undefined || value === null ? '' : JSON.stringify(value);
 export const clip = (value: string, limit = OUT_LIMIT) => value.length > limit ? value.slice(0, limit) + `\n…（截断，共 ${value.length} 字符）` : value;
+/** Clipped output plus explicit truncation fields, so a clipped value is never mistaken for the whole. */
+export const clipped = (value: string, limit = OUT_LIMIT): { out: string; truncated?: true; originalLength?: number } =>
+  value.length > limit ? { out: clip(value, limit), truncated: true, originalLength: value.length } : { out: value };
 export const firstLine = (value: string, limit = 60) => { const line = value.trim().split('\n').find(Boolean) ?? ''; return line.length > limit ? line.slice(0, limit - 1) + '…' : line; };
 export const tokens = (value: string) => Math.max(1, Math.ceil(value.length / 4));
 

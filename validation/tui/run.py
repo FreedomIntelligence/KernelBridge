@@ -26,7 +26,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from timing import default_scale  # noqa: E402
 
 HEAVY_LOAD = 2.0
-TIMEOUT_MARKERS = (b'StepTimeout', b'TIMEOUT after', b'TimeoutExpired', b'socket.timeout', b'TimeoutError', b'timed out')
+TIMEOUT_EXCEPTIONS = ('StepTimeout', 'TimeoutExpired', 'TimeoutError', 'socket.timeout', 'timeout')
+
+
+def first_exception(text):
+    """The original exception of a Python failure: chained ones ("During handling ...") come later."""
+    lines = text.decode('utf-8', 'replace').splitlines()
+    try:
+        start = next(index for index, line in enumerate(lines) if line.startswith('Traceback (most recent call last):'))
+    except StopIteration:
+        return None
+    for line in lines[start + 1:]:
+        if line and not line.startswith((' ', '\t')):
+            return line.split(':', 1)[0].strip()
+    return None
 
 
 def load_per_cpu():
@@ -58,7 +71,8 @@ def main():
             code = 'timeout'
         text = log_path.read_bytes()
         return {'exit_code': code, 'seconds': round(time.monotonic() - started, 2), 'load_per_cpu': [before, load_per_cpu()],
-                'timed_out': code == 'timeout' or (code != 0 and any(marker in text for marker in TIMEOUT_MARKERS)),
+                'first_exception': first_exception(text),
+                'timed_out': code == 'timeout' or (code != 0 and (first_exception(text) or '').split('.')[-1] in {name.split('.')[-1] for name in TIMEOUT_EXCEPTIONS}),
                 'slow_steps': text.count(b'SLOW: '), 'log': log_path.name}
 
     def execute(name, build, cwd=ROOT, timeout=300):
@@ -109,7 +123,7 @@ def main():
 
     evidence = {}
     for path in output.rglob('*'):
-        if path.is_file() and (path.name in {'scenario.json', 'events.jsonl', 'pty-transcript.txt', 'transcript.txt', 'model-requests.json'}
+        if path.is_file() and (path.name in {'scenario.json', 'events.jsonl', 'pty-transcript.txt', 'transcript.txt', 'model-requests.json'} or path.suffix == '.cast'
                                or path.parent == output and path.suffix == '.log'):
             evidence[path.relative_to(output).as_posix()] = {'sha256': hashlib.sha256(path.read_bytes()).hexdigest(), 'bytes': path.stat().st_size}
     counts = {outcome: sum(record['outcome'] == outcome for record in records) for outcome in ('passed', 'flaky', 'failed', 'environmental')}

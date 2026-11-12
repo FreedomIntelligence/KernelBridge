@@ -69,7 +69,7 @@
 - [x] **0-5** 把 `/tmp/kbtrace-wt` 里那 5 个文件提交到 `feat/tui-polish-2`，再合进 `main`（S）。这部分属于 §B 的 D9 和 D10，验收在 §B 完成。
 - [x] **0-6** 主目录执行 `git checkout main && git reset --hard` 到合并后的 `main`（必须在 0-1 的备份确认之后）（S）。然后用 `git worktree remove` 删掉 `/tmp/kbpolish-wt`、`/tmp/kbtrace-wt`、`/tmp/kb-wip`。已合并的 `feat/*` 分支可以删除。
 - [ ] **0-7** 腾出磁盘空间（S）。目标是剩余空间不少于 30 GiB，然后再做任何 PTY 验收。`.validation/` 里的旧 artifacts 先确认已经在结果索引里有 SHA256 记录，再清理。（部分：清掉 Kiro 残留、旧 Chrome 签名副本和可重建缓存后为 11.8 GiB；剩下的大头是微信、桌面归档和实验回执，等用户决定）
-- [ ] **0-8** 约定（S）：以后在 worktree 里提交后，回到主目录用 `git merge --ff-only`，不再用 `update-ref` 直接移动 `main`。这一条写进 `CLAUDE.md` 或 `AGENTS.md`。
+- [x] **0-8**（写进了仓库根目录的 `AGENTS.md`，`CLAUDE.md` 引用它） 约定（S）：以后在 worktree 里提交后，回到主目录用 `git merge --ff-only`，不再用 `update-ref` 直接移动 `main`。这一条写进 `CLAUDE.md` 或 `AGENTS.md`。
 
 ---
 
@@ -264,7 +264,7 @@ startTraceServer(options: {
   - 通过 pi-subagents 的进程内 RPC 或状态查询，拿到每个子代理的 `sessionFile`；
   - 读取子会话，投影成 `M/cN` 泳道；
   - 父会话里的 `subagent` 工具调用作为 spawn 和 return 步骤。
-- [ ] **A9** 独立 CLI（S–M）：`pi-lattice-trace <session.jsonl>` 打开已保存的会话，从文件追读，复用 KernelBridge 的追读层。同时加上 A.6 说的 `--offline`。
+- [x] **A9**（`bin/lattice-trace.ts`；`--offline` 和 `--otlp` 同样可用） 独立 CLI（S–M）：`pi-lattice-trace <session.jsonl>` 打开已保存的会话，从文件追读，复用 KernelBridge 的追读层。同时加上 A.6 说的 `--offline`。
 - [ ] **A10** 发布决定（S，需要你决定）：
   - 发到 npm 还是 git；
   - 先确认 Lattice Trace v15 查看器的版权归属和许可证（Geist 字体是 OFL，通过 Google Fonts 链接引用，没有问题）；
@@ -312,8 +312,8 @@ startTraceServer(options: {
 
 ### B.3 这次新发现的问题
 
-- [ ] **B-N1（P0）主目录工作区不同步**，见 §0。
-- [ ] **B-N2 `status` 的耗时随 Journal 长度增长**（M，涉及执行层改动，需要单独评审）：
+- [x] **B-N1（P0）主目录工作区不同步**，见 §0。
+- [x] **B-N2 `status` 的耗时随 Journal 长度增长**（M，涉及执行层改动，需要单独评审）：
   - `Journal._transaction` 每次调用都要拿排他 `flock`，并重新读取、校验整条哈希链；`status` 一次要做两次这样的事务。
   - 结果：会话越长，每个回合边界越慢；机器负载高时，`advanced_scenario` 会碰到 10 秒的 socket 超时。
   - 方案：在已经逐条校验事件的追加路径上，顺带维护一份内存里的投影状态，`status` 直接读它。Journal 仍然是权威来源，这份状态只是由写入方自己失效的缓存。
@@ -321,7 +321,7 @@ startTraceServer(options: {
 - [ ] **B-N3 `/trace` 里没数据的视图**（与 A7 合并考虑）：
   - KernelBridge 一侧的分支对比和工作区快照是空的。
   - Journal 里有 `transition_prepared` 记录的 `/fork`，可以把 fork 前后两段映射成两个分支（M）。
-- [ ] **B-N4 中断提示目前是“反馈”而不是“记录行”**：会被下一条反馈覆盖，滚动记录里也看不到。归入 D10。
+- [x] **B-N4 中断提示目前是“反馈”而不是“记录行”**：会被下一条反馈覆盖，滚动记录里也看不到。归入 D10。
 - [ ] **B-N5 清理遗留的 worktree 和分支**（S）：
   - 已经合进 `main`、可以删除的 10 个（`git branch --merged main` 核实）：
     - `feat/live-trace`、`feat/tui-polish`、`feat/tui-polish-2`、`feat/tui-subagent-redesign`；

@@ -2,7 +2,7 @@
 // model (kernelbridge.trace/v1). The Journal stays the only authority: this
 // module never writes and tolerates a partially written tail.
 import {
-  MAIN, TRACE_SCHEMA, clip, contentText, finishSteps, firstLine, recordFileChange, round2, summarize, text, tokens, toolTitle,
+  MAIN, TRACE_SCHEMA, clip, clipped, contentText, finishSteps, firstLine, recordFileChange, round2, summarize, text, tokens, toolTitle,
   type Json, type Step, type Trace,
 } from '../../../../packages/pi-lattice-trace/src/trace-core.ts';
 
@@ -139,17 +139,19 @@ export function projectTrace(rows: Json[], options: { now_ns?: number; live?: bo
       const step: Step = { id: sid('T', a.admitted), agent, branch: 'M', src: 'model', kind: !span.running && !calls.length && !failed ? 'final' : 'think', t0: span.t0, t1: span.t1,
         title: span.running ? '生成中…' : failed ? '模型调用失败' : firstLine(said) || (names.length ? '调用 ' + [...new Set(names)].join('、') : '思考'),
         status: st, tokIn, tokOut, cacheRead: 0, cacheReal: usage.prompt_cache_hit_tokens ?? usage.prompt_tokens_details?.cached_tokens ?? usage.cached_tokens ?? usage.cache_read_tokens ?? null,
+        cacheWrite: usage.cache_creation_input_tokens ?? usage.prompt_tokens_details?.cache_write_tokens ?? usage.cache_write_tokens ?? null,
+        reasoningOut: usage.completion_tokens_details?.reasoning_tokens ?? usage.reasoning_tokens ?? null,
         turnNo, thought: clip(failed ? resultText(a.outcome) : said), ctx: tokIn + tokOut, action_id: a.id };
       steps.push(step); modelStep.set(a.id, step.id); ctx.set(agent, tokIn + tokOut);
       continue;
     }
     if (a.tool.startsWith('__')) continue;
     const turn = modelStep.get(a.parents[0] ?? ''); const denied = gates.get(a.id)?.admit === false;
-    const out = span.running ? '' : clip(resultText(a.outcome));
+    const output = span.running ? { out: '' } : clipped(resultText(a.outcome)); const out = output.out;
     const isError = a.outcome?.data?.result?.isError === true;
     const outTok = out ? tokens(out) : 0; const prior = ctx.get(agent) ?? 0;
     const base: Step = { id: sid('T', a.admitted), agent, branch: 'M', src: 'tool', kind: 'call', t0: span.t0, t1: span.t1, title: toolTitle(a.tool, a.args),
-      status: denied ? 'denied' : isError ? 'error' : st, tool: a.tool, args: a.args ?? {}, out, outTok, turn, ctx: prior + outTok, action_id: a.id };
+      status: denied ? 'denied' : isError ? 'error' : st, tool: a.tool, args: a.args ?? {}, ...output, outTok, turn, ctx: prior + outTok, action_id: a.id };
     if (a.tool === 'delegate') {
       const child = childOf.get(a.id);
       const spawnEnd = round2(Math.min(span.t1, span.t0 + 0.3));
