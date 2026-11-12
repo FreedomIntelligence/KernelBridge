@@ -202,6 +202,28 @@ Checks: `subagent-presentation.mjs` (8), `interaction.mjs` (5), `trace-projectio
 `pty_scenario.py` and `advanced_scenario.py` first failed by timeout, never by assertion, at a different step each run, while unrelated processes held this workstation's load average between 18 and 70 with the data volume full. Both pass when run without contention; the earlier failures are recorded as environmental, not as passes.
 
 Not qualified here: the plan surface (`/plan` or todo) decision, an editor placeholder, a narrow-width sweep of every host-rendered block, and the O(journal) read-only `status` path noted in the plan.
+## Model picker and reasoning levels, startup, provider retries and subagent timeouts (2026-11-12)
+
+Branch `feat/model-reasoning` with `perf/startup`, merged with `main` at `d07af47`. Alignment targets: Claude Code's `/model` (←→ effort) and `/effort`, Codex's model/effort choice and `request_max_retries`, and both tools' handling of subagent and provider failures (research brief: third-party guides and GitHub issues plus the AWS retry guidance, since official pages could not be fetched here).
+
+| Run | Code | Result |
+| --- | --- | --- |
+| `acceptance-model` | `b95a093` | 26 passed, 1 failed (`codegen`: `--continue` after retried calls raised "action ID reused with different inputs"); not counted |
+| `acceptance-model2` | `2241a5a` (recovery follows retry chains) | 27/27 passed, timeout scale 1.0 |
+| `acceptance-model3` | `4ee472f` (merged with `main` `d07af47`) | **27/27 passed**, none flaky, timeout scale 1.09 |
+
+Found and repaired on the way:
+
+- **Thinking mode with tools was unusable.** Live on DeepSeek, the first tool-call follow-up with thinking enabled returned HTTP 400 ("The `reasoning_content` in the thinking mode must be passed back to the API"), even when the model had produced no reasoning, and the session silently fell back to the next route. Reasoning now stays in the settled reply and the Pi transcript, passes the projection and its validator, and is sent back on every assistant message of the current turn (empty when there was none). Verified live on `deepseek-flash` at `low` and `high`, including 114 characters of reasoning sent back across a `bash` call.
+- **Resume after automatic retries.** Recovery matched only base attempt IDs and tried to close an already ended step again. A step with an end record is now closed whichever attempt it names; `__model_retry__` successors map to their step through the chain's hash links.
+- **Continuation label.** After the merge, the continuation facts no longer carried the Goal's limits, so `未设上限` would have shown for limited Goals; restored and tested.
+
+Startup (perf fork, 3 runs each at load about 6): first paint 2.23–2.87 s → 0.16–0.36 s; idle prompt 2.35–3.01 s → 1.26–1.75 s. In-TUI `/resume` with 38 sessions 5.8–6.3 s → 2.2–2.8 s. Keystroke-to-repaint in the `/` menu and pickers was already 10–35 ms and is unchanged.
+
+Other evidence: `npm test` 202 passed, 3 skipped (two original-artifact replays and one that needs a case-sensitive filesystem); Python `validation/tui` 132 OK, `test_subagent_recovery` 19 OK; the broader `validation/` discovery has only the 5 Torch import errors this environment always has. New tests: `test_model_reasoning.py` (23), `model-picker.mjs` (7), `test_provider_retry.py` (12), `provider-retry.mjs` (5), interaction scenario `model_picker_reasoning_level`, codegen `transient_provider_failure_retried` and `provider_failure_visible_next_input`.
+
+Not claimed: reasoning levels for non-DeepSeek endpoints without a declared `reasoning_levels`; `@` file completion, which needs `fd` (not installed here); the pi-tui race where very fast typing can accept a stale autocomplete entry.
+
 ## Goal continuation limits follow-up (2026-11-12)
 
 Found in a task-mode trial (`hongkong-observe-open-max-01`) with no model-call, token or credit limit: after 47 steps in one input the model ended a turn with "I've exhausted my budget for this turn" and no tool call. The request held no budget wording (no `goal_progress`, credits `limit: null`, no per-Trial limit); the Goal then continued automatically, as designed, with nothing telling the model or the user that no limit had been reached. Each automatic continuation now states every limit and its usage in words, the operator prompt states the no-ceiling case positively, the tool-free continuation stop applies in task mode too (an unlimited task-mode Goal could otherwise keep continuing a text-only model), and the transcript row reads `Goal 自动继续 · 已用 N 次模型调用 · 未设上限`.

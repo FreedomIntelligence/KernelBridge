@@ -4400,8 +4400,8 @@
       "sha256": "bd97e3f6a936b9ae25ca1631304067bff13671367985c85823e77a0a4611c0e7"
     },
     "validation/tui/ACCEPTANCE.md": {
-      "bytes": 44378,
-      "sha256": "5c4411da0de2df55c76bf4d434681ba7a32cdab1439f69d029202677a801d7a4"
+      "bytes": 47520,
+      "sha256": "5ec0124b6e4b473d3e89668d92fce5368895288606f92c7a6b3a26c9baece58b"
     },
     "validation/tui/README.md": {
       "bytes": 9510,
