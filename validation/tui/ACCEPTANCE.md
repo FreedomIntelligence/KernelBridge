@@ -343,3 +343,41 @@ Four stress scenarios passed in `.validation/propose-admit-stress-summary.json`:
 ## Final ordinary and advanced TUI regression
 
 `harness-codegen-final-r1/scenario.json` passed ten checks, including 35 ordinary turns without an implicit limit, compact/new, interruption, opt-in Goal completion, provider failure and original-session resume without replay (48 provider requests). `harness-advanced-final-r2/scenario.json` passed eleven checks, including registered A-J fixture calls, two children and count rejection, failure recovery, manual fork hints, semantic compaction, native fork, Goal blocking/resume and session picker cancellation. The earlier advanced run retained a child timeout on the loaded machine; its fixture deadline was raised from 15 to 120 seconds because this scenario tests count limits and recovery, while dedicated cancellation/deadline tests retain their original bounds. All behavioral assertions remain unchanged.
+
+## Native terminal recovery and continuation acceptance (2026-11-12)
+
+In `codex/harness-terminal-recovery`, the complete
+`.validation/acceptance/tui-r2/acceptance.json` passed **27/27**, with zero
+flaky, failed or environmental groups at timeout scale 1.0. Its 145 evidence
+files were independently checked against the recorded byte lengths and hashes.
+The authority group passed 121 tests; full `npm test` passed 212 tests, with
+zero failures and one skip requiring an actually case-sensitive filesystem.
+Both optional historical session replays ran with the original, read-only
+fixtures and passed in this full invocation.
+
+The full Python discovery in `.validation/acceptance/python-r2.log` passed
+470/470, zero skips, in 309.526 seconds, using the existing CPU Torch path and
+original private replay fixtures. Subsequent tool-free reason compatibility
+changes passed 35 focused Python checks, 25 JavaScript checks and the complete
+TUI run above. The isolated Linux CPU supervisor qualification passed six
+checks with actual process births, exit codes/signals and lease inheritance;
+its original output and uploaded source hashes are retained in
+`.validation/supervisor-local/linux-collection.json`. It did not run an NPU
+kernel or create an operator performance result.
+
+Failed attempts remain retained. Python r1 had one failure among 469 tests:
+the new opt-in observation protocol incorrectly rejected a legacy driver's
+ordinary unknown ACK. The fix preserves the old nonterminal ACK behavior and
+still rejects protocol downgrade and forged observations. The original test
+expectation was unchanged. TUI r1 passed 25/27: the narrow interaction test
+assumed a full long branch and `/help` could always fit together, and the
+advanced test exposed an unnecessary public reason rename. The production
+layout remains unchanged; the interaction test now verifies both existing
+responsive forms, including the branch prefix, path and width. Tool-free
+continuations retain `no_tool_progress`, while repeated tools without new
+information use `no_executable_progress`; the advanced assertion is unchanged.
+
+These results qualify local behavior and recovery contracts. The previous
+clean max result is not a new trial of this revision. The original min job
+still has no terminal receipt, Cube has not started in that batch, and stable
+fresh device repetition remains outstanding.

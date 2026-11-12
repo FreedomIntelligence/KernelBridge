@@ -159,8 +159,11 @@ class ApplicationHost:
                 description="Read the current explicit Goal and its receipt-derived progress and optional budget.",
                 parameters={"type": "object", "properties": {}, "additionalProperties": False}), self.get_codegen_goal)
             update_goal = FunctionTool(ToolSpec(name="update_goal", credits=0,
-                description="Complete an active Goal only after verifying its objective, or report a concrete blocker needing user input. Pause/resume/clear remain user controls. Include evidence or the missing input in summary.",
-                parameters={"type": "object", "properties": {"status": {"enum": ["complete", "blocked"]},
+                description=("Complete an active Goal only after verifying its objective, or report a concrete blocker needing user input. "
+                    if config.workspace_mode == "project" else
+                    "Report a concrete blocker or wait for an original external receipt; this returns control without settling or replacing unknown effects. Task completion still requires its original acceptance gates. ")
+                    + "Pause/resume/clear remain user controls. Include evidence or the exact missing input in summary.",
+                parameters={"type": "object", "properties": {"status": {"enum": ["complete", "blocked"] if config.workspace_mode == "project" else ["blocked"]},
                     "summary": {"type": "string", "minLength": 1, "maxLength": 4096}},
                     "required": ["status", "summary"], "additionalProperties": False}), self.update_codegen_goal)
             # Codex's update_plan shape; offered only while a Goal is active (host-actions syncTools).
@@ -178,7 +181,7 @@ class ApplicationHost:
                     "required": ["plan"], "additionalProperties": False}), self.update_codegen_plan)
             owner = build(config, config_path.parent, task, probe_versions=False, external_context=True, startup=startup,
                           subagent_home=Path(os.environ.get("KERNELBRIDGE_HOME") or Path.home() / ".kernelbridge"),
-                          extra_tools=(finish_goal, get_goal, update_goal, update_plan, agents_status, stop_agent) if config.workspace_mode == "project" else (transition,))
+                          extra_tools=(finish_goal, get_goal, update_goal, update_plan, agents_status, stop_agent) if config.workspace_mode == "project" else (transition, get_goal, update_goal))
             # This host runs child model calls on their own threads, so
             # independent delegate calls from one reply may overlap.
             owner.concurrent_delegation = True
@@ -658,6 +661,8 @@ class ApplicationHost:
 
     def finish_codegen_goal(self, action):
         from kernelcat_executor.contracts.models import Outcome
+        if self.config.workspace_mode != "project":
+            raise Conflict("Task Goal completion requires its original acceptance evidence")
         if self.config.goal_review.enabled:
             return Outcome(data={"completed": False, "review_pending": True,
                 "summary": action.arguments["summary"], "device_acceptance": False})
@@ -677,9 +682,17 @@ class ApplicationHost:
             return self.finish_codegen_goal(action)
         goal = self.journal.state()["goal"]
         if not goal or goal["status"] != "active":
-            raise Conflict("Only an active Goal can report a blocker")
-        self.journal.command("goal_outcome", {"status": "awaiting_user", "reason": "blocked",
-            "summary": action.arguments["summary"], "action_id": action.id})
+            return Outcome(status="failed", data={"reason": "goal_changed", "summary": "Only the original active Goal can report this blocker."})
+        admitted = self.owner.gateway.store.snapshot()["actions"].get(action.id, {})
+        boundary = max([-1, *(value for value in (goal.get("start_seq"), goal.get("resume_seq")) if isinstance(value, int))])
+        if (admitted.get("seq", -1) <= boundary
+                or admitted.get("application_context", {}).get("goal_id") not in (None, goal["goal_id"])):
+            return Outcome(status="failed", data={"reason": "goal_changed", "summary": "The original action belongs to another Goal boundary."})
+        result = self.journal.command("goal_outcome", {"status": "awaiting_user", "reason": "blocked",
+            "summary": action.arguments["summary"], "action_id": action.id, "expected_goal_sha256": digest(goal)})
+        recorded_goal = result.get("goal") or {}
+        if recorded_goal.get("status") != "awaiting_user" or recorded_goal.get("goal_id") != goal["goal_id"]:
+            return Outcome(status="failed", data={"reason": "goal_changed", "summary": "A newer Goal control superseded this blocker report."})
         return Outcome(data={"status": "awaiting_user", "reason": "blocked", "summary": action.arguments["summary"]})
 
     def update_codegen_plan(self, action):
@@ -770,31 +783,48 @@ class ApplicationHost:
         if (goal and goal["status"] == "active" and newest and newest["status"] == "failed"
                 and newest.get("reason") == "providers_failed" and newest.get("failed_seq", -1) > boundary
                 and not state["pending_effect_ids"] and not state["calls"]):
-            self.journal.command("goal_outcome", {"status": "awaiting_user", "reason": "provider_unavailable",
+            updated = self.journal.command("goal_outcome", {"status": "awaiting_user", "reason": "provider_unavailable",
                 "summary": (newest.get("summary") or "The model service failed on every route.")
-                           + " Send new input or use /goal resume."})
+                           + " Send new input or use /goal resume.",
+                "expected_goal_sha256": digest(goal), "expected_input_id": newest["input_id"]})
+            recorded_goal = updated.get("goal") or {}
+            if "goal" in updated and (recorded_goal.get("status") != "awaiting_user" or recorded_goal.get("goal_id") != goal["goal_id"]):
+                return {"action": "wait", "reason": "new_input_boundary"}
             return {"action": "wait", "reason": "provider_unavailable"}
         decision = recommend(state)
         if decision["action"] == "stop":
             self.journal.command("goal_outcome", {"status": "budget_limit", "reason": decision["reason"]})
             return decision
-        # A tool-free automatic continuation must not spin forever. A new user
-        # request or explicit resume establishes a new continuation boundary.
+        # Awaiting is a model-admission boundary, not an effect settlement.
+        # A new user request or explicit resume establishes a new boundary.
         goal = state["goal"]
         settled = [item for item in state["inputs"].values() if item["kind"] != "control" and item["status"] == "completed"]
         latest = max(settled, key=lambda item: item["completed_seq"], default=None)
-        # Both workspace modes: with no limit set, a model that keeps answering
-        # without tools would otherwise be continued indefinitely.
         if (goal and goal["status"] == "active"
-                and latest and latest["kind"] == "policy"
+                and latest
                 and latest["completed_seq"] > max([-1, *(value for value in (goal.get("start_seq"), goal.get("resume_seq"))
                                                          if isinstance(value, int))])
                 and not state["pending_effect_ids"] and not state["calls"]):
-            from kernelcat_executor.state.goal_progress import continuation_has_progress
-            if not continuation_has_progress(list(self.owner.gateway.store._events(self.owner.gateway.store.events())), latest):
-                self.journal.command("goal_outcome", {"status": "awaiting_user", "reason": "no_tool_progress",
-                    "summary": "Automatic continuation made no tool progress. Send new input or use /goal resume."})
-                return {"action": "wait", "reason": "no_tool_progress"}
+            from kernelcat_executor.state.continuation_progress import continuation_activity
+            activity = continuation_activity(list(self.owner.gateway.store._events(self.owner.gateway.store.events())), latest,
+                task_id=state["task"].get("id"), goal_id=goal["goal_id"], start_seq=goal.get("start_seq", -1))
+            if activity["waiting"] or (latest["kind"] == "policy" and not activity["progress"]):
+                reason = ("awaiting_original_receipt" if activity["waiting"] else
+                          "no_executable_progress" if activity["has_tool_actions"] else "no_tool_progress")
+                summary = ("Waiting for an original external receipt. Its unknown/pending state and original handle are retained; no replacement was dispatched. "
+                    if activity["waiting"] else
+                    "Automatic continuation produced no new settled information. Repeated status, identical errors or the same evidence page are not progress. "
+                    if activity["has_tool_actions"] else "Automatic continuation ended without a work-tool call. ")
+                summary += "Send new input or use /goal resume when there is new evidence or a way forward."
+                if activity.get("invalid_signal"):
+                    summary += " A tool returned an invalid continuation-progress signal; inspect its original receipt."
+                updated = self.journal.command("goal_outcome", {"status": "awaiting_user", "reason": reason, "summary": summary,
+                    "receipt_refs": activity["receipt_refs"], "expected_goal_sha256": digest(goal),
+                    "expected_input_id": latest["input_id"]})
+                recorded_goal = updated.get("goal") or {}
+                if "goal" in updated and (recorded_goal.get("status") != "awaiting_user" or recorded_goal.get("goal_id") != goal["goal_id"]):
+                    return {"action": "wait", "reason": "new_input_boundary"}
+                return {"action": "wait", "reason": reason, "summary": summary, "receipt_refs": activity["receipt_refs"]}
         if decision["action"] not in {"continue", "reset"}:
             return decision
         input_id = "loopx-" + decision["decision_id"]

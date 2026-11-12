@@ -911,3 +911,156 @@ passed deployment and runtime (2/2) in
 successful groups from the retained full run, every required local TUI group
 has a passing result. This is a full run plus a focused follow-up, not a new
 single 27/27 run. There were no further production changes after qualification.
+
+## 2026-11-12: clean `d07af47` max/min results and terminal recovery
+
+The next clean batch used frozen source `d07af4769381b34a456fa4e2aa343fff4b1c4833`
+in `agent-guidance-parity/KernelBridge/.validation/next-clean-trials/batch-d07af47-01/`.
+The workspaces started without inherited candidates or conversations. The
+original suite, oracle, same-device eager comparator and measurement protocol
+remained fixed. These sessions followed the later uncapped Goal instruction;
+their observed call counts are not 20-call completions. Calls, native attempts
+and accepted results remain separate accounting units.
+
+| Clean task | Settled model calls | Reported tokens | Original native attempts | Observed qualification |
+| --- | ---: | ---: | ---: | --- |
+| Scatter max | 41 parent; no child/compact/review calls | 2,920,583 | 4 | 6/6 correctness, same-device eager geometric speedup 5.250296×, E1/E3 and H |
+| Scatter min | 66 parent; no child/compact/review calls | 6,458,433 | 3 | Two compile failures; third original job unknown; paused with no E1/E3/H |
+| Cube auxiliary | 0 | 0 | 0 | Not started in this batch |
+
+Max first reached complete native correctness and positive timing at call 33,
+attempt 4. The later F projection at call 39 reused that same original attempt;
+it was not a fifth launch. G followed at call 40 and H at call 41. Host E1/E3
+were recorded at Journal sequences 1056/1057, with the terminal boundary at
+1069. Every case improved; the lowest case was 2.652006×. Independent offline
+recomputation verified all 25 committed G artifacts and reproduced the original
+qualification: log paired delta 1.5881532232479976 exceeded the measured
+independent eager/eager threshold 0.02801543203215286. This retains the original
+three ABBA blocks and pooled-arm median statistic. It is one accepted paired
+result, not independent stable reproduction, a holdout, or E4/platform acceptance.
+
+The max diagnostic path also gives a narrower result than “the model used IR”.
+Attempt 3 failed correctness after a successful build, and automatic IR capture
+completed. There were zero explicit J requests and zero reads of actual
+IR/profiler artifact contents. The winner had no profiler evidence. The model
+changed its implementation after reading runtime error pages; its structural
+explanation was a hypothesis, not an IR-confirmed mechanism. Both frozen
+instruction files were fully present in all 41 provider requests. No subagent,
+fork or compact execution occurred in this trajectory, so it does not qualify
+those contexts empirically.
+
+Min's compiler diagnostics reached the following actual provider requests, and
+subsequent source revisions responded to specific host/device compile
+errors. Attempt 3 was acknowledged at call 30 but never supplied a final
+benchmark receipt. Ten explicit collect requests and two internal collect
+stages still produced no terminal result. The original unknown launch fence
+rejected the attempted replacement at call 49. The first no-tool blocked reply
+at call 52 was followed by automatic Goal continuations; the original session
+was explicitly paused after call 66, atomically at sequence 1632, with no pending
+model/executor action at checkpoint 1633.
+
+The retained min observation had `alive=false` and no result. A later read-only
+device check, recorded separately in `.validation/continuation-state.json`,
+found the original process absent and build success plus 72 eager calibration
+samples. Neither observation supplied an actual exit code/signal or complete
+candidate result. The original attempt therefore remains unknown, not an
+inferred compile failure or measured performance result. No replacement job or
+Cube job was launched to bypass it. Model text later mixed attempt 2's PID/path
+with attempt 3's source identity; the original launch receipt, not that text,
+defines the recovery identity.
+
+The final reports preserve per-call wire references, source identities and
+Journal hashes under
+`agent-guidance-parity/KernelBridge/.validation/next-clean-trials/observations/`:
+`max-fea2ecdb6001d90b/final-report.{json,md}` and
+`min-919b13c288fca341/final-report.{json,md}`. Original Journals and device
+artifacts remain in place. Read-only qualification replay is retained in the
+new recovery checkout's `.validation/qualification-recovery/replay-report.json`.
+
+### Separate recovery changes derived from these observations
+
+The new `harness-terminal-recovery` checkout starts from `d07af47` and changes
+the harness, not the frozen trials, measurement contract or operator answers.
+The proposed efficiency improvement is fewer tool-interface failures and fewer
+model continuations without new evidence. Several independently demonstrated
+bugs are repaired together; a later efficiency difference cannot be attributed
+to one variable without a separate controlled comparison.
+
+- Ordinary Bash no longer silently adds `errexit` and `pipefail`. The tool
+  describes its normal final-exit-status behavior, clean environment, isolated
+  filesystem and success-only authorized writeback. Explicit strict options
+  remain available. The max audit found six executed commands returning exit 1,
+  not six admission denials; some were out-of-workspace probes or a model AST
+  bug. This repair does not grant host-repository access or establish six saved
+  turns. Predictable shell semantics apply to ordinary coding and every operator.
+- Qualification replay reads the original retained noise-file bytes as well
+  as checking the canonical payload. Re-serializing an embedded dictionary
+  after canonical key sorting had incorrectly changed the reconstructed file
+  hash. The original file SHA and payload SHA are both still required; changed
+  bytes, payloads, missing arms and duplicate fields fail closed. The measured
+  threshold, case coverage and timing are unchanged. This supports any declared
+  calibration protocol, including the separately frozen Cube protocol.
+- Unknown native observations expose a verified original handle separately from
+  settled execution handles. Action, source, immutable launch binding and exact
+  original ACK must agree. Lost or null ACKs require the recovered original
+  launch/request bytes and pinned validator; a later PID or boolean claim is
+  insufficient. Foreign terminal handles are rejected before they can clear
+  the original launch fence. These rules also cover non-scatter asynchronous jobs.
+- A supervisor retains actual child exit evidence bound to process birth,
+  source, original action and supervisor identity. A verified exit without a
+  qualifying benchmark yields an explicit nonqualifying failure, not fabricated
+  cases or timing. Missing exit evidence stays unknown. Benchmark output written
+  before supervised exit is only a provisional observation; its remote-reported
+  byte hash is not presented as independently verified local bytes. Legitimate
+  deployment-root aliases remain distinct from forbidden internal symlinks.
+- Continuation metadata describes semantic progress under the stable original
+  job/artifact identity. New wrapper IDs and timestamps do not count. Waiting
+  for an unavailable original receipt blocks the next automatic policy without
+  settling the effect; unrelated reads cannot clear that wait. Verified live
+  work and locally executable next phases remain resumable. In particular, a
+  bounded wait ending before first launch or between terminal E and ready F
+  is not classified as an external-receipt wait. These distinctions apply to
+  ordinary background tools as well as both scatter modes and Cube.
+
+The offline min counterfactual at
+`.validation/continuation-replay/min-call52.json` applies new metadata to the
+verified historical input boundary at sequence 1307. The new consumer returns
+`awaiting_original_receipt` there, before admitting another automatic policy.
+This is a producer/consumer replay, not a new 52-call model run, a measured
+14-call saving, or evidence that min would have completed. No later observation
+was backdated and no original input, candidate, receipt or Journal was changed.
+
+Focused local regression covers original-handle fences, forged collectors,
+lost/null ACKs, provisional results, actual failure projection, ready-F deadline
+continuation, byte-preserving qualification and prepared-tool imports in fresh
+processes with an empty `PYTHONPATH`. The final eight-module run executed 110
+tests: 109 passed and one optional private historical-receipt fixture was absent.
+Its log is `.validation/terminal-recovery/pipeline-review-final.log`. Full
+Python/JavaScript/runtime and PTY acceptance of this recovery checkout remains
+pending at this entry. Fresh device
+trials and independent stable repetition also remain outstanding; none of the
+offline fixes or focused tests completes the remaining min/Cube evidence.
+
+### Acceptance follow-up for terminal recovery
+
+Full Python discovery passed 470/470 with no skips
+(`.validation/acceptance/python-r2.log`). Its retained first run had one
+legacy-ACK compatibility failure among 469 tests; the driver protocol was
+corrected without changing the old assertion. The complete TUI second run
+passed 27/27 at timeout scale 1.0, including 121 authority tests and full npm
+tests (212 passed, one filesystem-dependent skip). Both original JavaScript
+session replays passed with their original fixtures. The first TUI run's two
+failures are retained: an overstrong narrow-footer assertion and a tool-free
+Goal reason compatibility regression. The production layout and advanced
+assertion were preserved; all required groups passed in the subsequent full
+invocation, not just a collection of focused reruns.
+
+The real Linux CPU supervisor probe passed all six checks, including a killed
+supervisor whose living child retained the fixture lease and whose result
+remained unknown. The probe used an independent temporary namespace, not the
+original min deployment or the device execution lock. Exact hashes and raw
+output are in `.validation/supervisor-local/linux-collection.json`. This is
+lifecycle qualification, not a new NPU optimization trial or performance claim.
+Full details and retained failure logs are indexed in
+`validation/tui/ACCEPTANCE.md`. Min, Cube and stable fresh repetition remain
+incomplete; no unknown original job was settled or replaced during these fixes.

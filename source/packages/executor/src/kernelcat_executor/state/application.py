@@ -256,6 +256,15 @@ class ApplicationJournal:
                 # pause/resume/set that arrived after the host's state read.
                 if "expected_goal_sha256" in data and digest(goal) != data["expected_goal_sha256"]:
                     return None, state
+                if "expected_input_id" in data:
+                    original = state["inputs"].get(data["expected_input_id"])
+                    if not original or original["status"] not in {"completed", "failed"}:
+                        return None, state
+                    boundary = original[original["status"] + "_seq"]
+                    if any(item["kind"] != "control" and (item["status"] in {"queued", "applied"}
+                           or max(item.get(status + "_seq", -1) for status in TERMINAL_INPUT) > boundary)
+                           for item in state["inputs"].values()):
+                        return None, state
                 if not goal or data.get("status") not in {"completed", "budget_limit", "awaiting_user", "failed"}:
                     raise Conflict("invalid Goal outcome")
                 if data["status"] == "completed":
@@ -279,7 +288,7 @@ class ApplicationJournal:
                             pass
                     if not codegen and not reviewed and (not evidence or evidence["task_version"] != state["task_version"]):
                         raise Conflict("Goal completion requires current original acceptance evidence")
-                outcome = {key: value for key, value in data.items() if key != "expected_goal_sha256"}
+                outcome = {key: value for key, value in data.items() if key not in {"expected_goal_sha256", "expected_input_id"}}
                 emit("goal", {**goal, **outcome, **({"ended_at_ns": time.time_ns()} if data["status"] in {"completed", "failed"} else {})})
             elif method == "call_intent":
                 lease()

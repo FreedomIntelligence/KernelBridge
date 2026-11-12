@@ -55,7 +55,7 @@ def evaluate(pipeline, action):
     args = action.get('arguments', {})
     result = {'evaluation_status': 'failed', 'source_changed': False, 'source_sha256': None,
               'check_receipt': None, 'stages': [], 'feedback': None, 'continuation': None}
-    status = 'completed'; deadline = None; prior_intent = None
+    status = 'completed'; deadline = None; prior_intent = None; requested_source = None
 
     def reload():
         return Pipeline(pipeline.config)
@@ -91,11 +91,18 @@ def evaluate(pipeline, action):
             result['diagnostics'] = original['diagnostics']
         return child, original
 
-    def pending(reason, state, target=None):
-        result.update(evaluation_status='pending', error=reason)
+    def pending(reason, state, target=None, *, ready=False):
+        result.update(evaluation_status='pending', pending_kind='phase_ready' if ready else 'original_receipt', error=reason)
         handles = state.pending_launches()
         retained = state.matching_handle() if state.state.get('candidate') else None
+        expected_source = requested_source or result.get('source_sha256') or (prior_intent or {}).get('binding', {}).get('source')
+        if retained and expected_source and retained['source']['sha256'] != expected_source:
+            retained = None
         result['original_handle'] = retained['handle'] if retained else None
+        observed = next((row['observation'] for row in handles if row.get('observation')
+                         and (expected_source is None or row['binding']['source'] == expected_source)), None)
+        if retained is None and observed is not None:
+            result.update(original_handle=observed['original_handle'], pending_observation=observed, observation_only=True)
         result['recover_run'] = handles[0]['run'] if handles else None
         if target or (output / 'evaluation-intent.json').exists():
             result['continuation'] = {'tool': 'pipeline_evaluate', 'arguments': {
@@ -149,6 +156,7 @@ def evaluate(pipeline, action):
             files = args['files']
             if not isinstance(files, dict) or not files or len(files) > 128: raise ValueError('Explicit source file mapping required')
             requested = digest({name: sha(pipeline.path(path)) for name, path in files.items()})
+            requested_source = requested
             if unresolved and requested != before: raise ValueError('Recover the original launch before replacing its source')
             if requested != before:
                 pipeline, frozen = phase('D', 'pipeline_freeze', {'files': files, 'origin': args['origin']})
@@ -196,11 +204,13 @@ def evaluate(pipeline, action):
                 if collected['status'] != 'completed': break
                 if unknown or retained and not retained.get('collected'):
                     time.sleep(min(0.25, max(0, deadline - time.monotonic())))
-            if unknown or retained and not retained.get('collected') or drivers['launch'] and retained is None:
+            if unknown or retained and not retained.get('collected'):
                 pending('Original job has not produced a terminal receipt within this bounded call; recover its existing identity', pipeline)
+            elif drivers['launch'] and retained is None:
+                pending('Bounded wait ended before launch; frozen source is ready for its first execution', pipeline, ready=True)
             elif time.monotonic() >= deadline and not (pipeline.state.get('check')
                     and pipeline.state['check']['binding'] == pipeline.binding()):
-                pending('Bounded wait ended; original terminal job and frozen source are retained for F', pipeline)
+                pending('Bounded wait ended; original terminal job and frozen source are retained for F', pipeline, ready=True)
             else:
                 existing = pipeline.state.get('check')
                 if existing and existing['binding'] == pipeline.binding():
@@ -215,7 +225,7 @@ def evaluate(pipeline, action):
                     owner_committed = any(row['run'] == owner_run for row in pipeline.state['receipts'])
                     if not owner_committed and existing['action_id'] != outer_id:
                         if resume != owner_run:
-                            pending('Resume the original owner of the committed F receipt; do not rerun F', pipeline, owner_run)
+                            pending('Resume the original owner of the committed F receipt; do not rerun F', pipeline, owner_run, ready=True)
                         else:
                             descriptor.update(origin_action_id=existing['action_id'], reused=True)
                             result['stages'].append(descriptor)

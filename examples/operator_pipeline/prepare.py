@@ -22,6 +22,14 @@ def prepare(profile, output, python):
         if 'preflight_rejection_protocol' in driver and (
                 driver['kind'] != 'launch' or driver['preflight_rejection_protocol'] != 'kernelbridge.driver-preflight/v1'):
             raise ValueError('Preflight rejection requires the supported version and launch driver kind')
+        if 'observed_receipt_protocol' in driver and (
+                driver['kind'] not in {'launch', 'collect'} or driver['observed_receipt_protocol'] != 'kernelbridge.driver-observation/v1'):
+            raise ValueError('Original observation protocol requires a launch or collect driver')
+        if 'observation_validator' in driver:
+            validator = str(Path(driver['observation_validator']).resolve(strict=True))
+            if not driver.get('observed_receipt_protocol') or validator not in driver['files']:
+                raise ValueError('Observation validator requires the explicit protocol and a pinned file')
+            driver['observation_validator'] = validator
         timeout = driver.get('timeout', 600)
         if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0:
             raise ValueError('Driver timeout must be positive and finite')
@@ -49,6 +57,7 @@ def prepare(profile, output, python):
     shutil.copyfile(Path(__file__).with_name('qualification.py'), output / 'qualification.py')
     shutil.copyfile(Path(__file__).with_name('job_identity.py'), output / 'job_identity.py')
     shutil.copyfile(Path(__file__).with_name('preflight.py'), output / 'preflight.py')
+    shutil.copyfile(Path(__file__).with_name('observation.py'), output / 'observation.py')
     (output / 'config.json').write_text(json.dumps(config, indent=2) + '\n')
     pins = [{'path': str(p), 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()} for p in sorted(output.iterdir())]
     string = {'type': 'string', 'minLength': 1}

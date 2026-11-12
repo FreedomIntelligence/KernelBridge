@@ -15,6 +15,7 @@ try:
 except ModuleNotFoundError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'operator_pipeline'))
     from preflight import PROTOCOL, SourceFormatError, contract_differences, digest as preflight_digest, make_rejection, make_source_rejection
+from observation import envelope as observation_envelope, read_documents
 
 
 def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -92,19 +93,71 @@ def original_launch_action(config, request):
 
 def round_for(config, request):
     expected = request['binding']['source']
+    recovery = request.get('recovery')
+    original_action = recovery.get('action_id') if isinstance(recovery, dict) else None
+    if recovery is not None and (not isinstance(original_action, str) or not original_action):
+        raise ValueError('Recovery requires the original launch action identity')
     matches = []
     for path in attempt_records(Path(config['state'])):
         intent = json.loads(path.read_text())
-        if manifest_sha({'candidate.py': intent['source_sha256']}) == expected:
+        if (manifest_sha({'candidate.py': intent['source_sha256']}) == expected
+                and (original_action is None or intent.get('action_id') == original_action)):
             matches.append((path.parent, intent))
     if len(matches) != 1: raise ValueError('No unique original NPU attempt for this frozen candidate')
     return matches[0]
 
 
+def pending_projection(config, operation, request, outcome):
+    if outcome.get('status') != 'unknown':
+        raise ValueError('Only an unresolved original trial can produce an observation')
+    recovery = request.get('recovery')
+    original_action = recovery.get('action_id') if isinstance(recovery, dict) else request.get('action_id')
+    if operation == 'collect' and not isinstance(recovery, dict):
+        raise ValueError('Unknown collection requires its original launch recovery identity')
+    folder = original_launch_action(config, dict(request, action_id=original_action))
+    if folder is None:
+        raise ValueError('Unknown trial does not belong to this original launch action')
+    # Read the retained records ourselves. Outcome hints and model text cannot
+    # name an older/foreign attempt or supply a replacement handle.
+    documents, hashes, raw_files = read_documents(folder)
+    from npu_job_supervisor import validate_launch_receipt
+    validator_sha = sha(Path(__file__).with_name('npu_job_supervisor.py'))
+    projected = observation_envelope(request, operation, original_action, documents, hashes,
+        raw_files=raw_files, validator=validate_launch_receipt, validator_sha256=validator_sha)
+    recovered_request = documents.get('observed-execution-request.json')
+    if recovered_request is not None:
+        validate_launch_receipt(raw_files['observed-launch.json'], raw_files['observed-execution-request.json'],
+            intent={**documents['intent.json'], **{key: config[key] for key in ('mode', 'device', 'remote_root') if key in config},
+                    'supervisor_sha256': validator_sha})
+    hint = outcome.get('data', {})
+    for key, expected in (('source_sha256', documents['intent.json']['source_sha256']),
+                          ('remote_attempt', documents['intent.json']['remote_attempt']),
+                          ('attempt', attempt_number(documents['intent.json']))):
+        if key in hint and hint[key] != expected: raise ValueError('Unknown outcome refers to a foreign original attempt')
+    if hint.get('original_handle') is not None and not same_handle(hint['original_handle'], projected['original_handle']):
+        raise ValueError('Unknown outcome handle differs from its original evidence')
+    if hint.get('record'):
+        recorded = Path(hint['record'])
+        if recorded.parent != folder or recorded.name not in raw_files:
+            raise ValueError('Unknown outcome record is outside its original evidence')
+    for key, names in (('original_intent', {'intent.json'}),
+                       ('original_launch', {'launch.json', 'observed-launch.json'}),
+                       ('original_execution_request', {'observed-execution-request.json'})):
+        if hint.get(key) is not None:
+            path = Path(hint[key])
+            if path.parent != folder or path.name not in names or path.name not in raw_files:
+                raise ValueError('Unknown outcome original reference differs from its retained evidence')
+    for name, raw in raw_files.items():
+        write_preflight_artifact(Path(request['output']) / 'observation' / name, raw)
+    return projected
+
+
 def original(config, request):
     folder, intent = round_for(config, request)
-    result = json.loads((folder / 'device-result.json').read_text())
     summary = wire_summary(json.loads((folder / 'result.json').read_text()))
+    if summary.get('result_origin') == 'supervisor_exit':
+        return original_execution_failure(config, request, folder, intent, summary)
+    result = json.loads((folder / 'device-result.json').read_text())
     observation = json.loads((folder / 'observation.json').read_text())
     original_bytes = (json.dumps(observation['result'], indent=2, allow_nan=False) + '\n').encode()
     original_sha = hashlib.sha256(original_bytes).hexdigest()
@@ -132,6 +185,72 @@ def original(config, request):
     return folder, result, summary, evidence
 
 
+def original_execution_failure(config, request, folder, intent, summary):
+    from npu_job_supervisor import validate_exit_receipt, validate_launch_receipt
+    for name in ('intent.json', 'candidate.py', 'result.json', 'observation.json', 'execution-failure.json'):
+        original = folder / name
+        if original.resolve() != original or not original.is_file():
+            raise ValueError('Original supervisor evidence is missing or linked: ' + name)
+    path = folder / 'execution-exit.json'
+    if path.resolve() != path or not path.is_file() or not 0 < path.stat().st_size <= MAX_ARTIFACT:
+        raise ValueError('Original supervisor exit receipt is missing or linked')
+    raw = path.read_bytes(); original_sha = hashlib.sha256(raw).hexdigest()
+    observation = json.loads((folder / 'observation.json').read_bytes())
+    handle = observation.get('handle')
+    expected_intent = dict(intent, attempt=attempt_number(intent), mode=config['mode'], device=config.get('device', 0))
+    receipt = validate_exit_receipt(raw, handle=handle, intent=expected_intent)
+    if (original_sha != summary.get('execution_exit_sha256') or original_sha != observation.get('execution_exit_sha256')
+            or raw != base64.b64decode(observation.get('execution_exit_bytes', ''), validate=True)
+            or receipt != observation.get('execution_exit') or observation.get('identity_verified') is not True
+            or not same_handle(handle, summary.get('original_handle'))
+            or handle['supervisor']['code_sha256'] != sha(Path(__file__).with_name('npu_job_supervisor.py'))):
+        raise ValueError('Original supervisor evidence changed')
+    acknowledged = folder / 'launch.json'
+    if acknowledged.exists() and acknowledged.resolve() != acknowledged:
+        raise ValueError('Original launch acknowledgement is linked')
+    acknowledged_handle = json.loads(acknowledged.read_bytes()).get('handle') if acknowledged.is_file() else None
+    if acknowledged_handle is not None:
+        if not same_handle(acknowledged_handle, handle):
+            raise ValueError('Supervisor exit differs from the original launch acknowledgement')
+    else:
+        documents, hashes, raw_files = read_documents(folder)
+        launch_raw = raw_files.get('observed-launch.json'); request_raw = raw_files.get('observed-execution-request.json')
+        if launch_raw is None or request_raw is None:
+            raise ValueError('Supervisor exit lacks original launch bytes after a lost acknowledgement')
+        original_handle = validate_launch_receipt(launch_raw, request_raw, intent={**expected_intent,
+            **({'remote_root': config['remote_root']} if 'remote_root' in config else {}),
+            'supervisor_sha256': sha(Path(__file__).with_name('npu_job_supervisor.py'))})
+        if (not same_handle(original_handle, handle)
+                or hashes['observed-launch.json'] != observation.get('original_launch_sha256')
+                or hashes['observed-execution-request.json'] != observation.get('execution_request_sha256')
+                or launch_raw != base64.b64decode(observation.get('original_launch_bytes', ''), validate=True)
+                or request_raw != base64.b64decode(observation.get('execution_request_bytes', ''), validate=True)):
+            raise ValueError('Supervisor exit differs from its recovered original launch bytes')
+    failure_path = folder / 'execution-failure.json'
+    if failure_path.resolve() != failure_path or not failure_path.is_file():
+        raise ValueError('Original supervisor failure receipt is missing or linked')
+    failure = json.loads(failure_path.read_bytes())
+    expected = {'status': 'failed', 'correct': False, 'nonqualifying': True, 'result_origin': 'supervisor_exit',
+        'failure_stage': 'process_exit', 'source_sha256': intent['source_sha256'], 'action_id': intent['action_id'],
+        'attempt': attempt_number(intent), 'remote_attempt': intent['remote_attempt'], 'remote_result_sha256': None,
+        'execution_exit_sha256': original_sha, 'execution_exit_path': str(path),
+        'returncode': receipt['returncode'], 'signal': receipt['signal']}
+    if (any(failure.get(key) != value or summary.get(key) != value for key, value in expected.items())
+            or not same_handle(failure.get('original_handle'), handle)
+            or sha(folder / 'candidate.py') != intent['source_sha256']
+            or request['source']['files'] != {'candidate.py': intent['source_sha256']}
+            or failure.get('cases') or summary.get('cases') or failure.get('speedup') is not None
+            or summary.get('speedup') is not None or (folder / 'device-result.json').exists()):
+        raise ValueError('Supervisor failure cannot supply device correctness or measurement evidence')
+    if request.get('handle') and not same_handle(request['handle'], handle):
+        raise ValueError('Requested handle differs from the original failed process')
+    evidence = {'attempt': attempt_number(intent), 'native_candidate_sha256': intent['source_sha256'],
+        'remote_result_sha256': None, 'execution_exit_sha256': original_sha,
+        'original_handle': wire_handle(handle), 'original_job': intent['remote_attempt'].rstrip('/') + '/job',
+        'read_only_projection': True, 'scope': 'supervisor_exit', 'nonqualifying': True}
+    return folder, failure, summary, evidence
+
+
 def verify_log_binding(record, evidence):
     if (record.get('source_sha256') != evidence['native_candidate_sha256']
             or record.get('remote_result_sha256') != evidence['remote_result_sha256']
@@ -146,8 +265,11 @@ def terminal_feedback(folder, request, result, evidence, config=None):
         raise ValueError('Original evaluation has no terminal result; collect its existing handle')
     output = Path(request['output']) / 'evaluation'; output.mkdir(parents=True, exist_ok=True)
     observation = json.loads((folder / 'observation.json').read_text())
-    original_bytes = (json.dumps(observation['result'], indent=2, allow_nan=False) + '\n').encode()
-    if hashlib.sha256(original_bytes).hexdigest() != evidence['remote_result_sha256']:
+    process_failure = result.get('result_origin') == 'supervisor_exit'
+    original_bytes = ((folder / 'execution-exit.json').read_bytes() if process_failure
+                      else (json.dumps(observation['result'], indent=2, allow_nan=False) + '\n').encode())
+    expected_sha = evidence.get('execution_exit_sha256') if process_failure else evidence['remote_result_sha256']
+    if hashlib.sha256(original_bytes).hexdigest() != expected_sha:
         raise ValueError('Original evaluation changed before projection')
     action_id = request.get('action_id')
     run = hashlib.sha256(action_id.encode()).hexdigest() if isinstance(action_id, str) and action_id else None
@@ -161,9 +283,10 @@ def terminal_feedback(folder, request, result, evidence, config=None):
             item['read'] = {'tool': 'pipeline_read', 'arguments': {'run': run, 'path': 'driver/' + relative}}
         artifacts[name] = item
 
-    retain('original-result.json', original_bytes)
+    retain('original-execution-exit.json' if process_failure else 'original-result.json', original_bytes)
     # CPU-fallback qualification may differ from the raw original. Retain both.
-    retain('qualified-result.json', (json.dumps(result, indent=2, allow_nan=False) + '\n').encode())
+    retain('execution-failure.json' if process_failure else 'qualified-result.json',
+           (json.dumps(result, indent=2, allow_nan=False) + '\n').encode())
     texts = []
     build_texts = []
     log = {'status': 'unavailable', 'complete': False,
@@ -331,10 +454,12 @@ def terminal_feedback(folder, request, result, evidence, config=None):
         'first_runtime_error': runtime_error, 'first_sdk_diagnostic': sdk_error,
         'run_log': log, 'build_diagnostics': build_feedback,
         'build_completed': result.get('build_completed'), 'failure_stage': result.get('failure_stage'),
-        'error_excerpt': None if first else (sdk_error['text'] if sdk_error else runtime_error['text'] if runtime_error else str(result.get('message') or '')[:2048]),
+        'error_excerpt': None if first else (sdk_error['text'] if sdk_error else runtime_error['text'] if runtime_error else str(result.get('message') or result.get('error') or '')[:2048]),
         'diagnostics': {'required': diagnostics.get('required'), 'satisfied': diagnostics.get('satisfied'), 'reports': reports},
         'artifacts': artifacts, 'native_candidate_sha256': evidence['native_candidate_sha256'],
         'remote_result_sha256': evidence['remote_result_sha256'],
+        **({'nonqualifying': True, 'result_origin': 'supervisor_exit', 'execution_exit_sha256': evidence['execution_exit_sha256']}
+           if process_failure else {}),
         'qualification': 'Original terminal evaluation feedback only; success still requires original F/G/H receipts.'}
 
 
@@ -519,24 +644,33 @@ def execute(config, operation, request):
         write_preflight_artifact(Path(request['output']) / 'dispatch-boundary.json',
                                  (json.dumps(boundary, sort_keys=True, ensure_ascii=False, allow_nan=False) + '\n').encode())
         outcome = trial(dict(config, candidate=str(candidate)), {'id': action_id, 'arguments': {'hypothesis': json.dumps(hypothesis, ensure_ascii=False)}})
-        if outcome['status'] != 'completed': raise RuntimeError('Original NPU job unresolved; recover this launch with npu-collect')
+        if outcome['status'] != 'completed': return pending_projection(config, operation, request, outcome)
         save(Path(config['candidate']).parent / 'feedback.json', outcome['data'])
     elif operation == 'collect':
         folder, intent = round_for(config, request)
         if not (folder / 'result.json').exists():
             outcome = trial(config, recover=attempt_number(intent))
-            if outcome['status'] != 'completed': raise RuntimeError('Original NPU job is still unresolved')
+            if outcome['status'] != 'completed': return pending_projection(config, operation, request, outcome)
     folder, result, summary, evidence = original(config, request)
     if operation == 'collect' and request.get('handle') and (folder / 'run-log.json').is_file():
         log = json.loads((folder / 'run-log.json').read_text())
         verify_log_binding(log, evidence)
         if log.get('status') != 'completed':
-            recover_run_log(folder, transport(config))
+            recover_run_log(folder, transport(config), remote_root=config.get('remote_root'))
     if operation in ('launch', 'collect'):
         return {'status': 'completed', 'phase': 'complete', 'handle': summary['original_handle'], 'job_status': result['status'],
                 'evaluation': terminal_feedback(folder, request, result, evidence, config),
                 'execution': 'E executed the complete native job once; F/G/J only project this original receipt', **evidence,
                 'read_only_projection': operation == 'collect'}
+    if result.get('nonqualifying') is True:
+        if operation == 'check':
+            return {'checks': dict.fromkeys(('build', 'semantics', 'full'), False), 'case_count': 0, 'case_ids': [],
+                'oracle_sha256': request['contract']['oracle']['files']['sha256'],
+                'error': result['error'], 'failure_stage': 'process_exit', **evidence}
+        if operation in ('ir', 'profiler'):
+            return {'kind': operation, 'status': 'unavailable',
+                'reason': 'Original process exited without a qualifying benchmark receipt.', **evidence}
+        raise ValueError('Original supervisor exit has no device measurements; G/H cannot qualify it')
     cases = result.get('cases', [])
     expected = sorted(case['id'] for case in request['contract']['suite'])
     correct = result.get('correct') is True and summary.get('correct') is True and sorted(case['id'] for case in cases) == expected

@@ -245,7 +245,7 @@ export function workspaceTools(sdk, capability) {
           + '(deny system-fcntl (fcntl-command 80 110))';
         isolated = ['/usr/bin/sandbox-exec', '-p', profile, '/usr/bin/env', '-i',
           'PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin', 'LANG=en_US.UTF-8', `TMPDIR=${temporary}`, `HOME=${scratch}`,
-          '/bin/bash', '--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', command].map(quote).join(' ');
+          '/bin/bash', '--noprofile', '--norc', '-c', command].map(quote).join(' ');
       } else if (process.platform === 'linux') {
         // No unsandboxed fallback: provision bubblewrap in the runner image.
         const executable = process.env.KERNELCAT_BWRAP ?? 'bwrap';
@@ -275,13 +275,13 @@ export function workspaceTools(sdk, capability) {
         }
         argv.push('--chdir', '/workspace',
           '/usr/bin/env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin', 'LANG=C.UTF-8', 'TMPDIR=/tmp', 'HOME=/workspace',
-          '/bin/bash', '--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', command);
+          '/bin/bash', '--noprofile', '--norc', '-c', command);
         isolated = argv.map(quote).join(' ');
       } else throw new Error('No isolated bash backend on this platform');
       return shell.exec(isolated, scratch, { ...options, env: { PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin', LANG: 'en_US.UTF-8', TMPDIR: temporary } });
     }, true),
   } });
-  bash.description += ' Commands run in a fresh isolated workspace snapshot with no network. Only successful authorized regular-file changes persist (256 KiB per file, 16 MiB and 4096 files per snapshot). TMPDIR is disposable. Failed or timed-out commands do not write changes back; inspect their output before retrying.';
+  bash.description += ' Commands run in a fresh isolated workspace snapshot with no network. File access is limited to the snapshot, disposable TMPDIR and allowed system paths. The environment is cleared and supplied with a fixed system PATH, snapshot HOME and disposable TMPDIR; host environment variables, including credentials and virtual-environment settings, are not inherited; shell startup files are not loaded. Bash uses normal exit semantics: a failed subcommand does not automatically stop later commands, and a pipeline returns its last command status unless you explicitly enable pipefail. Use set -e and set -o pipefail when you want strict execution. The reported exit code is the shell final status. Authorized regular-file changes persist only when that status is 0 (256 KiB per file, 16 MiB and 4096 files per snapshot). Nonzero exit, timeout or cancellation does not write changes back; inspect the output before retrying.';
   return [read, write, edit, ls, search(sdk.createFindToolDefinition), search(sdk.createGrepToolDefinition), withDefaultTimeout(bash)]
     .filter(tool => capability.tools.includes(tool.name))
     .map(tool => withProductRenderers({ ...tool, exposure: 'model-only' }));

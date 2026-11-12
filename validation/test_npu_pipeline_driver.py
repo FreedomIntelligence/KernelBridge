@@ -159,15 +159,24 @@ class NpuPipelineDriverTest(unittest.TestCase):
     def test_unresolved_original_launch_never_becomes_not_started(self):
         config, request = self.launch_fixture()
         (self.folder / 'result.json').unlink()
+        (self.folder / 'device-result.json').unlink()
+        intent = json.loads((self.folder / 'intent.json').read_text())
+        intent['remote_attempt'] = self.handle['attempt']
+        (self.folder / 'intent.json').write_text(json.dumps(intent))
+        (self.folder / 'observation.json').write_text(json.dumps(
+            {'result': None, 'result_sha256': None, 'handle': None, 'alive': False}))
         before = {path.name: path.read_bytes() for path in self.folder.iterdir()}
         with patch.object(adapter, 'sources', side_effect=AssertionError('historical source reparsed')), \
              patch.object(native_trial, 'sources', side_effect=AssertionError('historical source reparsed')), \
              patch.object(native_trial, 'transport', return_value=object()) as opened, \
              patch.object(native_trial, 'invoke_remote', side_effect=AssertionError('must only collect')) as remote, \
              patch.object(native_trial, 'collect', return_value={'status': 'unknown', 'data': {'error': 'original pending'}}) as collected, \
-             patch.object(adapter, 'make_source_rejection', side_effect=AssertionError('cannot claim not_started')) as rejected, \
-             self.assertRaisesRegex(RuntimeError, 'unresolved'):
-            adapter.execute(config, 'launch', request)
+             patch.object(adapter, 'make_source_rejection', side_effect=AssertionError('cannot claim not_started')) as rejected:
+            observed = adapter.execute(config, 'launch', request)
+        self.assertEqual(observed['status'], 'unknown')
+        self.assertEqual(observed['phase'], 'pending')
+        self.assertIsNone(observed['original_handle'])
+        self.assertNotIn('dispatch_outcome', observed)
         opened.assert_called_once(); collected.assert_called_once(); remote.assert_not_called(); rejected.assert_not_called()
         self.assertEqual({path.name: path.read_bytes() for path in self.folder.iterdir()}, before)
         self.assertFalse((Path(request['output']) / 'preflight').exists())

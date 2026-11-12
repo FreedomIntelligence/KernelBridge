@@ -30,7 +30,7 @@ UNLIMITED = {"goal_id": "g", "status": "active", "objective": "max operator", "s
 def state(goal=UNLIMITED, **extra):
     value = {"goal": goal, "task_version": 1, "trial_id": "t1", "model_turns": 67, "pending_effect_ids": [], "calls": {},
              "inputs": {}, "budget": {"limit": None, "spent": 247, "reserved": 0}, "trials": [{"start_model_turns": 0}],
-             "evidence": [], "max_trial_turns": None, "task": {"contract": {}}, "best": None, "plan": None,
+             "evidence": [], "max_trial_turns": None, "task": {"id": "task", "contract": {}}, "best": None, "plan": None,
              "goal_usage": {"model_turns": 67, "tokens": 1_830_000, "by_role": {"child": {"model_turns": 19}}}}
     value.update(extra)
     return value
@@ -96,7 +96,7 @@ class NextInputTests(unittest.TestCase):
         self.assertTrue(text.startswith("Continue the current task from original receipts."))
         self.assertIn("say exactly what is missing", text)
         self.assertIn("Limits for this Goal: 67 model calls (19 by subagents), no limit set", text)
-        self.assertIn("the previous turn ended only because it made no tool call", text)
+        self.assertIn("a final answer ends one invocation, not this Goal's allowance", text)
         # The decision stays the last line; the TUI reads its model_turns from there.
         self.assertTrue(text.rsplit("\n", 1)[1].startswith("{"))
 
@@ -120,14 +120,16 @@ class NextInputTests(unittest.TestCase):
         for mode in ("task", "project"):
             host = self.host(mode, state(inputs={"loopx-1": policy}), rows)
             decision = host.next_input(SimpleNamespace(worker={"worker_id": "w"}))
-            self.assertEqual(decision, {"action": "wait", "reason": "no_tool_progress"}, mode)
+            self.assertEqual((decision["action"], decision["reason"]), ("wait", "no_tool_progress"), mode)
             self.assertEqual(host.commands[0][0], "goal_outcome")
             self.assertEqual(host.commands[0][1]["status"], "awaiting_user")
 
     def test_a_continuation_with_tool_progress_continues(self):
         policy = {"input_id": "loopx-1", "kind": "policy", "status": "completed", "accepted_seq": 10,
                   "applied_seq": 11, "completed_seq": 20}
-        rows = [{"kind": "admitted", "seq": 13, "action": {"tool": "pipeline_read", "id": "t/step/48/model/ds/call/0"}}]
+        rows = [{"kind": "admitted", "seq": 13, "action": {"tool": "pipeline_read", "id": "read", "task": "task"},
+                 "application_context": {"input_id": "loopx-1", "goal_id": "g"}},
+                {"kind": "settled", "seq": 14, "action_id": "read", "outcome": {"status": "completed", "data": {"text": "new evidence"}}}]
         host = self.host("task", state(inputs={"loopx-1": policy}), rows)
         self.assertEqual(host.next_input(SimpleNamespace(worker={"worker_id": "w"}))["action"], "continue")
 

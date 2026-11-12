@@ -17,9 +17,10 @@ import sys
 import time
 import zipfile
 from diagnostic_policy import diagnostic_reason, verify_record
-from qualification import aggregate, qualify
+from qualification import aggregate, qualify, read_calibration_artifacts
 from job_identity import same_handle, wire_handles
 from preflight import PROTOCOL as PREFLIGHT_PROTOCOL, validate_rejection
+from observation import PROTOCOL as OBSERVATION_PROTOCOL, envelope as observation_envelope, read_documents, launch_validator
 
 
 class PreflightRejected(Exception):
@@ -27,6 +28,13 @@ class PreflightRejected(Exception):
     def __init__(self, record, feedback):
         super().__init__(feedback['error']['message'])
         self.record, self.feedback = record, feedback
+
+
+class PendingObservation(Exception):
+    """A verified original observation still has no terminal execution receipt."""
+    def __init__(self, record, projection):
+        super().__init__('Original execution is unresolved; recover its original launch identity')
+        self.record, self.projection = record, projection
 
 
 def preflight_json(raw):
@@ -148,8 +156,88 @@ class Pipeline:
             if any(item.get('launch_run') == run for item in self.state['handles']):
                 continue
             if self.committed_launch_rejection(run) is None:
-                pending.append({'run': run, **json.loads(path.read_text())})
+                item = {'run': run, **json.loads(path.read_text())}
+                observed = self.observed_launch(run)
+                if observed is not None: item['observation'] = observed
+                pending.append(item)
         return pending
+
+    def validate_observation(self, folder, receipt):
+        request = json.loads((folder / 'request.json').read_bytes())
+        data = receipt.get('result')
+        driver = self.config['drivers'].get(receipt.get('driver'), {})
+        if (driver.get('kind') not in {'launch', 'collect'}
+                or driver.get('observed_receipt_protocol') != OBSERVATION_PROTOCOL
+                or receipt.get('kind') != driver['kind'] or request.get('role') != 'E'):
+            raise ValueError('Driver did not opt into the original observation protocol')
+        recovery = request.get('recovery')
+        original_action = recovery.get('action_id') if isinstance(recovery, dict) else request.get('action_id')
+        if driver['kind'] == 'collect' and not isinstance(recovery, dict):
+            raise ValueError('Unknown collection requires its original recovery action')
+        if not isinstance(original_action, str) or not original_action:
+            raise ValueError('Original launch action is missing')
+        launch_run = hashlib.sha256(original_action.encode()).hexdigest()
+        intent_path = self.root / launch_run / 'launch-intent.json'
+        if intent_path.resolve() != intent_path: raise ValueError('Original launch intent is linked')
+        intent = json.loads(intent_path.read_bytes())
+        original_driver = self.config['drivers'].get(intent.get('driver'), {})
+        if (original_driver.get('kind') != 'launch'
+                or original_driver.get('observed_receipt_protocol') != OBSERVATION_PROTOCOL
+                or intent.get('action_id') != original_action
+                or intent.get('driver_configuration_sha256') != digest(original_driver)
+                or encoded(intent.get('source')) != encoded(request.get('source'))
+                or encoded(intent.get('binding')) != encoded(request.get('binding'))
+                or encoded(intent.get('contract')) != encoded(request.get('contract'))
+                or receipt.get('source') != request['source']['sha256']
+                or receipt.get('contract') != digest(request['contract'])
+                or encoded(receipt.get('driver_files')) != encoded(driver.get('files'))):
+            raise ValueError('Observation differs from the original immutable launch binding')
+        self.verify(request['source']); self.verify(request['contract']['oracle']['files'])
+        for path, expected in {**original_driver['files'], **driver['files']}.items():
+            if sha(path) != expected: raise ValueError('Original observation driver pin changed')
+        if not isinstance(data, dict) or not isinstance(data.get('artifacts'), dict):
+            raise ValueError('Original observation artifacts are missing')
+        documents, hashes, raw_files = read_documents(folder / 'observation', data['artifacts'])
+        validator_path = driver.get('observation_validator')
+        validator_sha = driver['files'].get(validator_path)
+        if validator_path is not None and validator_sha is None:
+            raise ValueError('Original observation validator is not pinned')
+        validator = launch_validator(validator_path, validator_sha) if validator_path is not None else None
+        expected = observation_envelope(request, driver['kind'], original_action, documents, hashes,
+            raw_files=raw_files, validator=validator, validator_sha256=validator_sha)
+        if encoded(data) != encoded(expected) or encoded(preflight_json((folder / 'stdout.log').read_bytes())) != encoded(data):
+            raise ValueError('Observation projection differs from its original artifacts')
+        for earlier in self.state.get('observations', []):
+            if earlier['launch_run'] != launch_run or earlier['run'] == folder.parent.name: continue
+            prior = self.root / earlier['run'] / 'driver/receipt.json'
+            if sha(prior) != earlier['receipt_sha256']: raise ValueError('Earlier original observation changed')
+            previous_handle = json.loads(prior.read_bytes())['result']['original_handle']
+            if previous_handle is not None and not same_handle(previous_handle, data['original_handle']):
+                raise ValueError('Observed handle changed from its earlier original launch identity')
+        record = {'launch_run': launch_run, 'run': folder.parent.name,
+                  'receipt_sha256': sha(folder / 'receipt.json'), 'launch_intent_sha256': sha(intent_path),
+                  'binding': request['binding'], 'source_sha256': request['source']['sha256']}
+        return record, {'original_handle': data['original_handle'], 'observation_state': data['observation_state'],
+            'source_sha256': request['source']['sha256'], 'launch_run': launch_run, 'observation_only': True,
+            'receipt': {'tool': 'pipeline_read', 'arguments': {'run': folder.parent.name, 'path': 'driver/receipt.json'}}}
+
+    def observed_launch(self, launch_run):
+        records = [row for row in self.state.get('observations', []) if row['launch_run'] == launch_run]
+        if not records: return None
+        recorded = records[-1]; root = self.root / recorded['run']; folder = root / 'driver'
+        committed = next((row for row in self.state['receipts'] if row['run'] == recorded['run']), None)
+        if committed is None or sha(root / 'manifest.json') != committed['manifest_sha256']:
+            raise ValueError('Original observation lacks its committed manifest')
+        manifest = json.loads((root / 'manifest.json').read_bytes())
+        for name in ('driver/receipt.json', 'driver/request.json', 'driver/stdout.log'):
+            if sha(root / name) != manifest.get(name): raise ValueError('Original observation receipt changed')
+        receipt = json.loads((folder / 'receipt.json').read_bytes())
+        for name, expected in receipt['result']['artifacts'].items():
+            if manifest.get('driver/observation/' + name) != expected:
+                raise ValueError('Original observation artifact is not committed')
+        actual, projection = self.validate_observation(folder, receipt)
+        if encoded(actual) != encoded(recorded): raise ValueError('Original observation identity changed')
+        return projection
 
     def validate_launch_rejection(self, folder, receipt):
         """Revalidate exact original identities, not absence of a PID or attempt."""
@@ -356,6 +444,19 @@ class Pipeline:
         receipt = {'driver': name, 'kind': driver['kind'], 'driver_files': driver['files'],
                    'started_ns': str(started), 'ended_ns': str(time.time_ns()), 'source': source['sha256'],
                    'contract': digest(contract), 'result': data}
+        if (driver['kind'] in {'launch', 'collect'} and isinstance(data, dict)
+                and data.get('protocol') != OBSERVATION_PROTOCOL
+                and (data.get('status') == 'unknown' and driver.get('observed_receipt_protocol') == OBSERVATION_PROTOCOL
+                     or isinstance(data.get('protocol'), str) and data['protocol'].startswith('kernelbridge.driver-observation'))):
+            raise ValueError('Unknown driver output requires the explicit original observation protocol')
+        # Existing registered drivers may acknowledge a handle while returning
+        # unknown/nonterminal status. Preserve that ACK contract; terminal phase
+        # and status checks below still require original collection. An opted-in
+        # observation driver cannot downgrade to this legacy authority path.
+        if isinstance(data, dict) and data.get('protocol') == OBSERVATION_PROTOCOL:
+            save(folder / 'receipt.json', receipt)
+            record, projection = self.validate_observation(folder, receipt)
+            raise PendingObservation(record, projection)
         opted_in = driver.get('preflight_rejection_protocol') == PREFLIGHT_PROTOCOL and driver['kind'] == 'launch'
         preflight_claim = isinstance(data, dict) and (
             isinstance(data.get('protocol'), str) and data['protocol'].startswith('kernelbridge.driver-preflight')
@@ -486,6 +587,63 @@ class Pipeline:
         check = self.state['check']
         if not check or check['binding'] != self.binding() or not check['passed']:
             raise ValueError('Current source needs a complete passing correctness receipt')
+
+    def continuation_progress(self, result, status, receipt_refs):
+        """Describe semantic progress without granting authority or scheduling work."""
+        state = self.state
+        pending = self.pending_launches()
+        try:
+            retained = self.matching_handle() if state.get('candidate') and state.get('contract') else None
+        except (ValueError, OSError):
+            # A damaged frozen source is already a failed operation. Advisory
+            # metadata must neither hide that receipt nor claim verified progress.
+            return None
+        body = result.get('result')
+        if status == 'completed' and result.get('kind') in {'launch', 'collect'} and isinstance(body, dict):
+            # Recovery can settle an older immutable launch after the workspace
+            # selects a new source. Report that launch's progress under its own ID.
+            recovered = next((row for row in state['handles'] if row.get('collected')
+                and row['source']['sha256'] == result.get('source')
+                and same_handle(row['handle'], body.get('handle'))), None)
+            if recovered is not None: retained = recovered
+        unresolved = self.pending_phases() + self.pending_effects() + self.pending_diagnostics()
+        last = state.get('last_attempt') or {}
+        observed = pending[0].get('observation', {}).get('observation_state', {}) if pending else {}
+        live = (observed.get('status') == 'running' and observed.get('alive') is True
+                or retained and not retained.get('collected') and retained.get('job_status') == 'running')
+        waiting = bool(unresolved or not live and (pending or retained and not retained.get('collected')
+                       or result.get('evaluation_status') == 'pending' and result.get('pending_kind') != 'phase_ready'
+                       or result.get('evaluation_outcome') == 'unknown'
+                       or last.get('evaluation_outcome') == 'unknown'))
+        check = state.get('check') or {}
+        pair = state.get('pair') or {}
+        qualification = pair.get('qualification') or {}
+        source = (state.get('candidate') or {}).get('sha256')
+        contract = digest(state['contract']) if state.get('contract') else None
+        semantic = {'source': source, 'contract': contract, 'stage': state.get('stage'),
+            'check': {key: check.get(key) for key in ('binding', 'passed', 'scope')},
+            'pair': {key: pair.get(key) for key in ('binding', 'speedup', 'cases', 'regressions', 'families')},
+            'qualification': {key: qualification.get(key) for key in ('qualified', 'paired_delta', 'noise_threshold', 'raw_pairing_sha256')},
+            'incumbent': (state.get('incumbent') or {}).get('sha256'),
+            'last_attempt': {key: last.get(key) for key in ('stage', 'status', 'evaluation_outcome', 'source', 'dispatch_outcome')},
+            'original_observation': observed, 'waiting': waiting}
+        # Hypothesis and workload records are real workflow changes, unlike the
+        # new receipt/run ID written by every status or recovery wrapper.
+        for key in ('B', 'C'):
+            if key in state: semantic[key] = state[key]
+        semantic['diagnostics'] = [{key: report.get(key) for key in ('kind', 'status', 'candidate_sha256', 'artifacts')}
+            for report in (state.get('diagnostics') or {}).get('reports', [])]
+        identity = 'pipeline:' + digest({'root': str(self.root), 'source': source, 'contract': contract})
+        if pending:
+            identity = 'pipeline-launch:' + pending[0]['run']
+            semantic = {'binding': pending[0]['binding'], 'original_observation': observed, 'waiting': waiting}
+        elif retained and retained.get('launch_run'):
+            identity = 'pipeline-launch:' + retained['launch_run']
+        return {'version': 1, 'identity': identity, 'fingerprint': digest(semantic),
+                'state': 'waiting' if waiting else 'progress',
+                'summary': 'Waiting for the original execution receipt; no replacement dispatch is authorized.' if waiting
+                    else 'Source-bound workflow state is available in the retained receipt.',
+                'receipt_refs': receipt_refs[:4]}
 
     def workflow(self):
         """Bounded executable advice for the model; never dispatch from a status read."""
@@ -666,6 +824,10 @@ class Pipeline:
             receipt = self.driver(args['driver'], source, output / 'driver', stage, handle,
                 **({'contract': collection['contract'], 'binding': collection['binding'], 'recovery': recovery} if collection else {}))
             data = receipt['result']
+            if stage == 'E' and collection:
+                original_handle = collection.get('handle') or collection.get('observation', {}).get('original_handle')
+                if original_handle is not None and data.get('handle') is not None and not same_handle(original_handle, data['handle']):
+                    raise ValueError('Collected handle differs from its verified original launch identity')
             if stage == 'E' and (driver['kind'] == 'launch' or recovery):
                 if not isinstance(data.get('handle'), dict) or not data['handle']:
                     raise ValueError('Launch/recovery must retain the original task handle')
@@ -675,7 +837,7 @@ class Pipeline:
                     'contract': copy.deepcopy(collection['contract'] if collection else s['contract']),
                     'binding': collection['binding'] if collection else self.binding(),
                     'driver': recovery['driver'] if recovery else args['driver'],
-                    'launch_run': recovery['run'] if recovery else output.name})
+                    'launch_run': recovery['run'] if recovery else output.name, 'job_status': data.get('job_status')})
             if stage == 'F':
                 checks = data.get('checks', {})
                 passed = (all(checks.get(k) is True for k in ('build', 'semantics', 'full'))
@@ -722,7 +884,10 @@ class Pipeline:
             if ids != {case['id'] for case in s['contract']['suite']}:
                 raise ValueError('ABBA omitted declared cases')
             ratios = aggregate(results, s['contract']['measurement'])
-            qualification = qualify(results, s['contract'], self.binding(), source['files'], baseline['files'], ratios)
+            calibration_artifacts = (read_calibration_artifacts(output)
+                if s['contract']['measurement'].get('require_noise') is True else None)
+            qualification = qualify(results, s['contract'], self.binding(), source['files'], baseline['files'], ratios,
+                                    calibration_artifacts=calibration_artifacts)
             overall = math.exp(sum(math.log(r) for r in ratios.values()) / len(ratios))
             families = {}
             for case in s['contract']['suite']:
@@ -787,6 +952,13 @@ class Pipeline:
             result = {'error': error.feedback['error']['message'], 'failure_phase': 'preflight',
                       'dispatch_outcome': 'not_started', 'preflight_rejection': error.feedback}
             status = 'failed'
+        except PendingObservation as error:
+            self.state = previous
+            self.state.setdefault('observations', []).append(error.record)
+            result = {'error': str(error), 'evaluation_outcome': 'unknown', 'launch_outcome': 'unknown',
+                      'recover_run': error.record['launch_run'], 'observation_only': True,
+                      'original_handle': error.projection['original_handle'], 'pending_observation': error.projection}
+            status = 'failed'
         except Exception as error:
             self.state = previous
             result = {'error': str(error)}; status = 'failed'
@@ -831,16 +1003,16 @@ class Pipeline:
         manifest_ref = {'path': 'manifest.json', 'sha256': sha(output / 'manifest.json'),
                         'read': {'tool': 'pipeline_read', 'arguments': {'run': identity, 'path': 'manifest.json'}}}
         selected = sorted(refs, key=lambda name: (name != 'result.json', name != 'driver/receipt.json', name))[:16]
-        summary = {key: result[key] for key in ('error', 'evaluation_outcome', 'launch_outcome', 'recover_run',
+        summary = {key: result[key] for key in ('error', 'evaluation_outcome', 'launch_outcome', 'recover_run', 'original_handle', 'observation_only', 'pending_observation',
                     'failure_phase', 'dispatch_outcome', 'preflight_rejection') if key in result}
         if isinstance(summary.get('error'), str): summary['error'] = summary['error'][:2048]
         if isinstance(result.get('result'), dict) and isinstance(result['result'].get('evaluation'), dict):
             summary['evaluation'] = result['result']['evaluation']
         evaluation_summary = None
         if action['tool'] == 'pipeline_evaluate':
-            evaluation_summary = {key: result[key] for key in ('evaluation_status', 'source_sha256', 'source_changed',
+            evaluation_summary = {key: result[key] for key in ('evaluation_status', 'pending_kind', 'source_sha256', 'source_changed',
                 'feedback', 'continuation', 'error', 'check_action_id', 'resume_run', 'unresolved_run', 'original_handle', 'recover_run',
-                'failure_phase', 'dispatch_outcome') if key in result}
+                'failure_phase', 'dispatch_outcome', 'observation_only', 'pending_observation') if key in result}
             for key in ('unresolved_phases', 'unresolved_diagnostics'):
                 if key in result: evaluation_summary[key] = result[key][:4]
             evaluation_summary['stages'] = [{key: stage.get(key) for key in ('stage', 'run', 'status')} for stage in result.get('stages', [])]
@@ -851,6 +1023,7 @@ class Pipeline:
             **({'evaluation_summary': evaluation_summary} if evaluation_summary is not None else {}),
             **({'promotion_evidence': result['promotion_evidence']}
                if action['tool'] == 'pipeline_promote' and status == 'completed' else {}),
+            'continuation_progress': self.continuation_progress(result, status, [refs['result.json']['read']]),
             **({'diagnostics': diagnostics} if diagnostics is not None else {}), 'workflow': self.workflow()}})
 
 
@@ -889,7 +1062,12 @@ def main(config, action):
             return {'status': 'completed', 'data': {'text': text, 'encoding': encoding, 'offset': offset,
                 'next_offset': end, 'size_bytes': size, 'sha256': expected, 'eof': end == size,
                 'truncated': end < size, 'read': {'tool': 'pipeline_read', 'arguments': {'run': identity, 'path': name}},
-                'next_read': {'tool': 'pipeline_read', 'arguments': {'run': identity, 'path': name, 'offset': end, 'limit': limit}} if end < size else None}}
+                'next_read': {'tool': 'pipeline_read', 'arguments': {'run': identity, 'path': name, 'offset': end, 'limit': limit}} if end < size else None,
+                'continuation_progress': {'version': 1, 'identity': 'pipeline-artifact:' + digest({'run': identity, 'path': name}),
+                    'fingerprint': digest({'artifact_sha256': expected, 'offset': offset, 'end': end,
+                                           'page_sha256': hashlib.sha256(data).hexdigest()}),
+                    'state': 'progress' if data else 'waiting', 'summary': 'Read an original hash-verified artifact page.',
+                    'receipt_refs': [{'tool': 'pipeline_read', 'arguments': {'run': identity, 'path': name, 'offset': offset, 'limit': limit}}]}}}
         return pipeline.apply(action)
 
 

@@ -62,7 +62,7 @@ test('bash runs in isolation and applies only an authorized complete diff', () =
   const result=await call('bash',{command:"printf 'x = 5\n' > solution.py; cat solution.py",timeout:5});
   assert.match(result.content[0].text,/x = 5/);
   assert.equal(await fs.readFile(join(root,'solution.py'),'utf8'),'x = 5\n');
-  const denied = await call('bash',{command:"printf bad > reference/semantics.txt; printf bad > solution.py",timeout:5});
+  const denied = await call('bash',{command:"set -e; printf bad > reference/semantics.txt; printf bad > solution.py",timeout:5});
   assert.notEqual(denied.structuredContent.exit_code, 0);
   assert.equal(await fs.readFile(join(root,'solution.py'),'utf8'),'x = 5\n');
   assert.equal(await fs.readFile(join(root,'reference/semantics.txt'),'utf8'),'immutable reference');
@@ -148,7 +148,7 @@ test('unremoved TMPDIR files are discarded while workspace helpers persist', () 
   if (process.platform === 'darwin') await assert.rejects(fs.stat(temporary), { code: 'ENOENT' });
   else assert.equal(temporary, '/tmp', 'Linux TMPDIR is a private namespace mount');
   await assert.rejects(fs.stat(join(root, 'unremoved.bin')), { code: 'ENOENT' });
-  const second = await call('bash', { command: 'test ! -e "$TMPDIR/unremoved.bin"; cat helper.txt', timeout: 5 });
+  const second = await call('bash', { command: 'test ! -e "$TMPDIR/unremoved.bin" && cat helper.txt', timeout: 5 });
   assert.equal(second.structuredContent.exit_code, 0);
   assert.match(second.content[0].text, /keep/);
 }, scratchPolicy));

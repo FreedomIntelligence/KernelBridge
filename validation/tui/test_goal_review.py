@@ -39,7 +39,7 @@ class GoalReviewTests(unittest.TestCase):
         self.app.command('transition', {**self.lease, 'input_id': 'work', 'status': 'completed'})
         self.provider = Reviewer(response)
         self.host = SimpleNamespace(journal=self.app, task=SimpleNamespace(id='task'),
-            config=SimpleNamespace(goal_review=GoalReviewConfig(enabled=True)),
+            config=SimpleNamespace(workspace_mode="project", goal_review=GoalReviewConfig(enabled=True)),
             owner=SimpleNamespace(gateway=Gateway(self.store, [], 'test'), proposers={'primary': self.provider}))
         self.connection = SimpleNamespace(worker=self.lease)
 

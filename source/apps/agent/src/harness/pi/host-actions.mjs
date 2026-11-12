@@ -68,6 +68,7 @@ export function createHostActions(control, effects, { observer = control } = {})
   let compactions = 0;
   const forkHints = new Set();
   let shownReview;
+  let shownWait;
   const suggestFork = async (reason, key) => {
     if (!state || state.fork_policy?.enabled || state.fork_policy?.suggest === false || forkHints.has(key)) return;
     forkHints.add(key);
@@ -81,6 +82,13 @@ export function createHostActions(control, effects, { observer = control } = {})
       // Pi captures its tool schema before beforeModel persists the new user
       // entry. That entry reactivates an awaiting Goal in the host journal.
       if (['active', 'awaiting_user'].includes(state.goal?.status)) tools.push('finish_goal', 'update_goal', 'update_plan');
+      governed.session.setActiveToolsByName(tools);
+    } else if (governed && state.workspace_mode === 'isolated' && governed.hello?.tools) {
+      // Isolated tasks receive their own restricted Goal schema from the host.
+      // Do not introduce project-only completion or planning tools here.
+      const tools = governed.session.getActiveToolNames().filter(name => name !== 'update_goal');
+      if (['active', 'awaiting_user'].includes(state.goal?.status)
+          && governed.hello.tools.some(tool => tool.name === 'update_goal')) tools.push('update_goal');
       governed.session.setActiveToolsByName(tools);
     }
   };
@@ -172,6 +180,7 @@ export function createHostActions(control, effects, { observer = control } = {})
         inputs.complete(receipt);
         applying.push(receipt);
         activeInput = receipt;
+        shownWait = undefined;
         if (governed) { governed.controller.stopped = false; governed.controller.stopResult = undefined; }
         return { action: 'continue' };
       } catch (error) {
@@ -458,6 +467,19 @@ export function createHostActions(control, effects, { observer = control } = {})
       if (!decision.receipt) {
         if (decision.reason === 'continuation_input_invalid' && decision.error_summary) {
           context?.ui.notify(`Goal 自动继续输入被拒绝：${decision.error_summary}`, 'error');
+        } else if (['no_tool_progress', 'no_executable_progress', 'awaiting_original_receipt'].includes(decision.reason)) {
+          const summary = typeof decision.summary === 'string' ? decision.summary
+            : typeof decision.error_summary === 'string' ? decision.error_summary : '';
+          const references = Array.isArray(decision.receipt_refs) ? decision.receipt_refs.slice(0, 4) : [];
+          const key = JSON.stringify([state?.goal?.goal_id, decision.reason, summary, references]);
+          if (shownWait !== key) {
+            shownWait = key;
+            const label = decision.reason === 'awaiting_original_receipt'
+              ? 'Goal 等待原任务回执。' : 'Goal 暂无可执行进展，等待输入。';
+            context?.ui.notify([label, summary,
+              ...(references.length ? ['原回执读取入口：', ...references.map(reference => JSON.stringify(reference))] : [])]
+              .filter(Boolean).join('\n'), 'info');
+          }
         }
         return false;
       }
@@ -529,6 +551,7 @@ export function createHostActions(control, effects, { observer = control } = {})
       userInterrupted = true;
       if (event.operation === 'interrupt') void governed?.session.abort();
     } else if (event.type === 'control' && ['resume', 'set'].includes(event.operation)) {
+      shownWait = undefined;
       if (interactive) setImmediate(() => { void advance().catch(report); });
     } else if (event.type === 'takeover') {
       exiting = true;

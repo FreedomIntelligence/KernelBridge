@@ -70,10 +70,12 @@ class CurrentPlanTests(unittest.TestCase):
 
 class ProgressRuleTests(unittest.TestCase):
     def rows(self, *tools):
-        return [{"kind": "admitted", "seq": 20 + index, "action": {"tool": tool}} for index, tool in enumerate(tools)]
+        return [row for index, tool in enumerate(tools) for row in (
+            {"kind": "admitted", "seq": 20 + index * 2, "action": {"tool": tool, "id": str(index)}},
+            {"kind": "settled", "seq": 21 + index * 2, "action_id": str(index), "outcome": {"status": "completed", "data": {"text": "new evidence"}}})]
 
     def test_plan_updates_and_goal_reads_are_not_progress(self):
-        receipt = {"accepted_seq": 19}
+        receipt = {"accepted_seq": 19, "completed_seq": 30}
         self.assertFalse(continuation_has_progress(self.rows("update_plan", "get_goal", "__propose__"), receipt))
         self.assertTrue(continuation_has_progress(self.rows("update_plan", "read"), receipt))
 

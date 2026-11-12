@@ -229,12 +229,13 @@ test('an explicit execution limit is not relabelled as a harness failure', async
 });
 
 /** Keep enqueue before Pi's user entry, as in the real native input hook. */
-async function admissionFixture(t, enqueue) {
+async function admissionFixture(t, enqueue, { workspaceMode = 'project', toolNames = [], availableTools = toolNames } = {}) {
   const hooks = new Map(), entries = [], calls = [], accepted = [], notifications = [];
-  const state = { cursor: 1, workspace_mode: 'project', subagents: [], trials: [], inputs: {} };
-  let stateFailure, nextDecision;
+  const state = { cursor: 1, workspace_mode: workspaceMode, subagents: [], trials: [], inputs: {} };
+  let stateFailure, nextDecision, observe;
+  let activeTools = [...toolNames];
   const client = {
-    subscribe: () => () => {}, async observe() {},
+    subscribe(listener) { observe = listener; return () => {}; }, async observe() {},
     async state() {
       calls.push({ method: 'state' });
       if (stateFailure) throw stateFailure;
@@ -258,9 +259,11 @@ async function admissionFixture(t, enqueue) {
   } };
   const manager = { getBranch: () => entries, getLeafId: () => undefined, getSessionId: () => 'pi-admission' };
   const context = { sessionManager: manager, ui: { setStatus() {}, notify(message, kind) { notifications.push({ message, kind }); } } };
-  const governed = { restored: true, manifest: {}, controller: {}, session: {
+  const governed = { restored: true, manifest: {}, controller: {}, hello: {
+    tools: availableTools.map(name => ({ name })),
+  }, session: {
     sessionManager: manager, isStreaming: false, isCompacting: false,
-    getActiveToolNames: () => [], setActiveToolsByName() {},
+    getActiveToolNames: () => [...activeTools], setActiveToolsByName(tools) { activeTools = [...tools]; },
   }, async prompt(text) { return hooks.get('input')({ text }); } };
   const actions = createHostActions(client, effects);
   actions.extension({ on(name, handler) { hooks.set(name, handler); }, appendEntry(customType, data) {
@@ -271,6 +274,7 @@ async function admissionFixture(t, enqueue) {
   await hooks.get('session_start')({}, context);
   calls.length = 0;
   return { actions, state, calls, accepted, entries, notifications, context, hooks,
+    observe: event => observe(event), activeTools: () => [...activeTools],
     setStateFailure(error) { stateFailure = error; },
     setNextDecision(decision) { nextDecision = decision; },
     async submit(text = 'work') {
@@ -395,4 +399,98 @@ test('invalid automatic continuation displays its returned summary without creat
   run.setNextDecision({ action: 'wait', reason: 'awaiting_user' });
   await run.actions.headless();
   assert.equal(run.notifications.length, 1);
+});
+
+test('waiting notices show original read entries without executing or settling them and do not repeat', async t => {
+  const run = await admissionFixture(t, () => assert.fail('a waiting notice cannot execute a tool'));
+  run.state.goal = { goal_id: 'original-goal', status: 'awaiting_user' };
+  run.state.pending_effect_ids = ['original-unknown-effect'];
+  run.state.calls = { original: { status: 'pending' } };
+  const references = [
+    { tool: 'read_receipt', arguments: { action_id: 'original-action' } },
+    { tool: 'pipeline_read', arguments: { run: 'original-run', path: 'driver/中文 trace.log', offset: 4096 } },
+    { tool: 'read_receipt', arguments: { action_id: 'original-compile' } },
+    { tool: 'pipeline_read', arguments: { run: 'original-run', path: 'driver/run-log.json' } },
+    { tool: 'read_receipt', arguments: { action_id: 'fifth-not-shown' } },
+  ];
+  const decision = { action: 'wait', reason: 'awaiting_original_receipt', summary: '原作业状态未知；等待原回执。', receipt_refs: references };
+  const originalState = structuredClone(run.state);
+  run.setNextDecision(decision);
+  await run.actions.headless();
+  assert.deepEqual(run.notifications, [{ kind: 'info', message: [
+    'Goal 等待原任务回执。', decision.summary, '原回执读取入口：',
+    ...references.slice(0, 4).map(reference => JSON.stringify(reference)),
+  ].join('\n') }]);
+  assert.deepEqual(run.state, originalState);
+  assert.deepEqual(decision.receipt_refs, references);
+  run.observe({ type: 'state', state: structuredClone(run.state) });
+  await run.actions.headless();
+  run.setNextDecision({ action: 'wait', reason: 'goal_inactive' });
+  await run.actions.headless();
+  assert.equal(run.notifications.length, 1);
+  assert.equal(run.accepted.length, 0);
+  assert.deepEqual(run.entries, []);
+  assert.ok(run.calls.every(call => ['state', 'next'].includes(call.method)));
+});
+
+test('no-progress summary fallback is shown once per explicit resume boundary without invented receipt paths', async t => {
+  const run = await admissionFixture(t, () => assert.fail('a no-progress wait cannot execute a tool'));
+  run.state.goal = { goal_id: 'same-goal', status: 'awaiting_user' };
+  run.setNextDecision({ action: 'wait', reason: 'no_executable_progress', error_summary: '同一证据没有变化。' });
+  await run.actions.headless();
+  await run.actions.headless();
+  assert.deepEqual(run.notifications, [{ kind: 'info', message: 'Goal 暂无可执行进展，等待输入。\n同一证据没有变化。' }]);
+  run.observe({ type: 'control', operation: 'resume' });
+  await run.actions.headless();
+  assert.equal(run.notifications.length, 2);
+  assert.equal(run.notifications[0].message, run.notifications[1].message);
+  assert.equal(run.accepted.length, 0);
+  assert.ok(run.calls.every(call => ['state', 'next'].includes(call.method)));
+});
+
+test('the existing tool-free reason still displays one wait notice without admitting another input', async t => {
+  const run = await admissionFixture(t, () => assert.fail('a tool-free wait cannot execute a tool'));
+  run.state.goal = { goal_id: 'tool-free-goal', status: 'awaiting_user' };
+  run.setNextDecision({ action: 'wait', reason: 'no_tool_progress', summary: 'Automatic continuation ended without a work-tool call.' });
+  await run.actions.headless();
+  await run.actions.headless();
+  assert.deepEqual(run.notifications, [{ kind: 'info', message: 'Goal 暂无可执行进展，等待输入。\nAutomatic continuation ended without a work-tool call.' }]);
+  assert.equal(run.accepted.length, 0);
+  assert.deepEqual(run.entries, []);
+  assert.ok(run.calls.every(call => ['state', 'next'].includes(call.method)));
+});
+
+test('isolated Goal exposes its registered blocked-only updater while retaining read and pipeline tools', async t => {
+  const base = ['read', 'get_goal', 'pipeline_evaluate'];
+  const run = await admissionFixture(t, () => assert.fail('schema synchronization cannot execute a tool'), {
+    workspaceMode: 'isolated', toolNames: [...base, 'update_goal'],
+  });
+  assert.deepEqual(run.activeTools(), base);
+  for (const status of ['active', 'awaiting_user', 'paused', 'completed', 'cleared']) {
+    run.state.goal = { goal_id: 'isolated-goal', status };
+    run.observe({ type: 'state', state: structuredClone(run.state) });
+    assert.deepEqual(run.activeTools(), ['active', 'awaiting_user'].includes(status) ? [...base, 'update_goal'] : base);
+    assert.equal(run.activeTools().includes('finish_goal'), false);
+    assert.equal(run.activeTools().includes('update_plan'), false);
+  }
+  const unavailable = await admissionFixture(t, () => assert.fail('unavailable updater cannot run'), {
+    workspaceMode: 'isolated', toolNames: base, availableTools: base,
+  });
+  unavailable.state.goal = { goal_id: 'without-updater', status: 'active' };
+  unavailable.observe({ type: 'state', state: structuredClone(unavailable.state) });
+  assert.deepEqual(unavailable.activeTools(), base);
+});
+
+test('project Goal retains completion and planning tools across active and awaiting states', async t => {
+  const base = ['read', 'get_goal'];
+  const managed = ['finish_goal', 'update_goal', 'update_plan'];
+  const run = await admissionFixture(t, () => assert.fail('schema synchronization cannot execute a tool'), {
+    toolNames: [...base, ...managed],
+  });
+  assert.deepEqual(run.activeTools(), base);
+  for (const status of ['active', 'awaiting_user', 'paused', 'completed', 'cleared', 'active']) {
+    run.state.goal = { goal_id: 'project-goal', status };
+    run.observe({ type: 'state', state: structuredClone(run.state) });
+    assert.deepEqual(run.activeTools(), ['active', 'awaiting_user'].includes(status) ? [...base, ...managed] : base);
+  }
 });

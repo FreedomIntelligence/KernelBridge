@@ -107,11 +107,13 @@ class GoalProgressTests(unittest.TestCase):
                 'action_id': action.id, 'summary': 'old objective done'})
 
     def test_protocol_and_status_reads_are_not_progress(self):
-        receipt = {'accepted_seq': 1, 'applied_seq': 2}
+        receipt = {'accepted_seq': 1, 'applied_seq': 2, 'completed_seq': 7}
         events = [{'kind': 'admitted', 'seq': 3, 'action': {'tool': '__propose__'}},
                   {'kind': 'admitted', 'seq': 4, 'action': {'tool': 'get_goal'}}]
         self.assertFalse(continuation_has_progress(events, receipt))
-        events.append({'kind': 'admitted', 'seq': 5, 'action': {'tool': 'read'}})
+        events.append({'kind': 'admitted', 'seq': 5, 'action': {'tool': 'read', 'id': 'r'}})
+        self.assertFalse(continuation_has_progress(events, receipt))
+        events.append({'kind': 'settled', 'seq': 6, 'action_id': 'r', 'outcome': {'status': 'completed', 'data': {'text': 'new evidence'}}})
         self.assertTrue(continuation_has_progress(events, receipt))
 
     def test_provider_usage_normalization(self):

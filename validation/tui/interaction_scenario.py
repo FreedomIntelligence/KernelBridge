@@ -161,6 +161,9 @@ def main():
         until(lambda: '退出暂停' in text())
         # Outside a Git repository (the runner's output directory) there is no branch to show.
         branch = subprocess.run(['git', 'branch', '--show-current'], cwd=state()['cwd'], capture_output=True, text=True).stdout.strip()
+        wide_footer = next(line.rstrip() for line in reversed(screen.display) if line.strip())
+        assert wide_footer.endswith('/help'), wide_footer
+        if branch: assert f'({branch})' in wide_footer, wide_footer
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 48, 0, 0))
         screen.resize(24, 48)
         os.killpg(child.pid, signal.SIGWINCH)
@@ -176,8 +179,15 @@ def main():
         send('/help')
         until(lambda: all(part in text() for part in ['/goal pause | resume | clear', '/quit', '可用命令', '/agents', '/trace']))
         footer = next(line.rstrip() for line in reversed(screen.display) if line.strip())
-        assert footer.endswith('/help'), footer
-        if branch: assert f'({branch})' in footer, footer
+        assert leaf in footer, footer
+        if not branch or f'({branch})' in footer:
+            assert footer.endswith('/help'), footer
+        else:
+            # The existing remote layout shortens an oversized branch and
+            # drops the right-hand hint when the full label cannot fit.
+            assert ' (' in footer and footer.endswith('…)'), footer
+            shown_branch = footer.rsplit(' (', 1)[1][:-2]
+            assert shown_branch and shown_branch != branch and branch.startswith(shown_branch), footer
         # Zero counters are not shown; every rendered row fits the 48-column terminal.
         assert '待处理 0' not in text() and '预留 0' not in text()
         assert all(len(line) <= 48 for line in screen.display), screen.display

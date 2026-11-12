@@ -345,6 +345,23 @@ class TerminalJobFeedbackTests(unittest.TestCase):
                     self.assertNotIn('collected', pipeline.state['handles'][0])
                     self.assertEqual(collected['workflow']['next_actions'][0]['arguments']['driver'], 'original-collect')
 
+    def test_opted_in_unknown_observation_cannot_downgrade_to_legacy_ack(self):
+        for protocol, status in ((None, 'unknown'), ('kernelbridge.driver-observation/v2', 'unknown'),
+                                 ('kernelbridge.driver-observation/v2', 'completed')):
+            with self.subTest(protocol=protocol, status=status):
+                response = {'handle': {'pid': 42}, 'status': status, 'phase': 'complete', 'job_status': 'failed'}
+                if protocol is not None: response['protocol'] = protocol
+                pipeline = self.pipeline(response)
+                for name in ('original-launch', 'original-collect'):
+                    pipeline.config['drivers'][name]['observed_receipt_protocol'] = 'kernelbridge.driver-observation/v1'
+                launched = self.call(pipeline, 'pipeline_run', stage='E', driver='original-launch', failed=True)
+                self.assertIn('explicit original observation protocol', launched['result']['error'])
+                self.assertEqual(pipeline.state['handles'], [])
+                self.assertEqual(len(pipeline.pending_launches()), 1)
+                self.call(pipeline, 'pipeline_run', stage='E', driver='original-collect', recover_run=launched['run'], failed=True)
+                self.assertEqual(pipeline.state['handles'], [])
+                self.assertEqual(len(pipeline.pending_launches()), 1)
+
     def test_source_or_original_result_tampering_rejects_terminal_projection(self):
         pipeline = self.pipeline()
         observation = self.folder / 'observation.json'

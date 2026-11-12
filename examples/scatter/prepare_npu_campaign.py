@@ -154,13 +154,16 @@ def prepare(args):
                 'writable': ['candidate.py'], 'readonly': sorted(path.name for path in project.iterdir())}
     save(root / 'task.json', authored)
     pins = sorted(HERE.glob('npu_*.py')) + [HERE.parent / 'operator_pipeline/diagnostic_policy.py',
-            HERE.parent / 'operator_pipeline/job_identity.py', HERE.parent / 'operator_pipeline/preflight.py', config_path,
+            HERE.parent / 'operator_pipeline/job_identity.py', HERE.parent / 'operator_pipeline/preflight.py',
+            HERE.parent / 'operator_pipeline/observation.py', config_path,
             root / 'task.json', project / 'contract.json', transport]
     profile = {'candidate_source': 'workspace', 'read_roots': [str(root), *sorted(set([*oracle_files.values(), *baseline_files.values()]))],
         'drivers': {name: {'kind': 'diagnostic' if operation in ('ir', 'profiler') else operation,
                     'argv': [str(args.python.absolute()), '-B', str(HERE / 'npu_pipeline_driver.py'), str(config_path), operation],
                     'files': [str(path) for path in pins], 'timeout': 1800 if operation in ('launch', 'collect') else 180,
-                    **({'preflight_rejection_protocol': 'kernelbridge.driver-preflight/v1'} if operation == 'launch' else {})}
+                    **({'preflight_rejection_protocol': 'kernelbridge.driver-preflight/v1'} if operation == 'launch' else {}),
+                    **({'observed_receipt_protocol': 'kernelbridge.driver-observation/v1',
+                        'observation_validator': str(HERE / 'npu_job_supervisor.py')} if operation in ('launch', 'collect') else {})}
                     for operation, name in names.items()},
         'diagnostics': {'on_failure': True, 'on_regression': True, 'required': False, **diagnostic_switches,
                         'drivers': {'ir': names['ir'], 'profiler': names['profiler']}, 'scope': 'npu_diagnostic'}}

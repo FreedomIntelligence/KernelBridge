@@ -66,15 +66,12 @@ def goal_usage(events, goal):
 
 # Reading the Goal or rewriting the plan is bookkeeping, not work (Codex: "a plan
 # update is not progress").
-BOOKKEEPING_TOOLS = frozenset({"get_goal", "update_plan"})
+from kernelcat_executor.state.continuation_progress import BOOKKEEPING_TOOLS, continuation_activity
 
 
-def continuation_has_progress(events, receipt):
-    """Status polling and protocol bookkeeping do not constitute new work."""
-    start = receipt.get("applied_seq", receipt["accepted_seq"])
-    return any(row["kind"] == "admitted" and row.get("seq", -1) > start
-               and not row["action"]["tool"].startswith("__")
-               and row["action"]["tool"] not in BOOKKEEPING_TOOLS for row in events)
+def continuation_has_progress(events, receipt, **scope):
+    """New settled information, including new failures; never admission alone."""
+    return continuation_activity(events, receipt, **scope)["progress"]
 
 
 PLAN_STATUSES = ("pending", "in_progress", "completed")
@@ -160,7 +157,7 @@ def limits_text(state, decision=None):
     return ("Limits for this Goal: " + "; ".join(parts) + ". "
             + ("This Trial reached its model-call limit, so work continues in a fresh Trial; no other limit has been reached. "
                if reached else "No limit has been reached. ")
-            + "There is no per-turn budget: the previous turn ended only because it made no tool call. "
+            + "There is no per-turn budget: a final answer ends one invocation, not this Goal's allowance. "
             "Do not report a budget, allowance or turn limit as exhausted unless a limit above says so.")
 
 

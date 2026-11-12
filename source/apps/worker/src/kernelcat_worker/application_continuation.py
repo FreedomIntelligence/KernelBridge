@@ -37,14 +37,16 @@ def continuation_text(state, decision, workspace_mode):
                 "Use get_goal to inspect progress when needed. When all requested work is verified, call update_goal "
                 "with status complete and a summary of actual checks (finish_goal is also supported). "
                 "If progress requires missing user input, call update_goal with status blocked and explain what is needed. "
-                "Do not call a missing device result verified. A tool-free automatic turn returns control to the user.\n")
+                "Do not call a missing device result verified. Automatic continuation without new settled information returns control to the user.\n")
         if state.get("plan"):
             text += f"Current plan {plan_text(state['plan'])}. Continue from the in-progress step; a plan update alone is not progress.\n"
     else:
         text = ("Continue the current task from original receipts. "
                 "Complete the declared correctness/performance acceptance; do not treat a single timing as a paired gain. "
                 "Inspect missing or failed measurements before diagnosing stagnation. If you cannot proceed without the "
-                "user, say exactly what is missing; a tool-free automatic turn returns control to the user.\n")
+                "user or an original external receipt, call update_goal with status blocked and say exactly what is missing. "
+                "This does not fail, clear or replace an unknown job. Completion still requires the original acceptance gates. "
+                "Automatic continuation without new settled information returns control to the user; repeated polling is not progress.\n")
     text += ("The full original task, AGENTS instructions and ABI remain in the admitted instruction snapshot and workspace files. "
              "Read those files and the exact evidence references for details; this cue does not replace or shorten them.\n")
     # The decision stays in the last JSON line for the TUI continuation label.

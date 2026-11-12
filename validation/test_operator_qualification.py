@@ -12,7 +12,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'examples/operator_pipeline'))
 sys.path.insert(0, str(ROOT / 'validation'))
-from qualification import aggregate, digest, qualify
+from qualification import aggregate, digest, qualify, read_calibration_artifacts
 from pipeline import Pipeline
 import test_operator_pipeline as pipeline_tests
 
@@ -47,6 +47,8 @@ class QualificationTests(unittest.TestCase):
                  'cases': cases(null_a, null_b, True)}
         calibration = dict(noise, binding=identity, receipt={'path': '/synthetic/noise.json', 'payload_sha256': digest(noise),
                       'sha256': hashlib.sha256((json.dumps(noise, indent=2, allow_nan=False) + '\n').encode()).hexdigest()})
+        self.artifact_bytes = getattr(self, 'artifact_bytes', {})
+        self.artifact_bytes[calibration['receipt']['sha256']] = (json.dumps(noise, indent=2, allow_nan=False) + '\n').encode()
         pairing = {'binding': identity, 'cases': raw, 'calibration': calibration}
         results = [{'cases': {case['id']: [case['arms'][block * 4 + pos]['us'] for block in range(3)] for case in raw},
                     'environment': env, 'measurement': measurement, 'correct': True, 'pairing': pairing,
@@ -56,13 +58,16 @@ class QualificationTests(unittest.TestCase):
     def qualify(self, fixture):
         results, contract, *rest = fixture
         ratios = aggregate(results, contract['measurement'])
-        return qualify(results, contract, *rest, ratios)
+        receipt = results[0].get('pairing', {}).get('calibration', {}).get('receipt', {})
+        artifacts = [self.artifact_bytes.get(receipt.get('sha256'), b'')] * 4
+        return qualify(results, contract, *rest, ratios, calibration_artifacts=artifacts)
 
     def reseal(self, fixture):
         calibration = fixture[0][0]['pairing']['calibration']
         raw = {k: v for k, v in calibration.items() if k not in {'binding', 'receipt'}}
         calibration['receipt']['payload_sha256'] = digest(raw)
         calibration['receipt']['sha256'] = hashlib.sha256((json.dumps(raw, indent=2, allow_nan=False) + '\n').encode()).hexdigest()
+        self.artifact_bytes[calibration['receipt']['sha256']] = (json.dumps(raw, indent=2, allow_nan=False) + '\n').encode()
 
     def test_scatter_preserves_pooled_six_sample_medians(self):
         results = [{'cases': {'case': x}} for x in ([1, 1, 100], [10] * 3, [10] * 3, [100] * 3)]
@@ -160,6 +165,59 @@ class QualificationTests(unittest.TestCase):
             for result in results: result['pairing'] = projected
             self.assertTrue(self.qualify(fixture)['qualified'])
 
+    def test_fixed_local_calibration_resolver_rejects_missing_or_symlinked_artifact(self):
+        fixture = self.fixture(); receipt = fixture[0][0]['pairing']['calibration']['receipt']
+        raw = self.artifact_bytes[receipt['sha256']]
+        with tempfile.TemporaryDirectory() as output:
+            root = Path(output).resolve()
+            for position in range(4):
+                folder = root / ('arm-' + str(position)); folder.mkdir()
+                (folder / 'noise.json').write_bytes(raw)
+            self.assertEqual(read_calibration_artifacts(root), [raw] * 4)
+            missing = root / 'arm-3/noise.json'; missing.unlink()
+            with self.assertRaises(ValueError): read_calibration_artifacts(root)
+            missing.symlink_to(root / 'arm-0/noise.json')
+            with self.assertRaises(ValueError): read_calibration_artifacts(root)
+
+    def test_canonical_receipt_replay_keeps_original_file_identity(self):
+        fixture = self.fixture(); expected = self.qualify(fixture)
+        restored = json.loads(json.dumps(fixture, sort_keys=True))
+        self.assertEqual(self.qualify(restored), expected)
+
+    def test_noise_requires_original_bytes_and_rejects_changed_format(self):
+        fixture = self.fixture(); results, contract, *rest = fixture
+        ratios = aggregate(results, contract['measurement'])
+        self.assertEqual(qualify(results, contract, *rest, ratios), self.qualify(fixture))
+        reordered_results = json.loads(json.dumps(results, sort_keys=True))
+        with self.assertRaisesRegex(ValueError, 'original file hash'):
+            qualify(reordered_results, contract, *rest, ratios)
+        receipt = results[0]['pairing']['calibration']['receipt']
+        raw = self.artifact_bytes[receipt['sha256']]
+        reordered = (json.dumps(json.loads(raw), sort_keys=True, indent=2) + '\n').encode()
+        self.assertNotEqual(raw, reordered)
+        with self.assertRaisesRegex(ValueError, 'original file hash'):
+            qualify(results, contract, *rest, ratios, calibration_artifacts=[reordered] * 4)
+        with self.assertRaisesRegex(ValueError, 'original file hash'):
+            qualify(results, contract, *rest, ratios, calibration_artifacts=[raw, raw, raw, raw + b' '])
+
+    def test_resealed_bytes_cannot_change_payload_or_hide_duplicate_fields(self):
+        for mutation in ('payload', 'duplicate', 'nonfinite'):
+            with self.subTest(mutation=mutation):
+                fixture = self.fixture(); results, contract, *rest = fixture
+                calibration = results[0]['pairing']['calibration']; receipt = calibration['receipt']
+                raw = self.artifact_bytes[receipt['sha256']]
+                if mutation == 'payload':
+                    document = json.loads(raw); document['cases'][0]['arms'][0]['us'] += 1
+                    changed = json.dumps(document).encode()
+                elif mutation == 'duplicate':
+                    changed = b'{"pairs":3,' + raw[1:]
+                else:
+                    changed = b'{"invalid":NaN}'
+                receipt['sha256'] = hashlib.sha256(changed).hexdigest()
+                with self.assertRaises(ValueError):
+                    qualify(results, contract, *rest, aggregate(results, contract['measurement']),
+                            calibration_artifacts=[changed] * 4)
+
     def test_legacy_profile_does_not_require_calibration(self):
         fixture = self.fixture(); fixture[1]['measurement'].pop('require_noise'); fixture[0][0].pop('pairing')
         self.assertIsNone(self.qualify(fixture))
@@ -183,9 +241,15 @@ class QualificationTests(unittest.TestCase):
         noise['source_sha256'] = next(iter(fixture[3].values())); noise['baseline_sha256'] = next(iter(fixture[4].values())); noise['driver_sha256'] = identity['evaluator']
         self.reseal(fixture)
         harness.config['drivers']['fixture_measure'] = {'kind': 'measure'}
-        iterator = iter(fixture[0]); pipeline.driver = lambda *a, **kw: {'result': next(iterator)}
+        iterator = iter(fixture[0])
+        def retained_driver(name, source, folder, role):
+            result = next(iterator); folder.mkdir()
+            receipt = result['pairing']['calibration']['receipt']
+            (folder / 'noise.json').write_bytes(self.artifact_bytes[receipt['sha256']])
+            return {'result': result}
+        pipeline.driver = retained_driver
         with tempfile.TemporaryDirectory() as output:
-            paired = pipeline.execute('pipeline_pair', {'driver': 'fixture_measure'}, Path(output))
+            paired = pipeline.execute('pipeline_pair', {'driver': 'fixture_measure'}, Path(output).resolve())
             self.assertEqual(paired['regressions'], ['slow']); self.assertLess(paired['families']['slow'], 1)
             self.assertGreater(paired['speedup'], 1); self.assertFalse(paired['qualification']['qualified'])
             self.assertEqual(pipeline.workflow()['next_actions'][0]['stage'], 'C')

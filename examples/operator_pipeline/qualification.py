@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import statistics
+from pathlib import Path
 
 
 def digest(value):
@@ -83,7 +84,62 @@ def _differences(blocks, ids, count):
             (blocks[case][(block, 1)] + blocks[case][(block, 2)])) for case in ids) for block in range(count)]
 
 
-def qualify(results, contract, binding, source_files, baseline_files, ratios):
+MAX_CALIBRATION_BYTES = 4 * 1024 * 1024
+
+
+def read_calibration_artifacts(run_folder):
+    """Read only fixed local artifacts retained by the owning G execution.
+
+    The caller owns the run root and verifies its manifest for offline replay.
+    A receipt's remote path is provenance, never authority to read another file.
+    """
+    root = Path(run_folder)
+    if root.resolve() != root or not root.is_dir():
+        raise ValueError('Calibration run folder must be an original absolute directory')
+    artifacts = []
+    for position in range(4):
+        path = root / ('arm-' + str(position)) / 'noise.json'
+        if (path.resolve() != path or not path.is_file()
+                or not 0 < path.stat().st_size <= MAX_CALIBRATION_BYTES):
+            raise ValueError('Original calibration artifact is missing, escaped or too large')
+        artifacts.append(path.read_bytes())
+    return artifacts
+
+
+def verify_calibration_artifacts(payload, receipt, artifacts):
+    """Check exact file bytes and canonical content as separate identities."""
+    if artifacts is None:
+        # Preserve the old API only when its exact serialization matches the
+        # original file hash. Reordered receipts require retained original bytes.
+        reconstructed = (json.dumps(payload, indent=2, allow_nan=False) + '\n').encode()
+        artifacts = [reconstructed] * 4
+    if not isinstance(artifacts, (list, tuple)) or len(artifacts) != 4:
+        raise ValueError('Four original calibration byte artifacts are required')
+
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('Duplicate calibration JSON field')
+            result[key] = value
+        return result
+
+    def invalid_constant(value):
+        raise ValueError('Nonfinite calibration JSON value')
+
+    for raw in artifacts:
+        if not isinstance(raw, bytes) or not 0 < len(raw) <= MAX_CALIBRATION_BYTES:
+            raise ValueError('Original calibration bytes are missing or too large')
+        if hashlib.sha256(raw).hexdigest() != receipt.get('sha256'):
+            raise ValueError('Independent calibration original file hash differs')
+        document = json.loads(raw.decode('utf-8'), object_pairs_hook=unique_object,
+                              parse_constant=invalid_constant)
+        if (not isinstance(document, dict) or digest(document) != receipt['payload_sha256']
+                or digest(document) != digest(payload)):
+            raise ValueError('Independent calibration original bytes differ from raw payload')
+
+
+def qualify(results, contract, binding, source_files, baseline_files, ratios, *, calibration_artifacts=None):
     """Return E3 qualification only for an explicitly noise-qualified protocol."""
     measurement = contract['measurement']
     if measurement.get('require_noise') is not True:
@@ -122,9 +178,7 @@ def qualify(results, contract, binding, source_files, baseline_files, ratios):
     payload = {key: value for key, value in calibration.items() if key not in {'binding', 'receipt'}}
     if not isinstance(receipt, dict) or not receipt.get('path') or receipt.get('payload_sha256') != digest(payload):
         raise ValueError('Independent calibration raw receipt is missing or changed')
-    file_hash = hashlib.sha256((json.dumps(payload, indent=2, allow_nan=False) + '\n').encode()).hexdigest()
-    if receipt.get('sha256') != file_hash:
-        raise ValueError('Independent calibration file hash differs from raw payload')
+    verify_calibration_artifacts(payload, receipt, calibration_artifacts)
     ids = sorted(ratios)
     blocks, inputs = _blocks(pairing.get('cases'), ids, count, ('eager', 'candidate', 'candidate', 'eager'), measurement['repeats'])
     null, null_inputs = _blocks(calibration.get('cases'), ids, count, ('eager',) * 4, measurement['repeats'])
