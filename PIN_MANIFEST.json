@@ -616,8 +616,8 @@
       "sha256": "8b753b3f64fefda655c88dd4fb8605d86174a8ee69db59b093780df1ef766336"
     },
     "docs/architecture/harness-optimization-log.md": {
-      "bytes": 36824,
-      "sha256": "70a0789467d057885d162c55a33f83d494598cae396d0be7ad3c456d750017f8"
+      "bytes": 36866,
+      "sha256": "9ddacfe551f6b85862c0f6f237c06658a4d8755ef950cc00c59343ab708a6339"
     },
     "docs/architecture/harness-trial-results.md": {
       "bytes": 2898,
