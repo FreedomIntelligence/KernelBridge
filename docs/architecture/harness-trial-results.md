@@ -22,7 +22,19 @@ Evidence root: `.validation/harness-trials/`. Each run retains its original hash
 | `handle-wire-max-01/run` | 20/0/0/0 | 571,475 | 0 | 174.39 | A B C D E F | 2 | no |
 | `handle-wire-min-01/run` | 20/0/0/0 | 506,216 | 0 | 216.82 | A B C J | 0 | no |
 | `handle-wire-matmul-01/run` | 20/0/0/0 | 505,512 | 0 | 173.90 | A B C D E F | 1 | no |
+| `hongkong-device1-feedback-max-01/run` | 20/0/0/0 | 657,244 | 0 | 554.91 | A B C D E | 0 | no |
 
 Stage entries record calls, not successful acceptance. In particular, early J requests were rejected before a frozen candidate; F calls can return failed checks. The four original remote jobs across stream16m max and handle-wire max/Cube all failed in host compilation. Automatic IR/profiler consideration returned unavailable; no diagnostic capture or NPU timing occurred in these formal trials.
 
 The zero-call startup preflight at `baseline-max-01/run` is retained but excluded. Prepared, unstarted stream16m min/Cube inputs are also excluded. Grounding Cube had a transport failure before a remote handle; original-namespace recovery evidence is retained, and no replacement was sent under that identity.
+
+The device1 feedback trial used a fresh environment and independent device binding;
+its timing is not a device0/device1 performance comparison. It generated one
+candidate and called `pipeline_evaluate` at model calls 8, 18 and 20. The first
+launch was rejected locally because the declared contract contained two extra
+fields. That known pre-dispatch rejection was misclassified as an unknown effect,
+and the resulting recovery fence prevented device work. The concrete error first
+entered model input at call 12 after explicit log reads. All 20 protected call
+progress snapshots matched the Journal. No compilation, NPU timing, IR/profiler
+capture or E1/E3/H result occurred. Original details are indexed in
+`.validation/hongkong-resume-20261111/trial-analysis/max/report.md`.

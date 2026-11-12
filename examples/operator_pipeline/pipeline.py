@@ -19,6 +19,28 @@ import zipfile
 from diagnostic_policy import diagnostic_reason, verify_record
 from qualification import aggregate, qualify
 from job_identity import same_handle, wire_handles
+from preflight import PROTOCOL as PREFLIGHT_PROTOCOL, validate_rejection
+
+
+class PreflightRejected(Exception):
+    """A verified, pinned launch adapter proved its dispatch never started."""
+    def __init__(self, record, feedback):
+        super().__init__(feedback['error']['message'])
+        self.record, self.feedback = record, feedback
+
+
+def preflight_json(raw):
+    """Typed refusal output cannot hide conflicting duplicate JSON fields."""
+    def fields(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError('Duplicate preflight JSON field')
+            value[key] = item
+        return value
+    def invalid_constant(_value):
+        raise ValueError('Nonfinite preflight JSON value')
+    return json.loads(raw, object_pairs_hook=fields, parse_constant=invalid_constant)
 
 
 def encoded(value):
@@ -120,9 +142,126 @@ class Pipeline:
                 'source': self.current()['sha256'], 'baseline': (self.state['baseline'] or {}).get('sha256')}
 
     def pending_launches(self):
-        return [{'run': path.parent.name, **json.loads(path.read_text())}
-                for path in sorted(self.root.glob('*/launch-intent.json'))
-                if not any(item.get('launch_run') == path.parent.name for item in self.state['handles'])]
+        pending = []
+        for path in sorted(self.root.glob('*/launch-intent.json')):
+            run = path.parent.name
+            if any(item.get('launch_run') == run for item in self.state['handles']):
+                continue
+            if self.committed_launch_rejection(run) is None:
+                pending.append({'run': run, **json.loads(path.read_text())})
+        return pending
+
+    def validate_launch_rejection(self, folder, receipt):
+        """Revalidate exact original identities, not absence of a PID or attempt."""
+        run = folder.parent.name
+        if folder != self.root / run / 'driver' or not re.fullmatch('[a-f0-9]{64}', run):
+            raise ValueError('Invalid preflight receipt location')
+        request = json.loads((folder / 'request.json').read_text())
+        intent_path = folder.parent / 'launch-intent.json'
+        intent = json.loads(intent_path.read_text())
+        name = intent['driver']; driver = self.config['drivers'].get(name, {})
+        if driver.get('kind') != 'launch' or driver.get('preflight_rejection_protocol') != PREFLIGHT_PROTOCOL:
+            raise ValueError('Launch driver did not opt into the preflight protocol')
+        action_id = request.get('action_id')
+        if (not isinstance(action_id, str) or hashlib.sha256(action_id.encode()).hexdigest() != run
+                or intent.get('action_id') != action_id or request.get('role') != 'E'
+                or request.get('output') != str(folder) or intent.get('output') != str(folder)
+                or encoded(request.get('source')) != encoded(intent.get('source'))
+                or encoded(request.get('contract')) != encoded(intent.get('contract'))
+                or encoded(request.get('binding')) != encoded(intent.get('binding'))):
+            raise ValueError('Preflight request differs from the original launch intent')
+        configuration_sha = digest(driver)
+        if (intent.get('driver_configuration_sha256') != configuration_sha
+                or intent.get('preflight_rejection_protocol') != PREFLIGHT_PROTOCOL
+                or encoded(intent.get('driver_files')) != encoded(driver.get('files'))
+                or receipt.get('driver') != name or receipt.get('kind') != 'launch'
+                or receipt.get('driver_configuration_sha256') != configuration_sha
+                or encoded(receipt.get('driver_files')) != encoded(driver.get('files'))
+                or receipt.get('request_sha256') != sha(folder / 'request.json')
+                or receipt.get('launch_intent_sha256') != sha(intent_path)
+                or receipt.get('source') != request['source']['sha256']
+                or receipt.get('contract') != digest(request['contract'])):
+            raise ValueError('Preflight driver identity changed')
+        self.verify(request['source'])
+        self.verify(request['contract']['oracle']['files'])
+        for path, expected in driver['files'].items():
+            pinned = Path(path)
+            if pinned.resolve() != pinned or not pinned.is_file() or sha(pinned) != expected:
+                raise ValueError('Preflight pinned driver changed')
+        data = validate_rejection(receipt.get('result'), request, folder)
+        if encoded(preflight_json((folder / 'stdout.log').read_bytes())) != encoded(data):
+            raise ValueError('Preflight receipt differs from original adapter output')
+        record = {'schema_version': 'kernelbridge.launch-rejection/v1', 'run': run,
+            'action_id': action_id, 'driver': name, 'driver_configuration_sha256': configuration_sha,
+            'driver_files_sha256': digest(driver['files']), 'source_sha256': request['source']['sha256'],
+            'contract_sha256': digest(request['contract']), 'binding': request['binding'],
+            'request_sha256': sha(folder / 'request.json'), 'intent_sha256': sha(intent_path),
+            'receipt_sha256': sha(folder / 'receipt.json'), 'rejection_sha256': digest(data)}
+        return record, data
+
+    def committed_launch_rejection(self, run):
+        """Only a verified receipt-chain commit can settle an old launch intent."""
+        candidates = [item for item in self.state.get('launch_rejections', []) if item.get('run') == run]
+        if not candidates:
+            return None
+        if len(candidates) != 1:
+            raise ValueError('Ambiguous committed launch rejection')
+        declared = candidates[0]
+        chain = '0' * 64; committed = None
+        for event in sorted(self.root.glob('event-*.json')):
+            row = json.loads(event.read_text())
+            if row['parent'] != chain or row['sha256'] != digest(row['body']):
+                raise ValueError('Operator receipt chain changed during preflight verification')
+            chain = sha(event)
+            receipts = row['body']['receipts']
+            if receipts and receipts[-1].get('run') == run:
+                if declared not in row['body'].get('launch_rejections', []):
+                    raise ValueError('Launch rejection was not committed with its original receipt')
+                committed = receipts[-1]
+                break
+        if committed is None:
+            return None  # Receipt/sidecar alone is never evidence of a terminal commit.
+        if committed.get('tool') != 'pipeline_run' or committed.get('status') != 'failed':
+            raise ValueError('Invalid committed launch rejection status')
+        root = self.root / run; folder = root / 'driver'
+        manifest_path = root / 'manifest.json'
+        if manifest_path.resolve() != manifest_path or sha(manifest_path) != committed['manifest_sha256']:
+            raise ValueError('Committed preflight manifest changed')
+        manifest = json.loads(manifest_path.read_text())
+        # Hash every retained byte, including stdout/stderr and complete diff files.
+        for name, expected in manifest.items():
+            path = root / name
+            if path.resolve() != path or not path.is_relative_to(root) or not path.is_file() or sha(path) != expected:
+                raise ValueError('Committed preflight evidence changed: ' + name)
+        required = {'result.json', 'launch-intent.json', 'driver/request.json', 'driver/receipt.json',
+                    'driver/stdout.log', 'driver/stderr.log'}
+        if not required.issubset(manifest):
+            raise ValueError('Committed preflight evidence is incomplete')
+        receipt = json.loads((folder / 'receipt.json').read_text())
+        record, data = self.validate_launch_rejection(folder, receipt)
+        if encoded(record) != encoded(declared):
+            raise ValueError('Committed launch rejection identity changed')
+        if any('driver/' + name not in manifest for name in data['evidence']['artifacts']):
+            raise ValueError('Preflight artifacts are not bound by the committed manifest')
+        result = json.loads((root / 'result.json').read_text())
+        if (result.get('status') != 'failed' or result.get('data', {}).get('failure_phase') != 'preflight'
+                or result['data'].get('dispatch_outcome') != 'not_started'
+                or result['data'].get('preflight_rejection', {}).get('rejection_sha256') != digest(data)):
+            raise ValueError('Committed launch result is not its original preflight rejection')
+        return self.preflight_feedback(record, data)
+
+    def preflight_feedback(self, record, data):
+        run = record['run']; root = self.root / run
+        names = ['launch-intent.json', 'driver/request.json', 'driver/receipt.json',
+                 'driver/stdout.log', 'driver/stderr.log', *('driver/' + name for name in data['evidence']['artifacts'])]
+        artifacts = {name: {'sha256': sha(root / name), 'size_bytes': (root / name).stat().st_size,
+            'read': {'tool': 'pipeline_read', 'arguments': {'run': run, 'path': name}}} for name in names}
+        return {'protocol': data['protocol'], 'operation': data['operation'], 'run': run,
+                'action_id': record['action_id'], 'source_sha256': record['source_sha256'],
+                'binding': record['binding'], 'rejection_sha256': record['rejection_sha256'],
+                'failure_phase': 'preflight', 'dispatch_outcome': 'not_started', 'error': data['error'],
+                'evidence': data['evidence'], 'artifacts': artifacts,
+                'qualification': 'Remote job never started; this rejection is not correctness or performance evidence.'}
 
     def pending_effects(self):
         pending = []
@@ -192,25 +331,50 @@ class Pipeline:
             # This intent survives a timeout, parser error, or killed adapter,
             # even before the ordinary receipt chain can commit the result.
             save(folder.parent / 'launch-intent.json', {'driver': name, 'driver_files': driver['files'],
-                'source': source, 'contract': contract, 'binding': request['binding'], 'output': str(folder)})
+                'source': source, 'contract': contract, 'binding': request['binding'], 'output': str(folder),
+                'action_id': self.action_id, 'driver_configuration_sha256': digest(driver),
+                **({'preflight_rejection_protocol': driver['preflight_rejection_protocol']}
+                   if 'preflight_rejection_protocol' in driver else {})})
         if driver['kind'] in {'check', 'measure', 'diagnostic', 'calibrate'}:
             save(folder / 'effect-intent.json', {'action_id': self.action_id, 'driver': name, 'kind': driver['kind'],
                 'source_sha256': source['sha256'], 'role': role, 'output': str(folder)})
+        request_bytes = encoded(request)
+        request_sha = sha(folder / 'request.json')
+        launch_intent_sha = sha(folder.parent / 'launch-intent.json') if driver['kind'] == 'launch' else None
         # No shell interpolation, credentials or implicit gateway. Explicit drivers
         # receive one JSON request and return one JSON result on stdout.
         started = time.time_ns()
         with (folder / 'stdout.log').open('wb') as stdout, (folder / 'stderr.log').open('wb') as stderr:
-            result = subprocess.run(driver['argv'], input=encoded(request), stdout=stdout, stderr=stderr,
+            result = subprocess.run(driver['argv'], input=request_bytes, stdout=stdout, stderr=stderr,
                 cwd=source['root'], env={'PATH': os.environ.get('PATH', '/usr/bin:/bin'), 'PYTHONDONTWRITEBYTECODE': '1'},
                 timeout=min(driver.get('timeout', 600), max(0.001, getattr(self, 'execution_deadline', float('inf')) - time.monotonic())), check=False)
         self.verify(source)
         if result.returncode: raise ValueError('Driver failed; inspect original logs')
         raw = (folder / 'stdout.log').read_bytes()
         if len(raw) > 4 * 1024 * 1024: raise ValueError('Driver result too large')
-        data = json.loads(raw)
+        data = preflight_json(raw)
         receipt = {'driver': name, 'kind': driver['kind'], 'driver_files': driver['files'],
                    'started_ns': str(started), 'ended_ns': str(time.time_ns()), 'source': source['sha256'],
                    'contract': digest(contract), 'result': data}
+        opted_in = driver.get('preflight_rejection_protocol') == PREFLIGHT_PROTOCOL and driver['kind'] == 'launch'
+        preflight_claim = isinstance(data, dict) and (
+            isinstance(data.get('protocol'), str) and data['protocol'].startswith('kernelbridge.driver-preflight')
+            or data.get('status') == 'rejected' or data.get('phase') == 'preflight'
+            or data.get('dispatch_outcome') == 'not_started')
+        if preflight_claim:
+            # A collector cannot turn a refusal-shaped reply plus a fabricated
+            # handle into recovery of a previously uncertain launch.
+            if not opted_in:
+                raise ValueError('Preflight rejection is unsupported for this driver or operation')
+            if (sha(folder / 'request.json') != request_sha
+                    or sha(folder.parent / 'launch-intent.json') != launch_intent_sha
+                    or data.get('request_sha256') != hashlib.sha256(request_bytes).hexdigest()):
+                raise ValueError('Preflight proof changed the original dispatched request or intent')
+            receipt['driver_configuration_sha256'] = digest(driver)
+            receipt.update(request_sha256=request_sha, launch_intent_sha256=launch_intent_sha)
+            save(folder / 'receipt.json', receipt)
+            record, refusal = self.validate_launch_rejection(folder, receipt)
+            raise PreflightRejected(record, self.preflight_feedback(record, refusal))
         save(folder / 'receipt.json', receipt)
         return receipt
 
@@ -340,6 +504,7 @@ class Pipeline:
         next_actions = []
         pending = self.pending_launches()
         last = s.get('last_attempt', {})
+        refusal = self.committed_launch_rejection(last['run']) if last.get('dispatch_outcome') == 'not_started' else None
         unresolved = self.pending_phases() + self.pending_effects() + self.pending_diagnostics()
         if unresolved:
             next_actions = [step(last.get('stage'), None, {}, 'Original phase or diagnostic execution is unresolved; inspect its retained intent and logs before new device work.', status='blocked', unresolved=unresolved)]
@@ -349,6 +514,11 @@ class Pipeline:
         elif last.get('evaluation_outcome') == 'unknown':
             next_actions = [step(last.get('stage'), None, {}, 'Original execution is unresolved; inspect its original logs and handle before continuing.',
                                  status='blocked', run=last['run'])]
+        elif refusal and s.get('contract') and refusal['binding']['contract'] == digest(s['contract']):
+            next_actions = [step('A', 'pipeline_bind', {},
+                'Launch was rejected before any remote job started. Bind the complete declared contract.json exactly; use the exposed baseline/settings tools separately. Do not trim or guess contract fields.',
+                required_arguments=['contract'], failure_phase='preflight', dispatch_outcome='not_started',
+                error=refusal['error'], evidence=refusal['artifacts'])]
         elif not s['contract']:
             next_actions = [step('A', 'pipeline_bind', {}, 'Bind the task, pinned independent oracle, complete suite and measurement contract.',
                                  required_arguments=['contract'])]
@@ -607,6 +777,12 @@ class Pipeline:
         previous = copy.deepcopy(self.state)
         try:
             result = self.execute(action['tool'], action['arguments'], output); status = 'completed'
+        except PreflightRejected as error:
+            self.state = previous
+            self.state.setdefault('launch_rejections', []).append(error.record)
+            result = {'error': error.feedback['error']['message'], 'failure_phase': 'preflight',
+                      'dispatch_outcome': 'not_started', 'preflight_rejection': error.feedback}
+            status = 'failed'
         except Exception as error:
             self.state = previous
             result = {'error': str(error)}; status = 'failed'
@@ -618,17 +794,20 @@ class Pipeline:
             if (output / 'launch-intent.json').exists():
                 result.update(launch_outcome='unknown', recover_run=identity,
                               recovery='Use a collect driver to recover this original launch; never redispatch')
-        try:
-            diagnostics = self.diagnostics_after(action, output, status, result)
-        except Exception as error:
-            # Preserve the original check/pair outcome even if diagnostic
-            # scheduling itself cannot proceed (for example, changed source).
-            diagnostics = {'status': 'blocked', 'reason': str(error), 'evaluation_run': identity}
+        diagnostics = None
+        if result.get('dispatch_outcome') != 'not_started':
+            try:
+                diagnostics = self.diagnostics_after(action, output, status, result)
+            except Exception as error:
+                # Preserve the original check/pair outcome even if diagnostic
+                # scheduling itself cannot proceed (for example, changed source).
+                diagnostics = {'status': 'blocked', 'reason': str(error), 'evaluation_run': identity}
         # Keep exact F/G acceptance evidence independent from diagnostic feedback.
         if action['tool'] in {'pipeline_run', 'pipeline_pair'}:
             self.state['last_attempt'] = {'run': identity, 'stage': action['arguments'].get('stage', 'G'),
                                           'status': status, 'evaluation_outcome': result.get('evaluation_outcome'),
-                                          'source': (self.state['candidate'] or {}).get('sha256')}
+                                          'source': (self.state['candidate'] or {}).get('sha256'),
+                                          **({'dispatch_outcome': 'not_started'} if result.get('dispatch_outcome') == 'not_started' else {})}
         return self.finish(action, output, status, result, diagnostics)
 
     def finish(self, action, output, status, result, diagnostics=None):
@@ -648,14 +827,16 @@ class Pipeline:
         manifest_ref = {'path': 'manifest.json', 'sha256': sha(output / 'manifest.json'),
                         'read': {'tool': 'pipeline_read', 'arguments': {'run': identity, 'path': 'manifest.json'}}}
         selected = sorted(refs, key=lambda name: (name != 'result.json', name != 'driver/receipt.json', name))[:16]
-        summary = {key: result[key] for key in ('error', 'evaluation_outcome', 'launch_outcome', 'recover_run') if key in result}
+        summary = {key: result[key] for key in ('error', 'evaluation_outcome', 'launch_outcome', 'recover_run',
+                    'failure_phase', 'dispatch_outcome', 'preflight_rejection') if key in result}
         if isinstance(summary.get('error'), str): summary['error'] = summary['error'][:2048]
         if isinstance(result.get('result'), dict) and isinstance(result['result'].get('evaluation'), dict):
             summary['evaluation'] = result['result']['evaluation']
         evaluation_summary = None
         if action['tool'] == 'pipeline_evaluate':
             evaluation_summary = {key: result[key] for key in ('evaluation_status', 'source_sha256', 'source_changed',
-                'feedback', 'continuation', 'error', 'check_action_id', 'resume_run', 'unresolved_run', 'original_handle', 'recover_run') if key in result}
+                'feedback', 'continuation', 'error', 'check_action_id', 'resume_run', 'unresolved_run', 'original_handle', 'recover_run',
+                'failure_phase', 'dispatch_outcome') if key in result}
             for key in ('unresolved_phases', 'unresolved_diagnostics'):
                 if key in result: evaluation_summary[key] = result[key][:4]
             evaluation_summary['stages'] = [{key: stage.get(key) for key in ('stage', 'run', 'status')} for stage in result.get('stages', [])]

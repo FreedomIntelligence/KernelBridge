@@ -2,11 +2,17 @@
 import base64
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sys
 
 from npu_trial import attempt_records, attempt_number, invoke_remote, save, transport, trial, same_handle, wire_handle, wire_summary
+try:
+    from preflight import PROTOCOL, contract_differences, digest as preflight_digest, make_rejection
+except ModuleNotFoundError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'operator_pipeline'))
+    from preflight import PROTOCOL, contract_differences, digest as preflight_digest, make_rejection
 
 
 def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -14,6 +20,25 @@ def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 def manifest_sha(files):
     return hashlib.sha256(json.dumps(files, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()).hexdigest()
+
+
+class ContractMismatch(ValueError):
+    """Only a strict, source-verified contract comparison may emit rejection."""
+    def __init__(self, expected, actual):
+        super().__init__('Declared semantic, suite, oracle or measurement contract differs from the frozen task')
+        self.expected = expected
+        self.actual = actual
+
+
+def write_preflight_artifact(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('xb') as stream:
+        stream.write(data); stream.flush(); os.fsync(stream.fileno())
+    directory = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 def verify(source):
@@ -25,13 +50,13 @@ def verify(source):
 
 
 def verify_contract(config, request):
-    expected = json.loads(json.dumps(config['contract']))
-    declared = json.loads(json.dumps(request['contract']))
+    expected = json.loads(json.dumps(config['contract'], allow_nan=False))
+    declared = json.loads(json.dumps(request['contract'], allow_nan=False))
     oracle = declared['oracle']['files']; verify(oracle)
     declared['oracle']['files'] = oracle['files']
     expected['oracle']['files'] = {name: sha(path) for name, path in expected['oracle']['files'].items()}
-    if declared != expected:
-        raise ValueError('Declared semantic, suite, oracle or measurement contract differs from the frozen task')
+    if contract_differences(expected, declared):
+        raise ContractMismatch(expected, declared)
 
 
 def round_for(config, request):
@@ -210,7 +235,15 @@ def execute(config, operation, request):
         config = dict(config, wait_seconds=min(config.get('wait_seconds', 900), remaining),
                       poll_seconds=min(config.get('poll_seconds', 5), max(0.05, remaining)))
     verify(request['source'])
-    verify_contract(config, request)
+    try:
+        verify_contract(config, request)
+    except ContractMismatch as error:
+        if operation != 'launch':
+            raise
+        rejection, artifacts = make_rejection(request, error.expected, error.actual)
+        for name, data in artifacts.items():
+            write_preflight_artifact(Path(request['output']) / name, data)
+        return rejection
     if operation == 'launch':
         if set(request['source']['files']) != {'candidate.py'}: raise ValueError('Freeze exactly candidate.py')
         action_id = request.get('action_id')
@@ -224,6 +257,10 @@ def execute(config, operation, request):
         events = sorted(Path(config['pipeline_state']).glob('event-*.json'))
         hypothesis = json.loads(events[-1].read_text())['body'].get('C') if events else None
         if not hypothesis: raise ValueError('Record pipeline_plan C before launching')
+        boundary = {'protocol': PROTOCOL, 'operation': 'launch', 'action_id': action_id,
+                    'request_sha256': preflight_digest(request), 'source_sha256': request['source']['sha256']}
+        write_preflight_artifact(Path(request['output']) / 'dispatch-boundary.json',
+                                 (json.dumps(boundary, sort_keys=True, ensure_ascii=False, allow_nan=False) + '\n').encode())
         outcome = trial(dict(config, candidate=str(candidate)), {'id': action_id, 'arguments': {'hypothesis': json.dumps(hypothesis, ensure_ascii=False)}})
         if outcome['status'] != 'completed': raise RuntimeError('Original NPU job unresolved; recover this launch with npu-collect')
         save(Path(config['candidate']).parent / 'feedback.json', outcome['data'])

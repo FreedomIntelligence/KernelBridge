@@ -176,6 +176,16 @@ def evaluate(pipeline, action):
                 raise ValueError('An unresolved launch for a different source/contract must be recovered separately')
             if not unknown and not retained and drivers['launch'] and time.monotonic() < deadline:
                 pipeline, launched = phase('E', 'pipeline_run', {'stage': 'E', 'driver': drivers['launch']})
+                if launched['data'].get('dispatch_outcome') == 'not_started':
+                    # Only the committed/reverified terminal refusal can stop this
+                    # composite without collecting or inventing a remote failure.
+                    refusal = pipeline.committed_launch_rejection(result['stages'][-1]['run'])
+                    if refusal is None:
+                        raise ValueError('Preflight refusal lacks its committed original receipt')
+                    result.update(evaluation_status='failed', failure_phase='preflight', dispatch_outcome='not_started',
+                        feedback=refusal, error=refusal['error']['message'], original_handle=None, continuation=None,
+                        qualification='Remote job never started; no F/G/H or device acceptance was produced.')
+                    return pipeline.finish(action, output, 'completed', result)
                 retained = pipeline.matching_handle(); unknown = pipeline.pending_launches()
             polls = 0
             while (unknown or retained and not retained.get('collected')) and time.monotonic() < deadline and polls < 16:

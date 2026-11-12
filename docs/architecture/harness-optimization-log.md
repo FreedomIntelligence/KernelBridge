@@ -123,6 +123,80 @@ recover that original identity and reconcile the deployment with the required
 runtime closure; do not substitute a namespace or repeat an unknown upload.
 No new correctness, timing, IR/profiler capture or promotion result is claimed.
 
+### Restored deployment and first real feedback trial
+
+The authorized Hong Kong route successfully reached the original SSH target.
+Read-only recovery proved the incomplete deployment namespace was absent and
+the old jobs were terminal. Exactly one upload of the original frozen payload
+then completed; an independent readback matched all 304 file hashes and the
+original deployment identity. The remote execution closure (26 files including
+package initialization, templates and runtime settings) is byte-identical to the
+current required code. Updated host-only files did not require replacing that
+remote payload. Evidence: `.validation/hongkong-resume-20261111/`.
+
+The original node's device 0 was occupied by another workload. A separate fresh
+device 1 contract was prepared after checking its physical mapping and idle
+state. Case, oracle, baseline, warmup, repetition and timing settings were
+unchanged; the device index and corresponding contract/environment binding were
+explicitly changed. Device 0 calibration and timings cannot be reused. The other
+identified node was busy, and a third endpoint required a different SSH identity.
+
+`hongkong-device1-feedback-max-01/run` completed with 20 parent model calls,
+657,244 reported tokens, no unknown usage, no child/compact/review calls and
+`budget_limit`. All 20 protected call-budget snapshots matched the authoritative
+Journal. The agent wrote its only candidate at call 7 and used the new composed
+evaluation at call 8. This is a real clean model trial, not a protocol fixture.
+
+It did not reach compilation: the model's declared contract added `baseline` and
+`candidate_abi` fields. Strict native validation rejected it locally before any
+trial/transport invocation, but the pipeline treated the nonzero adapter exit as
+an unknown launch. The composed result had no direct error feedback and suggested
+recovery of a null handle. The model read the original stderr at call 11; the
+specific validation error first entered its next request at call 12. Rebinding
+and reevaluation could not clear the original unknown-effect fence. The original
+Journal, failed contract and candidate remain intact. No F, G, H, IR/profiler
+capture or measured speedup exists for this trial.
+
+**Next hypothesis:** a pinned adapter can prove a strict local preflight rejection
+before any dispatch, return concrete contract differences in the same evaluation
+call, and permit correction without falsely entering unknown-effect recovery.
+This must use a versioned, exact request/source/driver-bound receipt, not null
+handles, missing attempt files or matching stderr text. Real transport uncertainty
+and post-dispatch failures must retain their original fence. The change applies
+to arbitrary task contracts, including Cube; it must neither trim extra fields
+nor weaken oracle/measurement equality.
+
+### Pre-dispatch rejection feedback — implementation qualified locally
+
+The native launch adapter now emits `kernelbridge.driver-preflight/v1` only
+for a strict contract mismatch before its durable dispatch boundary. A pinned,
+explicitly opted-in driver returns the original request/source/binding identity,
+bounded JSON-pointer differences, and complete hash-bound expected/actual/diff
+artifacts. No extra contract fields are discarded. The pipeline commits and
+revalidates the receipt and all retained evidence before excluding the intent
+from unknown-launch recovery. `pipeline_evaluate` returns failed preflight
+feedback immediately, without collection, F or diagnostics; the next action is
+to correct the declared contract. Timeouts, malformed or unsupported replies,
+changed inputs, post-boundary failures and incomplete commits remain unresolved.
+
+Local qualification passed 91 distinct tests: 20 new native/integration tests
+and 71 existing affected regressions. The optional original Max/Cube replay was
+explicitly supplied both retained trials and passed. The first old-regression
+invocation omitted the validation directory from PYTHONPATH, causing four import
+errors; those modules passed after correcting the invocation. Initial new-test
+failures were fixture errors, not production changes. Actual subprocess tests
+cover contract correction with exactly one subsequent fixture dispatch, request
+and intent rewriting, false collector handles, committed artifact tampering,
+unknown F/J fences, complete Unicode evidence and generic Cube contracts. The
+original failed max request was replayed read-only with zero transport calls.
+Logs: `.validation/preflight-rejection-repair/`. These tests do not establish
+real NPU correctness, timings or diagnostic capture; fresh trials follow.
+
+No aggregate token limit is configured. The 657,244 tokens above are reported
+usage, distinct from the explicit 20 model-admission ceiling. Existing model
+settings retain their per-response output parameter for trial comparability;
+this is not a total session token budget.
+
 ## Goal and accounting
 
 The active goal supersedes the earlier request for 20 externally coordinated
