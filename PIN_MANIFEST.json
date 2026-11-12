@@ -4244,8 +4244,8 @@
       "sha256": "f1cfbf16dfbae0afac8b69b72e3b647f27926b9cf83c8f41b2c2eb7b65cf6e37"
     },
     "validation/tui/lifecycle-scenario.mjs": {
-      "bytes": 4368,
-      "sha256": "faa9fe075a6764f4c26e15e9813d3896c4f33f58af9a0ddeffb096de66c6a970"
+      "bytes": 4466,
+      "sha256": "196124040facb62b18c616860b0e8dc8cc0391d2ababac9dc89187c4121acee7"
     },
     "validation/tui/long-scenario.mjs": {
       "bytes": 3060,
@@ -4264,8 +4264,8 @@
       "sha256": "ee054970a65f5b2e7da00400b93eaded9b7db4b38d075190df62a0e0a448b7ab"
     },
     "validation/tui/recovery-scenario.mjs": {
-      "bytes": 5742,
-      "sha256": "7fbda4912db939355dcd1db0cca98a8d7ff6f9288aec307da63758dfff51aaca"
+      "bytes": 5841,
+      "sha256": "36560ad8735692a97beddc3d0f3e4d39ea0d2b6b0d4bb331bf98ea5ba86f8d9e"
     },
     "validation/tui/requirements-ui.txt": {
       "bytes": 28,
@@ -4308,8 +4308,8 @@
       "sha256": "fcde4206b234bc41e2ecaf6526e4bacc2cad47d19b488a73de09a5cf086b4ee8"
     },
     "validation/tui/run.py": {
-      "bytes": 8508,
-      "sha256": "119c32666a104090438ed1126e10f8f2aab3d257df872a90fc283e26defb480b"
+      "bytes": 8789,
+      "sha256": "0d197b5cec00c41f1fea04045c66b6ae8e2e58f71559dd7e85b0f7f3989a0f5a"
     },
     "validation/tui/sdk-scenario.mjs": {
       "bytes": 2153,
@@ -4320,8 +4320,8 @@
       "sha256": "bb47b498c9b1c8ad3c959d9db0532625e808c0ff43b3f1019e8ea3b7e59dd2c5"
     },
     "validation/tui/steering-scenario.mjs": {
-      "bytes": 2478,
-      "sha256": "38fdf6cdc840dd72cc7ef035572b9c1dc92c1f526b9469648aead55597cacf6c"
+      "bytes": 2575,
+      "sha256": "0d05865a1b3f213e2bba52ddbf98810ab6fc69cc4905a089e62b32641d7740e0"
     },
     "validation/tui/subagent-presentation.mjs": {
       "bytes": 12786,
@@ -4356,8 +4356,8 @@
       "sha256": "63d2147b3bd7beaef3eb011dc9a741a9f2e037288f0b027c0f9d93bcd55b064b"
     },
     "validation/tui/transport-scenario.mjs": {
-      "bytes": 1512,
-      "sha256": "9e965030a50c7e94f4613a39f1c5cd308bec61cda3268411fd9b83123d119e42"
+      "bytes": 1647,
+      "sha256": "9c8aae5b0550cbcbed325993744860c42ec7a42ef4c1f125b986fba894c3d97a"
     },
     "validation/usage.mjs": {
       "bytes": 789,

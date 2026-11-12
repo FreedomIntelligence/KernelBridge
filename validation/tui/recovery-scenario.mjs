@@ -1,3 +1,4 @@
+import { StepTimeout, scaled } from './timing.mjs';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { connect } from 'node:net';
@@ -11,9 +12,9 @@ let session = await ApplicationSession.create(options);
 let hostPid, worker;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(predicate, timeout = 30000) {
-  const end = Date.now() + timeout;
+  const end = Date.now() + scaled(timeout);
   while (Date.now() < end) { if (await predicate()) return; await sleep(50); }
-  throw new Error('Recovery scenario timed out');
+  throw new StepTimeout('Recovery scenario timed out after ' + scaled(timeout) + ' ms');
 }
 const events = async () => (await readFile(options.output + '/state/events.jsonl', 'utf8')).trim().split('\n').map(JSON.parse);
 try {

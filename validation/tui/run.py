@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -35,7 +36,9 @@ def first_exception(text):
     try:
         start = next(index for index, line in enumerate(lines) if line.startswith('Traceback (most recent call last):'))
     except StopIteration:
-        return None
+        # Node scenarios print their uncaught error as "Name: message" (StepTimeout from timing.mjs).
+        found = next((match.group(1) for line in lines for match in [re.match(r'^([A-Za-z_][\w.]*(?:Error|Timeout|Expired))(?: \[[^\]]*\])?: ', line)] if match), None)
+        return found
     for line in lines[start + 1:]:
         if line and not line.startswith((' ', '\t')):
             return line.split(':', 1)[0].strip()
