@@ -46,7 +46,9 @@ def main():
     threading.Thread(target=provider.serve_forever, daemon=True).start()
     config = output / 'model.json'
     config.write_text(json.dumps({'providers': {'primary': {'model': 'local-codegen',
-        'base_url': f'http://127.0.0.1:{provider.server_port}/v1', 'api_key_env': 'KERNELBRIDGE_TEST_KEY'}}}))
+        'base_url': f'http://127.0.0.1:{provider.server_port}/v1', 'api_key_env': 'KERNELBRIDGE_TEST_KEY',
+        # Two automatic retries keep FAIL_ALWAYS short (about 1.5-3 s of backoff).
+        'max_retries': 2}}}))
     registry = Path('/tmp').resolve() / ('kb-code-' + hashlib.sha256(str(output).encode()).hexdigest()[:10])
     home = output / 'home'
     env = {**os.environ, 'TERM': 'xterm-256color', 'PI_OFFLINE': '1', 'KERNELBRIDGE_TEST_KEY': 'fixture-not-secret',
@@ -163,10 +165,24 @@ def main():
         send('Goal 结束后继续普通对话。')
         assert state()['goal']['status'] == 'cleared'
         checks.append('goal_opt_in_completion_and_return')
-        send('FAIL_ONCE', 'failed')
+        # A transient 503 is retried on the same route as a new admitted attempt.
+        before = len(CodegenProvider.requests)
+        send('FAIL_ONCE')
+        attempts = [item for item in CodegenProvider.requests[before:] if 'FAIL_ONCE' in json.dumps(item, ensure_ascii=False)]
+        assert len(attempts) == 2, len(attempts)
+        checks.append('transient_provider_failure_retried')
+        # Persistent failure: two retries, then a visible failure instead of a silent stop.
+        before = len(CodegenProvider.requests)
+        send('FAIL_ALWAYS', 'failed')
+        attempts = [item for item in CodegenProvider.requests[before:] if 'FAIL_ALWAYS' in json.dumps(item, ensure_ascii=False)]
+        assert len(attempts) == 3, len(attempts)
+        until(lambda: '模型调用失败' in text() and 'HTTP 503' in text() and '可以直接重新发送' in text())
+        failed = next(item for item in state()['inputs'].values() if item['text'] == 'FAIL_ALWAYS')
+        assert failed.get('reason') == 'providers_failed', failed
+        capture('provider-failure')
         send('Provider recovered; answer this new request.')
         assert not state()['pending_effect_ids']
-        checks.append('provider_failure_next_input')
+        checks.append('provider_failure_visible_next_input')
         original = state()['application_session_id']; count = len(CodegenProvider.requests)
         quit(); client.close(); client = None
         launch(['--continue'])

@@ -6,6 +6,8 @@ agent on its own. Conversational scheduling is exclusively in the Pi SDK.
 """
 from __future__ import annotations
 
+import time
+
 from concurrent.futures import Future
 from threading import RLock, Thread
 from typing import Any
@@ -49,7 +51,9 @@ from kernelcat_executor.generated.harness import HarnessInput
 from kernelcat_executor.operations.context import source
 from kernelcat_executor.operations.delegated import DelegatedEffects
 from kernelcat_executor.operations.native import NativeEffects
-from kernelcat_executor.operations.recovery import ModelRetry, latest_model_attempt
+from kernelcat_executor.operations.recovery import ModelRetry, latest_model_attempt, model_chain_length
+from kernelcat_executor.operations.recovery import _successor as retry_successor
+from kernelcat_executor.operations.retry_policy import failure_summary, retry_delay
 from kernelcat_executor.operations.requests import propose, recorded_harness_tools
 from kernelcat_executor.state.goal_progress import model_call_progress, with_model_call_progress
 from kernelcat_executor.operations.turns import CallCancelled, execute_calls
@@ -85,6 +89,7 @@ class ExecutionRPC:
         self.context_admission: ContextAdmission | None = None
         self.route_index = 0
         self.failed: list[str] = []
+        self.failures: list[Json] = []
         self.proposal_id = ""
         self.text, self.thinking = "", ""
         self.calls: tuple[Action, ...] = ()
@@ -200,7 +205,7 @@ class ExecutionRPC:
         for message in inputs:
             self.owner._message({"role": "user", "text": message["text"],
                 "input_id": message["id"], "kind": message["kind"]}, self.step)
-        self.context, self.route_index, self.failed = None, 0, []
+        self.context, self.route_index, self.failed, self.failures = None, 0, [], []
         self.harness = None
         self.harness_tools = {}
         self.prepared = True
@@ -296,7 +301,7 @@ class ExecutionRPC:
             if old["outcome"]["status"] == "completed":
                 proposal, replayed = Outcome.model_validate_json(canonical(old["outcome"])), True
             elif self.retry is None or self.retry.failed_id != identity:
-                return self._provider_failed(identity, policy)
+                return self._provider_failed(identity, policy, route, old["outcome"].get("data", {}).get("failure_details"))
             else:
                 parents = (*parents, self.retry.failed_id)
                 identity = self.retry.next_id
@@ -318,7 +323,7 @@ class ExecutionRPC:
         if proposal.status == "unknown":
             raise InDoubt(identity)
         if proposal.status != "completed":
-            return self._provider_failed(identity, policy)
+            return self._provider_failed(identity, policy, route, proposal.data.get("failure_details"))
         self.proposal_id = identity
         self.owner._message({"role": "assistant", "proposal_id": identity, **proposal.data},
                             self.step, replayed=replayed)
@@ -356,14 +361,34 @@ class ExecutionRPC:
                 "calls": [self.wire(a) for a in self.calls], "usage": proposal.data.get("usage", {}),
                 **({"thinking": self.thinking} if self.thinking else {})}
 
-    def _provider_failed(self, identity: str, policy: Policy) -> Json:
+    def _automatic_retry(self, identity: str, route: str, details: Json) -> Json | None:
+        """Permit one more attempt on the same route after a transient failure.
+
+        The next attempt is the deterministic successor of this receipt, so the
+        Journal holds every attempt and resume follows the same bounded chain."""
+        proposer = self.owner.proposers.get(route)
+        state = self.store.snapshot()
+        retries = model_chain_length(state, f"{self.task.id}/step/{self.step}/model/{route}") - 1
+        delay = retry_delay(details, retries, getattr(proposer, "max_retries", 0))
+        if delay is None:
+            return None
+        self.route_index -= 1
+        self.retry = ModelRetry(identity, retry_successor(identity))
+        return {"route": route, "attempt": retries + 1, "max_retries": proposer.max_retries,
+                "delay_ms": int(delay * 1000), **failure_summary(details)}
+
+    def _provider_failed(self, identity: str, policy: Policy, route: str | None = None,
+                         details: Json | None = None) -> Json:
         self.failed.append(identity)
-        if self.route_index == len(policy.routes):
+        details = details if isinstance(details, dict) else {}
+        self.failures.append({"route": route, **failure_summary(details)})
+        retry = self._automatic_retry(identity, route, details) if route is not None else None
+        if retry is None and self.route_index == len(policy.routes):
             self.result = {"status": "providers_failed", "step": self.step,
-                           "failed_model_actions": self.failed}
+                           "failed_model_actions": self.failed, "failures": self.failures}
             self.prepared = False
             return {"stop": True, "result": self.result}
-        failed: Json = {"failed": True, "receipt": identity}
+        failed: Json = {"failed": True, "receipt": identity, **({"retry": retry} if retry else {})}
         if self.owner.external_context:
             assert self.context_source is not None
             state = self.store.snapshot()
@@ -627,15 +652,28 @@ class ExecutionRPC:
             collected = self._collect_plugin(action.id, background=True)
             return {"permit": action.id, "agent": action.arguments["agent"], "task": action.arguments["task"],
                     "timeout_ms": settings["timeout"] * 1000 if settings.get("timeout") else None,
+                    "backstop_ms": self._backstop_ms(settings, run.effects.routes),
                     "tool_limit": settings.get("tool_limit"), "routes": list(run.effects.routes),
                     "mode": run.effects.mode, "max_steps": run.effects.max_steps,
                     "background": True, "outcome": collected.model_dump(mode="json")}
         return {"permit": action.id, "agent": action.arguments["agent"],
                 "task": action.arguments["task"],
                 "timeout_ms": settings["timeout"] * 1000 if settings.get("timeout") else None,
+                "backstop_ms": self._backstop_ms(settings, run.effects.routes),
                 "tool_limit": settings.get("tool_limit"),
                 "routes": list(run.effects.routes),
                 "mode": run.effects.mode, "max_steps": run.effects.max_steps}
+
+    def _backstop_ms(self, settings: Json, routes) -> int | None:
+        """The plugin's transport backstop: after the host's own deadline, the final
+        summary grace and one provider call, so a child that is merely finishing up
+        never turns into a parent runtime failure."""
+        if not settings.get("timeout"):
+            return None
+        timeout = float(settings["timeout"])
+        grace = min(60.0, max(10.0, 0.1 * timeout))
+        provider = max((float(getattr(self.owner.child_proposers.get(route), "timeout", 120.0)) for route in routes), default=120.0)
+        return int((timeout + grace + provider) * 1000) + 5000
 
     def _child(self, params: Json) -> DelegatedEffects:
         with self.child_lock:
@@ -698,11 +736,15 @@ class ExecutionRPC:
                 "plugin": "pi-subagents@0.87.0", "advisory": True, "promoted": False,
                 "agent": child.action.arguments["agent"], "completion_reason": child.completion_reason,
                 "partial": child.completion_reason != "answer",
-                "mode": child.mode, "steps": child.step + 1, "tool_calls": child.tool_count, **changes})
+                "mode": child.mode, "steps": child.step + 1, "tool_calls": child.tool_count,
+                "elapsed_ms": int((time.monotonic() - child.started_at) * 1000), **changes})
         else:
+            # The parent decides what to do next; give it what the child had found.
             outcome = Outcome(status="failed", data={"error": "subagent failed",
                 "reason": child.failure or "plugin_failed", "model_receipt": child.receipt,
                 "agent": child.action.arguments["agent"], "steps": child.step + 1, "tool_calls": child.tool_count,
+                "elapsed_ms": int((time.monotonic() - child.started_at) * 1000),
+                **({"partial_text": child.last_text[:4096]} if child.last_text else {}),
                 "advisory": True, **changes})
         return outcome
 

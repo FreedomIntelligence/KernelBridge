@@ -14,6 +14,17 @@ const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 const asciiCasePattern = value => [...value].map(char => /[a-z]/i.test(char)
   ? `[${char.toLowerCase()}${char.toUpperCase()}]` : char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('');
 
+/** Pi's bash has no default timeout; run_command and Codex/Claude Code commands do.
+    Without one, a command stops after this many seconds (a known, timed-out result). */
+export const DEFAULT_BASH_TIMEOUT_SECONDS = 600;
+
+export function withDefaultTimeout(definition) {
+  return { ...definition,
+    description: `${definition.description} Without timeout, a command stops after ${DEFAULT_BASH_TIMEOUT_SECONDS} s.`,
+    execute: (id, params, ...rest) => definition.execute(id,
+      params && params.timeout === undefined ? { ...params, timeout: DEFAULT_BASH_TIMEOUT_SECONDS } : params, ...rest) };
+}
+
 export function workspaceTools(sdk, capability) {
   const root = resolve(capability.root);
   // Ordinary codegen uses Pi's native project tools. Isolated experiment mode
@@ -23,8 +34,8 @@ export function workspaceTools(sdk, capability) {
     const factories = { read: sdk.createReadToolDefinition, write: sdk.createWriteToolDefinition, edit: sdk.createEditToolDefinition,
       bash: sdk.createBashToolDefinition, grep: sdk.createGrepToolDefinition, find: sdk.createFindToolDefinition, ls: sdk.createLsToolDefinition };
     return (capability.tools ?? Object.keys(factories)).filter(name => factories[name]).map(name => ({
-      ...factories[name](root, name === 'bash' ? { exposeSessionEnvironment: false,
-        spawnHook: context => ({ ...context, env: { ...context.env, ...(capability.home ? { HOME: capability.home } : {}) } }) } : undefined),
+      ...(name === 'bash' ? withDefaultTimeout : value => value)(factories[name](root, name === 'bash' ? { exposeSessionEnvironment: false,
+        spawnHook: context => ({ ...context, env: { ...context.env, ...(capability.home ? { HOME: capability.home } : {}) } }) } : undefined)),
       exposure: 'model-only' })).map(withProductRenderers);
   }
   const writable = capability.writable_paths;
@@ -271,7 +282,7 @@ export function workspaceTools(sdk, capability) {
     }, true),
   } });
   bash.description += ' Commands run in a fresh isolated workspace snapshot with no network. Only successful authorized regular-file changes persist (256 KiB per file, 16 MiB and 4096 files per snapshot). TMPDIR is disposable. Failed or timed-out commands do not write changes back; inspect their output before retrying.';
-  return [read, write, edit, ls, search(sdk.createFindToolDefinition), search(sdk.createGrepToolDefinition), bash]
+  return [read, write, edit, ls, search(sdk.createFindToolDefinition), search(sdk.createGrepToolDefinition), withDefaultTimeout(bash)]
     .filter(tool => capability.tools.includes(tool.name))
     .map(tool => withProductRenderers({ ...tool, exposure: 'model-only' }));
 }

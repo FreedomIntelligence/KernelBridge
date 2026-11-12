@@ -134,6 +134,7 @@ def _build_proposers(
             allow_insecure_http=provider.allow_insecure_http,
             max_response_bytes=provider.max_response_bytes,
             task_instructions=task_instructions,
+            max_retries=provider.max_retries,
         )
     return result
 

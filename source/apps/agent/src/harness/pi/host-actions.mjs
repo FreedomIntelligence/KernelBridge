@@ -3,7 +3,7 @@ import { open, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { InputQueue } from '../../application/input-queue.mjs';
 import { workspaceTools } from './workspace-tools.mjs';
-import { continuationLabel, goalSummary, statePresentation, installProductUI, showProductFeedback, workingMessage } from './product-ui.mjs';
+import { continuationLabel, goalSummary, providerFailureText, retryNoticeText, statePresentation, installProductUI, showProductFeedback, workingMessage } from './product-ui.mjs';
 import { DETERMINISTIC, updateSubagentProgress, explorationBoundary, seedExplorationGroups } from './tool-render.mjs';
 import { agentsPanel, BUILTIN_AGENTS } from './agents-panel.mjs';
 import { modelChanged, modelPicker, modelSummary, orderedLevels, parseLevel } from './model-picker.mjs';
@@ -227,6 +227,9 @@ export function createHostActions(control, effects, { observer = control } = {})
         showProductFeedback(context, `运行时失败：${failureSummary}`, true);
       }
       if (limitReached) showProductFeedback(context, '已达到显式设置的执行上限。当前请求已停止，未再调用模型。', true);
+      // Claude Code and Codex say when the model service failed; a silent stop reads as a hang.
+      const providerSummary = providerFailed ? providerFailureText(governed.controller.stopResult.failures) : undefined;
+      if (providerFailed) showProductFeedback(context, providerSummary, true);
       if (providerFailed) {
         await effects.call('end_failed_turn', { native_checkpoint: await governed.checkpoint() });
       }
@@ -263,7 +266,8 @@ export function createHostActions(control, effects, { observer = control } = {})
       for (const inputId of [...runningInputs]) {
         await control.call('transition', { input_id: inputId,
           status: failure ? 'failed' : event.aborted ? 'interrupted' : governed?.controller.failure || providerFailed || setupFailed || limitReached ? 'failed' : 'completed',
-          ...(failure ? { reason: 'harness_failure', summary: failureSummary } : {}) });
+          ...(failure ? { reason: 'harness_failure', summary: failureSummary }
+            : providerFailed ? { reason: 'providers_failed', summary: providerSummary } : {}) });
         runningInputs.delete(inputId);
       }
       activeInput = undefined;
@@ -485,6 +489,7 @@ export function createHostActions(control, effects, { observer = control } = {})
       && !Object.values(state?.inputs ?? {}).some(receipt => receipt.initiator === 'user' && receipt.text === text)
       ? continuationLabel(text) : text,
     feedback: (message, error) => showProductFeedback(context, message, error),
+    retryNotice: notice => showProductFeedback(context, retryNoticeText(notice)),
     async beforeModel() {
       const manager = governed.session.sessionManager;
       const entries = manager.getBranch();

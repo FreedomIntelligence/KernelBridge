@@ -89,6 +89,9 @@ def prepare(output, deployment, endpoint, name='sdk'):
             'capture_paths': ['solution.py'], 'credits': 2, 'files': [{'path': str(evaluator), 'sha256': hashlib.sha256(evaluator.read_bytes()).hexdigest()}]}],
         'candidate_retention': {'tool': 'evaluate_candidate', 'source_hashes': {'solution.py': 'data.candidate_sha256'}, 'outcome_schema': schema},
         'pi_worker': {'node': shutil.which('node'), 'root': str(ROOT / 'source/apps/agent'), 'timeout': 120}}
+    if name == 'transport':
+        # Opt-out check: with retries off, a 503 fails the input without another attempt.
+        config['providers']['primary']['max_retries'] = 0
     if name == 'ui':
         # The interaction scenario selects a reasoning level with /model; other
         # scenarios keep a route without levels, so their requests are unchanged.

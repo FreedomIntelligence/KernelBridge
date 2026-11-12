@@ -44,6 +44,15 @@ def latest_model_attempt(state: Json, base_id: str) -> tuple[str, Json | None]:
     return identity, row
 
 
+def model_chain_length(state: Json, base_id: str) -> int:
+    """Attempts recorded for one step and route: the base receipt and its successors."""
+    count, identity = 0, base_id
+    while identity in state["actions"]:
+        count += 1
+        identity = _successor(identity)
+    return count
+
+
 def _root_attempt(state: Json, identity: str, task_id: str) -> str:
     # Check the hash links in both directions; do not guess a step from a route.
     seen: set[str] = set()

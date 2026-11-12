@@ -83,6 +83,31 @@ export function continuationLabel(text) {
   return `Goal 自动继续 · ${calls}${unlimited ? ' · 未设上限' : ''}${trial}`;
 }
 
+const FAILURE_LABELS = { rate_limit: '限流', server: '服务端错误', timeout: '超时', transport: '连接失败',
+  authentication: '认证失败', http: '请求被拒绝', protocol: '响应格式错误', incomplete_output: '输出不完整',
+  response_limit: '响应过大', redirect: '重定向' };
+
+/** One failed provider attempt: route, HTTP status and its kind. */
+export function failureLabel(item) {
+  const kind = FAILURE_LABELS[item?.category] ?? item?.category ?? '失败';
+  return [item?.route, item?.http_status ? `HTTP ${item.http_status}` : '', kind].filter(Boolean).join(' ');
+}
+
+/** A transient failure the host will retry on the same route (Codex shows "Reconnecting… n/5"). */
+export function retryNoticeText(notice) {
+  const seconds = Math.max(0, notice.delay_ms ?? 0) / 1000;
+  return `${notice.child ? '子代理的' : ''}模型服务暂时不可用（${failureLabel(notice)}），${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s 后重试（第 ${notice.attempt}/${notice.max_retries} 次）`;
+}
+
+/** Every admitted route failed: say which and how, and that nothing completed. */
+export function providerFailureText(failures) {
+  const seen = (failures ?? []).filter(Boolean);
+  const last = new Map(seen.map(item => [item.route, item]));
+  const retried = seen.length - last.size;
+  return `模型调用失败：${[...last.values()].map(failureLabel).join('；') || '所有模型路由都失败'}`
+    + `${retried > 0 ? `（已自动重试 ${retried} 次）` : ''}。本次请求没有完成，可以直接重新发送。`;
+}
+
 export function statePresentation(state) {
   const goal = currentGoal(state);
   const budget = state.budget ?? {};

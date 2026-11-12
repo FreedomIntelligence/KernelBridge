@@ -7,12 +7,20 @@ function delegateText(outcome) {
   if (data.background && data.status === 'running') {
     return `Background subagent ${data.agent} started (agent_id: ${data.agent_id}). Continue other work; its result will arrive as a [子代理结果] message.`;
   }
-  const status = outcome.status !== 'completed' ? `failed (${data.reason ?? data.error ?? 'unknown'})`
-    : data.partial ? `returned a partial result (${data.completion_reason})` : 'completed';
+  const elapsed = Number.isFinite(data.elapsed_ms) ? ` after ${formatElapsed(data.elapsed_ms)}` : '';
+  const status = outcome.status !== 'completed'
+    ? `${data.reason === 'timeout' ? 'stopped' : 'failed'} (${data.reason ?? data.error ?? 'unknown'}${elapsed})`
+    : data.partial ? `returned a partial result (${data.completion_reason}${elapsed})` : 'completed';
   const worktree = data.worktree?.changed ? `\n\nChanges are on branch ${data.worktree.branch} in ${data.worktree.worktree}.\n${data.worktree.diffstat}\nApply after review: ${data.worktree.apply_hint}`
     : data.worktree?.changed === false ? '\n\nThe worktree agent made no file changes.' : '';
   return `Subagent ${data.agent ?? ''} ${status}; ${data.steps ?? 0} model calls, ${data.tool_calls ?? 0} tool calls. Advisory, not validation.`
-    + (data.summary ? `\n\n${data.summary}` : '') + worktree;
+    + (data.summary ? `\n\n${data.summary}` : '')
+    + (!data.summary && data.partial_text ? `\n\nPartial findings before it stopped (unverified):\n${data.partial_text}` : '') + worktree;
+}
+
+function formatElapsed(ms) {
+  const seconds = Math.round(ms / 1000);
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, '0')}s`;
 }
 
 export class RunController {

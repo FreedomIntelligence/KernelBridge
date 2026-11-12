@@ -109,7 +109,7 @@ def main():
         ('pipeline_status', {}),
     ]
     config = output / 'config.json'; config.write_text(json.dumps({'providers': {'primary': {'model': 'advanced',
-        'base_url': f'http://127.0.0.1:{server.server_port}/v1', 'api_key_env': 'KERNELBRIDGE_TEST_KEY'}},
+        'base_url': f'http://127.0.0.1:{server.server_port}/v1', 'api_key_env': 'KERNELBRIDGE_TEST_KEY', 'max_retries': 1}},
         # This scenario checks count limits and recovery, not wall-clock
         # deadlines (covered by dedicated cancellation tests). Allow loaded CI
         # machines to finish the two actual provider/tool exchanges.

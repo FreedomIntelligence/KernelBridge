@@ -20,13 +20,29 @@ function admittedRoutes(value: unknown): readonly string[] {
   return [...value];
 }
 
-async function modelTurn(rpc: EffectRpc, request: ModelTurnRequest, native: boolean, project?: ModelInputProjection): Promise<Record<string, unknown>> {
+/** A host-permitted retry of a transient provider failure on the same route. */
+export interface RetryNotice {
+  readonly route: string; readonly attempt: number; readonly max_retries: number; readonly delay_ms: number;
+  readonly category?: string; readonly http_status?: number; readonly child?: boolean;
+}
+
+function retryOf(reply: Record<string, unknown>): RetryNotice | undefined {
+  const retry = reply.retry as RetryNotice | undefined;
+  return retry && typeof retry.route === "string" && Number.isSafeInteger(retry.delay_ms) && retry.delay_ms >= 0 ? retry : undefined;
+}
+
+const pause = (ms: number) => new Promise<void>(resolve => { setTimeout(resolve, ms); });
+
+async function modelTurn(rpc: EffectRpc, request: ModelTurnRequest, native: boolean, project?: ModelInputProjection,
+  notify?: (notice: RetryNotice) => void): Promise<Record<string, unknown>> {
   if (native !== (request.harness !== undefined)) throw new Error("Pi input differs from the admitted Harness capability");
   const prepared = await rpc.call("prepare_turn");
   if (prepared.stop === true) return prepared;
   let source = prepared.context_source;
   if (native && source === undefined) throw new Error("Native model preparation lacks its protected context source");
-  for (const route of admittedRoutes(prepared.routes)) {
+  const routes = admittedRoutes(prepared.routes);
+  for (let index = 0; index < routes.length;) {
+    const route = routes[index];
     const context = source === undefined ? undefined : compileContext(source, { harnessConversation: native }).context;
     const params: Record<string, unknown> = { route };
     if (context !== undefined) params.context = context;
@@ -44,12 +60,21 @@ async function modelTurn(rpc: EffectRpc, request: ModelTurnRequest, native: bool
       throw new Error("Failed model attempt lacks the refreshed budget context");
     }
     source = reply.context_source;
+    // The host permits the same route once more after a transient failure; the next
+    // attempt is a new admitted receipt. Otherwise move on to the next route.
+    const retry = retryOf(reply);
+    if (retry && retry.route === route) {
+      notify?.(retry);
+      await pause(retry.delay_ms);
+      continue;
+    }
+    index += 1;
   }
   throw new Error("Admitted model routes exhausted without an owner stop");
 }
 
 /** The Pi process supplies a transcript or permit, never a route or budget. */
-export function controlledModels(rpc: EffectRpc, project?: ModelInputProjection): EffectRpc {
+export function controlledModels(rpc: EffectRpc, project?: ModelInputProjection, notify?: (notice: RetryNotice) => void): EffectRpc {
   let native: boolean | undefined;
   // Concurrent delegations each hold their own permit and admitted route order.
   type Child = { readonly permit: string; readonly routes: readonly string[];
@@ -68,10 +93,18 @@ export function controlledModels(rpc: EffectRpc, project?: ModelInputProjection)
     const request = validatedSnapshot(params, validateChild, "Child model turn");
     const child = children.get(request.permit);
     if (!child) throw new Error("Child model turn has no live owner permit");
-    for (const route of child.routes) {
+    for (let index = 0; index < child.routes.length;) {
+      const route = child.routes[index];
       if (child.settlement) return stoppedChild(child);
       const reply = await rpc.call("child_model", { permit: child.permit, route });
       if (reply.stop === true || reply.failed !== true) return reply;
+      const retry = retryOf(reply);
+      if (retry && retry.route === route) {
+        notify?.({ ...retry, child: true });
+        await pause(retry.delay_ms);
+        continue;
+      }
+      index += 1;
     }
     throw new Error("Admitted child routes exhausted without an owner stop");
   }
@@ -89,7 +122,7 @@ export function controlledModels(rpc: EffectRpc, project?: ModelInputProjection)
       }
       if (method === "model_turn") {
         if (native === undefined) throw new Error("Model turn precedes the owner handshake");
-        return await modelTurn(rpc, validatedSnapshot(params, validateTurn, "Model turn"), native, project);
+        return await modelTurn(rpc, validatedSnapshot(params, validateTurn, "Model turn"), native, project, notify);
       }
       if (method === "child_model_turn") return await childTurn(params);
       if (method === "child_tool" && typeof params.permit === "string") {

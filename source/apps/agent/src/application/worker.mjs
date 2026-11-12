@@ -26,7 +26,7 @@ export async function runApplicationWorker(directory, ticket, { interactive = fa
     observer = await ApplicationClient.connect(directory);
     actions = createHostActions(control, lease, { observer });
     const contextControl = createContextControl(scratch);
-    const rpc = contextControl.wrap(controlledRsi(controlledModels(lease, contextControl.project), async () => {
+    const rpc = contextControl.wrap(controlledRsi(controlledModels(lease, contextControl.project, notice => actions?.retryNotice(notice)), async () => {
       const state = await control.state();
       return state.trials.at(-1)?.rsi_context;
     }));

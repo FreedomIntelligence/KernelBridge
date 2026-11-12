@@ -47,7 +47,7 @@ class APIProposer:
                  max_tokens: int = 8192, timeout: float = 120,
                  client: httpx.Client | None = None, *, wire_options: WireOptions | None = None,
                  allow_insecure_http: bool = False, max_response_bytes: int = 1048576,
-                 task_instructions: TaskInstructions | None = None) -> None:
+                 task_instructions: TaskInstructions | None = None, max_retries: int = 0) -> None:
         if provider not in {"openai", "anthropic"}:
             raise ValueError("unsupported provider")
         if not model or not api_key:
@@ -63,6 +63,8 @@ class APIProposer:
         # Runtime selection (/model, /effort); None keeps the configured wire options.
         # The host records each change in the Journal and re-applies it on restart.
         self.reasoning: str | None = None
+        # Transient failures the owner may repeat on this route (retry_policy).
+        self.max_retries = max_retries
         self.max_response_bytes = max_response_bytes
         validate_endpoint(base_url, allow_insecure_http)
         if max_response_bytes <= 0:

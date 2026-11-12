@@ -728,6 +728,22 @@ class ApplicationHost:
                 except ModelAdmissionStopped:
                     return {"action": "wait", "reason": "review_admission_stopped"}
                 state = self.status()
+        # A provider outage (every route failed, retries spent) is not progress: an
+        # active Goal would otherwise schedule continuation after continuation, each
+        # failing again. Wait for the user, as Claude Code and Codex end the turn.
+        goal = state["goal"]
+        finished = [item for item in state["inputs"].values()
+                    if item["kind"] != "control" and item["status"] in {"completed", "failed"}]
+        newest = max(finished, key=lambda item: item.get(item["status"] + "_seq", -1), default=None)
+        boundary = max([-1, *(value for value in ((goal or {}).get("start_seq"), (goal or {}).get("resume_seq"))
+                              if isinstance(value, int))])
+        if (goal and goal["status"] == "active" and newest and newest["status"] == "failed"
+                and newest.get("reason") == "providers_failed" and newest.get("failed_seq", -1) > boundary
+                and not state["pending_effect_ids"] and not state["calls"]):
+            self.journal.command("goal_outcome", {"status": "awaiting_user", "reason": "provider_unavailable",
+                "summary": (newest.get("summary") or "The model service failed on every route.")
+                           + " Send new input or use /goal resume."})
+            return {"action": "wait", "reason": "provider_unavailable"}
         decision = recommend(state)
         if decision["action"] == "stop":
             self.journal.command("goal_outcome", {"status": "budget_limit", "reason": decision["reason"]})

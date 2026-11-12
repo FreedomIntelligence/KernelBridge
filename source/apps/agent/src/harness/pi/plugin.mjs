@@ -94,8 +94,11 @@ export function createPluginBridge(rpc,provider,cwd,{maxConcurrent,agents=['kern
         if(value?.requestId===identity.requestId&&value?.ownerRunId===identity.ownerRunId&&value?.nodeId===identity.nodeId) finish(value);
       });
       // The host enforces any configured deadline; this is only a transport backstop.
-      const timer=typeof permission.timeout_ms==='number'
-        ?setTimeout(()=>{api.events.emit(CANCEL,identity);finish(undefined,new Error('Delegation deadline; effect is unknown'));},permission.timeout_ms+5000)
+      // Past the host deadline, its final-summary grace and one provider call (backstop_ms).
+      const backstop=typeof permission.backstop_ms==='number'?permission.backstop_ms
+        :typeof permission.timeout_ms==='number'?permission.timeout_ms+5000:undefined;
+      const timer=backstop!==undefined
+        ?setTimeout(()=>{api.events.emit(CANCEL,identity);finish(undefined,new Error('Delegation deadline; effect is unknown'));},backstop)
         :undefined;
       signal?.addEventListener('abort',abort,{once:true});
       if(signal?.aborted){abort();return;}

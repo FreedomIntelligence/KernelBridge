@@ -44,6 +44,9 @@ def _secret_prefix_suffix(text, secret):
 def request_stream(request, headers, *, provider, max_bytes, client=None, secret=""):
     callback = observer.get()
     text, reasoning, calls, blocks, usage = "", "", {}, {}, {}
+    # Whether any event arrived: after that the TUI has shown output, so a failure
+    # is not repeated automatically (a retry would stream it again).
+    started = False
     reason = None
     ended = False
 
@@ -64,7 +67,8 @@ def request_stream(request, headers, *, provider, max_bytes, client=None, secret
         emit("text_delta", delta, final)
 
     def consume(value):
-        nonlocal text, reasoning, reason, ended
+        nonlocal text, reasoning, reason, ended, started
+        started = True
         if provider == "openai":
             usage.update(value.get("usage") or {})
             choices = value.get("choices", [])
@@ -123,7 +127,7 @@ def request_stream(request, headers, *, provider, max_bytes, client=None, secret
         with session.stream("POST", request.endpoint, headers=headers, content=request.body_json.encode(),
                             timeout=request.timeout, follow_redirects=False) as response:
             if not 200 <= response.status_code < 300:
-                raise _status_failure(response.status_code)
+                raise _status_failure(response.status_code, response.headers.get("retry-after"))
             total, buffer, data = 0, b"", []
             for chunk in response.iter_bytes():
                 total += len(chunk)
@@ -155,7 +159,8 @@ def request_stream(request, headers, *, provider, max_bytes, client=None, secret
         emit_text("", final=True)
     except httpx.HTTPError as error:
         raise ToolFailure("provider streaming transport failure", details={
-            "category": "timeout" if isinstance(error, httpx.TimeoutException) else "transport", "automatic_retry": False}) from None
+            "category": "timeout" if isinstance(error, httpx.TimeoutException) else "transport", "automatic_retry": False,
+            "output_started": started}) from None
     if provider == "openai":
         message = {"content": text, "tool_calls": [calls[k] for k in sorted(calls)]}
         if reasoning:

@@ -19,6 +19,8 @@ from kernelcat_executor.contracts.models import (
     canonical,
     digest,
 )
+from kernelcat_executor.operations.recovery import _successor as retry_successor, model_chain_length
+from kernelcat_executor.operations.retry_policy import failure_summary, retry_delay
 from kernelcat_executor.operations.context import ContextOverflow, project
 from kernelcat_executor.operations.control import SessionControl
 from kernelcat_executor.operations.requests import propose
@@ -73,7 +75,13 @@ class DelegatedEffects:
         self.summary: str | None = None
         self.failure: str | None = None
         self.completion_reason = "answer"
-        self.deadline = time.monotonic() + settings["timeout"] if settings.get("timeout") else None
+        self.started_at = time.monotonic()
+        self.deadline = self.started_at + settings["timeout"] if settings.get("timeout") else None
+        # At the deadline a child gets one final summary call (no tools) within this
+        # grace, like the step/tool/context limits, instead of ending without findings.
+        self.timeout_grace = min(60.0, max(10.0, 0.1 * settings["timeout"])) if settings.get("timeout") else 0.0
+        self.timeout_wrap = False
+        self.last_text = ""
         routes = tuple(self.store.policy().routes)
         preferred = self.agent.get("model")
         self.routes = ((preferred, *[route for route in routes if route != preferred])
@@ -113,9 +121,12 @@ class DelegatedEffects:
         self.stop_event.set()
 
     def cancelled(self) -> bool:
+        # The deadline reaches running commands too: run_command kills the process
+        # group (a known, timed-out outcome) instead of outliving the child.
         return (self.stop_event.is_set()
             or self.action.id in getattr(self.owner, "stopped_children", ())
-            or (self.owner._cancelled() and not self.action.arguments.get("background")))
+            or (self.owner._cancelled() and not self.action.arguments.get("background"))
+            or (self.deadline is not None and time.monotonic() >= self.deadline))
 
     def _check(self) -> Json | None:
         if self.stop_event.is_set():
@@ -127,6 +138,10 @@ class DelegatedEffects:
         if self.action.id in getattr(self.owner, "stopped_children", ()):
             return self._stop("stopped")
         if self.deadline is not None and time.monotonic() >= self.deadline:
+            if not self.timeout_wrap and self.mode != "analysis" and self.timeout_grace:
+                self.timeout_wrap = True
+                self.deadline = time.monotonic() + self.timeout_grace
+                return None
             return self._stop("timeout")
         return None
 
@@ -146,6 +161,7 @@ class DelegatedEffects:
             self.calls, self.outcomes = (), []
             self.step += 1
             self.route_index = 0
+            self.retry_of = {}
         if self.max_steps is not None and self.step >= self.max_steps:
             return self._stop("step_limit")
         policy = self.store.policy()
@@ -155,13 +171,17 @@ class DelegatedEffects:
         model = self.owner.child_proposers.get(route)
         if model is None:
             return self._stop("provider_unconfigured")
-        identity = f"{self.task.id}/step/{self.step}/model/{route}"
+        base = f"{self.task.id}/step/{self.step}/model/{route}"
+        # A permitted retry is the deterministic successor of the failed receipt.
+        retried = getattr(self, "retry_of", {}).pop(route, None)
+        identity = retry_successor(retried) if retried else base
         context = project(self.task, policy, self.store.snapshot(), self.owner.skills,
             goal_progress=model_call_progress(self.store))
         # Keep the last admitted model call for a useful, receipt-bound handoff.
         # Limits are ceilings, not a reason to silently lose already gathered evidence.
         # Without configured limits, the context bound plays the same role.
-        wrap_reason = ("tool_limit" if self.tool_limit is not None and self.tool_count >= self.tool_limit else
+        wrap_reason = ("timeout" if self.timeout_wrap else
+                       "tool_limit" if self.tool_limit is not None and self.tool_count >= self.tool_limit else
                        "step_limit" if self.max_steps is not None and self.step == self.max_steps - 1 else
                        "context_limit" if len(canonical(context).encode()) > policy.context_bytes * 0.8 else None
                        ) if self.mode != "analysis" else None
@@ -194,7 +214,7 @@ class DelegatedEffects:
             return self._stop("context_limit")
         try:
             outcome = propose(self.gateway, model, identity, self.task.id, route,
-                              context, specs, (self.prior,))
+                              context, specs, (self.prior, retried) if retried else (self.prior,))
         except BudgetExceeded:
             return self._stop("budget_exhausted")
         self.receipt = identity
@@ -206,10 +226,20 @@ class DelegatedEffects:
         if stopped:
             return stopped
         if outcome.status != "completed":
+            details = outcome.data.get("failure_details") if isinstance(outcome.data.get("failure_details"), dict) else {}
+            retries = model_chain_length(self.store.snapshot(), base) - 1
+            delay = retry_delay(details, retries, getattr(model, "max_retries", 0))
+            if delay is not None:
+                self.route_index -= 1
+                self.retry_of = {**getattr(self, "retry_of", {}), route: identity}
+                return {"failed": True, "receipt": identity, "retry": {"route": route, "attempt": retries + 1,
+                        "max_retries": model.max_retries, "delay_ms": int(delay * 1000), **failure_summary(details)}}
             if self.route_index == len(self.routes):
                 return self._stop("providers_failed")
             return {"failed": True, "receipt": identity}
         turn = AssistantTurn.model_validate_json(canonical(outcome.data))
+        if turn.text.strip():
+            self.last_text = turn.text
         if len(turn.text.encode()) > 65536:
             return self._stop("output_limit")
         if self.mode == "analysis" and turn.tool_calls:

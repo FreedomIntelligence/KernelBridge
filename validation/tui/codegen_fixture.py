@@ -32,6 +32,8 @@ class CodegenProvider(BaseHTTPRequestHandler):
             time.sleep(1)
         if 'FAIL_ONCE' in text and not any('FAIL_ONCE' in json.dumps(item, ensure_ascii=False) for item in self.requests[:-1]):
             self.send_response(503); self.end_headers(); return
+        if 'FAIL_ALWAYS' in text and json.dumps(self.requests[-1]['messages'][-1], ensure_ascii=False).find('FAIL_ALWAYS') >= 0:
+            self.send_response(503); self.end_headers(); return
         self.send_response(200)
         self.send_header('Content-Type', 'text/event-stream')
         self.end_headers()

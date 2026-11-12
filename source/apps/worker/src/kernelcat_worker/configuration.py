@@ -31,6 +31,9 @@ class ProviderConfig(Contract):
     # User-declared model context capacity, separate from execution budgets.
     context_window: int = Field(ge=4096, le=2097152, default=65536)
     timeout: float = Field(gt=0, default=120.0)
+    # Automatic retries of transient failures (429, 5xx, connection before output),
+    # each its own metered attempt; 0 turns them off. Codex's request_max_retries is 4.
+    max_retries: int = Field(ge=0, le=10, default=4)
 
 
 class EvaluatorConfig(Contract):
