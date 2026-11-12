@@ -15,8 +15,10 @@ def schema(properties: Json, required: list[str]) -> Json:
 
 
 STRING: Json = {"type": "string"}
-PAGE: Json = {"offset": {"type": "integer", "minimum": 0},
-              "limit": {"type": "integer", "minimum": 1, "maximum": 8192}}
+PAGE: Json = {"offset": {"type": "integer", "minimum": 0,
+                        "description": "Zero-based Unicode code-point offset; use returned next_offset to continue."},
+              "limit": {"type": "integer", "minimum": 1, "maximum": 8192,
+                        "description": "Maximum Unicode code points requested. A bounded page may contain fewer; follow next_offset."}}
 
 
 class FunctionTool:
@@ -37,7 +39,7 @@ def builtin_tools(workspace: Workspace, skills: Skills) -> list[FunctionTool]:
     return [
         FunctionTool(ToolSpec(name="load_skill", description="Read a skill/reference; paginate next_offset.",
             parameters=schema({"name": STRING, "resource": STRING, **PAGE}, ["name"]), credits=1), load),
-        FunctionTool(ToolSpec(name="read_file", description="Read source with whole-file SHA and byte-page cursor. Use a project-relative path, never an absolute path. A null next_offset means the entire file was read; do not reread it.",
+        FunctionTool(ToolSpec(name="read_file", description="Read source with whole-file SHA. offset, limit and next_offset count Unicode code points, not bytes or lines. Use a project-relative path, never an absolute path. Follow returned next_offset; null means end of file.",
             parameters=schema({"path": STRING, **PAGE}, ["path"]), credits=1), workspace.read),
         FunctionTool(ToolSpec(name="list_files", description="Discover project files recursively (relative paths). Bounded, excludes caches/symlinks; narrow path/glob pattern if truncated.",
             parameters=schema({"path": STRING, "pattern": STRING,

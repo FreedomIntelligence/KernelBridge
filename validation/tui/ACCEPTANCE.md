@@ -242,8 +242,6 @@ Other evidence:
 
 Not claimed: NPU or device results, Linux qualification, publication of `pi-lattice-trace` (kept in-repo by decision), TRACEPARENT for Pi's native `bash` and user `!` commands, and xterm-based full-screen snapshots (component snapshots are used instead).
 
-## Shared Journal admission stress follow-up
-
 ## Operator guidance and diagnostic feedback baseline (2026-11-12)
 
 On `codex/operator-guidance-tools` after merging `39d9c9f`, the source-frozen
@@ -266,6 +264,33 @@ The original uncapped NPU trial was subsequently paused at the user's request
 for complete session analysis. Newly discovered child-page truncation and
 successful-build diagnostic visibility defects are follow-up work; this baseline
 must not be represented as testing those later fixes.
+
+## Final session-audit repairs and main integration (2026-11-12)
+
+After merging main `0b14f8a` and completing the child-page and successful-build
+diagnostic fixes, `.validation/operator-guidance-tui-final/acceptance.json`
+passed **27/27**, with zero flaky, failed or environmental results, timeout
+scale 1.0. Its `js` check ran the required full `npm test`: **165 passed,
+3 skipped, 0 failed** (168 total). The skips require two optional historical
+artifacts and an actually case-sensitive filesystem; the former had separately
+passed with the original fixtures in the earlier recorded replay.
+
+Final Python discovery passed **400/400**, zero skips, with existing CPU Torch
+dependencies and the explicitly supplied original private replay fixtures.
+Original logs are `.validation/operator-guidance-tests/python-final.log` and
+`tui-final.log`. Four new modules cover child observation paging, original build
+diagnostics, complete build feedback and control-acknowledgement recovery.
+The paging replay passed 16/16 through 41 local HTTP mock requests and 32 visible
+pages; no old candidate implementation was embedded into the test module.
+
+The real compiler-only IR probe and the one original-job alias read are recorded
+separately. Neither is a new candidate execution or performance qualification.
+All earlier failed dependency/fixture runs remain retained. Following delivery,
+these ignored artifacts are archived under
+`.validation/operator-guidance-delivery-20261112/`; recorded original paths are
+historical identities and are not rewritten.
+
+## Shared Journal admission stress follow-up
 
 Four stress scenarios passed in `.validation/propose-admit-stress-summary.json`: 32 independent Gateway/Journal instances issued 320 proposals (192 original HTTP completions and 128 budget rejections); 64 concurrent copies of one ID dispatched once; parent admission survived 32 concurrent child proposals; 32 real child permits retained an unknown-result fence until original-receipt recovery. Every Journal prefix was checked for nonnegative reservations, no overspend and unique admission/start/settlement. All final reservations were zero. The first child fixture omitted its parent dependency and was correctly rejected; that failed fixture log remains retained. No runtime policy was weakened.
 

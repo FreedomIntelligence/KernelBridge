@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 
 from kernelcat_executor.contracts.context import ContextOverflow as ContextOverflow
 from kernelcat_executor.contracts.context import _size
@@ -15,14 +16,56 @@ from kernelcat_executor.contracts.models import (
 )
 from kernelcat_executor.operations.control import input_batches
 from kernelcat_executor.operations.turns import native_proposals, project_turns
+from kernelcat_executor.contracts.text import fit_observation_page
 
 
 def _preview(value: object, limit: int) -> object:
-    raw = canonical(value).encode("utf-8")
-    if len(raw) <= limit:
+    return _bounded_preview(value, limit, lambda item: item)
+
+
+def _bounded_preview(value: object, limit: int,
+                     envelope: Callable[[object], object]) -> object:
+    raw = canonical(value)
+    if _size(envelope(value)) <= limit:
         return value
-    return {"truncated": True, "json_preview": raw[:limit // 2].decode("utf-8", "ignore"),
-            "sha256": digest(value), "full_bytes": len(raw)}
+    result = {"truncated": True, "json_preview": "", "sha256": digest(value),
+              "full_bytes": len(raw.encode("utf-8"))}
+    if _size(envelope(result)) > limit:
+        raise ContextOverflow("observation identity and recovery metadata exceed observation_bytes")
+    # JSON quoting can expand text even after a UTF-8 byte slice. Fit the actual
+    # replacement, including its receipt envelope, rather than a fixed fraction.
+    low, high = 0, len(raw)
+    while low < high:
+        middle = (low + high + 1) // 2
+        if _size(envelope({**result, "json_preview": raw[:middle]})) <= limit:
+            low = middle
+        else:
+            high = middle - 1
+    return {**result, "json_preview": raw[:low]}
+
+
+def _observation(value: object, limit: int,
+                 envelope: Callable[[object], object]) -> object:
+    if _size(envelope(value)) <= limit:
+        return value
+    try:
+        page = fit_observation_page(value, limit, envelope)
+    except ValueError:
+        # Never advertise a source cursor when no source character fits. The
+        # surrounding observation retains the original read_receipt identity.
+        marker = {"truncated": True, "sha256": digest(value), "full_bytes": _size(value),
+                  "reason": "page_metadata_exceeds_observation_budget"}
+        if _size(envelope(marker)) > limit:
+            raise ContextOverflow("page identity and recovery metadata exceed observation_bytes") from None
+        return marker
+    if page is not None:
+        return page
+    return _bounded_preview(value, limit, envelope)
+
+
+def _turn_observation(result: Json, limit: int) -> Json:
+    envelope = lambda data: {**result, "data": data}
+    return envelope(_observation(result["data"], limit, envelope))
 
 
 def source(task: Task, policy: Policy, state: Json, skills: list[Json], *,
@@ -43,18 +86,18 @@ def source(task: Task, policy: Policy, state: Json, skills: list[Json], *,
     native_ids = {item["action"]["id"] for item in actions
                   if any(parent in owners for parent in item["action"].get("parents", ()))}
     turns = project_turns(task.id, state, _preview, policy.observation_bytes,
-                          max_items=policy.history_items)
+                          max_items=policy.history_items, observation=_turn_observation)
     actions = [item for item in actions if item["action"]["id"] not in native_ids]
     selected = actions[-policy.history_items:]
     history = []
     for item in selected:
         action = item["action"]
         outcome = item["outcome"]
+        receipt = {"action_id": action["id"], "sha256": digest(item), "read_tool": "read_receipt"}
+        envelope = lambda data: {"outcome": {**outcome, "data": data}, "receipt": receipt}
         history.append({
             "action": {**action, "arguments": _preview(action["arguments"], policy.observation_bytes)},
-            "outcome": {**outcome, "data": _preview(outcome["data"], policy.observation_bytes)},
-            "receipt": {"action_id": action["id"], "sha256": digest(item),
-                        "read_tool": "read_receipt"},
+            **envelope(_observation(outcome["data"], policy.observation_bytes, envelope)),
         })
     context: Json = {"task": task_view, "skills": skills, "policy": policy.model_dump(mode="json"),
                "budget": {k: state[k] for k in ("limit", "spent", "reserved")}, "history": history,

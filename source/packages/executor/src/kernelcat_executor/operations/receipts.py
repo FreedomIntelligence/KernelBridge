@@ -16,10 +16,15 @@ from kernelcat_executor.contracts.text import text_page
 class ReceiptReader:
     spec = ToolSpec(name="read_receipt", description=(
         "Read one completed receipt from this task, using an action_id and optional page cursor. "
+        "offset, limit and next_offset count Unicode code points, not bytes or lines. "
+        "Follow returned next_offset; null means end of receipt. "
         "Retrieve omitted context from evidence, never guess its contents."), credits=1,
         parameters={"type": "object", "properties": {
-            "action_id": {"type": "string"}, "offset": {"type": "integer", "minimum": 0},
-            "limit": {"type": "integer", "minimum": 1, "maximum": 8192}},
+            "action_id": {"type": "string"},
+            "offset": {"type": "integer", "minimum": 0,
+                       "description": "Zero-based Unicode code-point offset; use returned next_offset to continue."},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 8192,
+                      "description": "Maximum Unicode code points requested. A bounded page may contain fewer; follow next_offset."}},
             "required": ["action_id"], "additionalProperties": False})
 
     def __init__(self, store: Store) -> None:

@@ -101,7 +101,8 @@ def native_proposals(task_id: str, state: Json) -> list[Json]:
 
 def _turn_results(turn: AssistantTurn, calls: tuple[Action, ...], state: Json,
                   preview: Callable[[object, int], object], limit: int, *,
-                  checkpointed: bool) -> list[Json] | None:
+                  checkpointed: bool,
+                  observation: Callable[[Json, int], Json] | None = None) -> list[Json] | None:
     results: list[Json] = []
     missing = False
     for model_call, action in zip(turn.tool_calls, calls, strict=True):
@@ -118,9 +119,11 @@ def _turn_results(turn: AssistantTurn, calls: tuple[Action, ...], state: Json,
         result = Outcome.model_validate_json(canonical(record["outcome"]))
         if result.status == "unknown":
             raise InDoubt(action.id)
-        results.append({"tool_call_id": model_call.id, "tool_name": model_call.name,
+        projected = {"tool_call_id": model_call.id, "tool_name": model_call.name,
             "action_id": action.id, "receipt_sha256": digest(record),
-            "status": result.status, "data": preview(result.data, limit), "read_tool": "read_receipt"})
+            "status": result.status, "data": result.data, "read_tool": "read_receipt"}
+        results.append(observation(projected, limit) if observation is not None else
+                       {**projected, "data": preview(result.data, limit)})
     # A completed model can precede any tool intent after a lost ACK. Its sealed
     # calls resume from the original model receipt; no partial exchange enters a new input.
     return None if missing else results
@@ -129,6 +132,7 @@ def _turn_results(turn: AssistantTurn, calls: tuple[Action, ...], state: Json,
 def project_turns(
     task_id: str, state: Json, preview: Callable[[object, int], object], limit: int,
     *, max_items: int | None = None,
+    observation: Callable[[Json, int], Json] | None = None,
 ) -> list[Json]:
     """Project complete native turns only, retaining source-order tool results.
 
@@ -153,7 +157,8 @@ def project_turns(
             raise InDoubt(proposal["id"])
         turn = AssistantTurn.model_validate_json(canonical(data))
         calls = planned_actions(turn, task_id, proposal["id"], state)
-        results = _turn_results(turn, calls, state, preview, limit, checkpointed=proposal["id"] in steps)
+        results = _turn_results(turn, calls, state, preview, limit,
+                               checkpointed=proposal["id"] in steps, observation=observation)
         if results is None:
             continue
         group: Json = {"proposal_id": proposal["id"], "assistant": turn.model_dump(mode="json"),

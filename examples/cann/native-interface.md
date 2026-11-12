@@ -133,6 +133,32 @@ tiling access conventions. The compiler does not serialize or repair
 user tiling data. Filename/layout ambiguity and actual compiler errors remain
 errors, rather than reasons to guess a different declaration.
 
+For the audited CANN 9.2 registration interface, both `BEGIN_TILING_DATA_DEF`
+and `REGISTER_TILING_DATA_CLASS` expand names from `optiling`; keep the class
+definition and registration in that namespace. Declared fields have generated
+`set_<field>` / `get_<field>` accessors, not public plain-struct members. A
+registered host serialization class and a raw device byte layout are different
+interfaces; do not interchange them merely because their field names agree.
+Consult the provisioned SDK's declaration and serialization contract before
+choosing either interface.
+
+In this SDK, `gert::TilingContext::GetTilingData<T>()` can return null when raw
+storage is absent or its capacity is smaller than `sizeof(T)`. On success it
+already sets the data size. A null pointer therefore does not by itself prove
+which condition failed, and adding another size call does not establish a fix.
+Inspect the original build diagnostics and host callback result before changing
+device computation. Successful compiler exit and an SDK error diagnostic can
+coexist; neither an empty generated header nor an error-looking line alone is
+a new correctness verdict.
+
+These API observations come from the actual provisioned CANN 9.2 headers:
+`register/tilingdata_base.h` (SHA256
+`6cf04b93bde7081d918b45ccb1a6f4764f3a5f88987bb99fe02bc6e42191d34d`) and
+`exe_graph/runtime/tiling_context.h` (SHA256
+`25bc84de373531cc66e10da7c673b3076c391add4fef6571afcd97219e5746d2`).
+Other SDK versions require checking their own declarations. These notes supply
+API boundaries, not a candidate, algorithm, launch configuration or tiling fields.
+
 The kernel entry has C linkage and the Ascend C qualifiers. Its address argument
 order follows the generated tensor descriptors, followed by workspace and tiling
 addresses. The following is only signature notation, not compilable candidate
@@ -218,12 +244,12 @@ if one of these interfaces changes.
 | Source | SHA256 |
 | --- | --- |
 | `source/packages/executor/pyproject.toml` | `e170fa4cb2cac1e9f586d8e61cebf20c6b77cc7a23a62ced6891e4a7d53d5744` |
-| `source/packages/executor/src/kernelcat_executor/backends/ascend/compiler.py` | `38780e1ce497cb1cc80012dc1695582451d3ab97c7b221a960f5138faf7f5e65` |
+| `source/packages/executor/src/kernelcat_executor/backends/ascend/compiler.py` | `47c0193c17f9fbdeca72429f613acb38cdc8a1a3b1c1890db501546e4c28df51` |
 | `source/packages/executor/src/kernelcat_executor/build/inputs.py` | `8900bae54a0cc4ec86930c05a2dec649771e8aced363ef932a106b42b2a16b8b` |
 | `source/packages/executor/src/kernelcat_executor/backends/ascend/runtime.py` | `1455242ec7d7dcb0d489dbbce292d5b0a1c7fbcb057b57754e9b77587982fbfb` |
 | `source/packages/executor/src/kernelcat_executor/evaluation/protocols/six_source/audit.py` | `15f1a1d79029a57ec577a5a605ceb230b254e7f9b3eafdceb78a41f34484babc` |
 | `source/packages/executor/src/kernelcat_executor/backends/ascend/templates/CppExtension/setup.py` | `318695abf92971c6adfe8aa64941afc4e1899a855df5e5328408452607f87355` |
 | `source/packages/executor/src/kernelcat_executor/backends/ascend/templates/CppExtension/csrc/pytorch_npu_helper.hpp` | `b092bd7c36b6aa38f4abc817d7fe939fa98c45ba71b51dcfb26989830b468968` |
 | `examples/scatter/npu_candidate_audit.py` | `d2820c66ca61bac88bbb83d87e8961bc8dc0b69262744df33419da33a8c63ed1` |
-| `examples/scatter/npu_benchmark.py` | `930a74528b697d07f0239afb935405a5b5429ca35d20becbf0404faa0b103365` |
-| `examples/scatter/npu_matmul_benchmark.py` | `63d4725a74f64efbefe642846049500c3724ac4b371b8875303c589959a80552` |
+| `examples/scatter/npu_benchmark.py` | `c45ec3cef445d4970770e75babac29e1f27c405cf9c2c39c46ab4d3df5d40403` |
+| `examples/scatter/npu_matmul_benchmark.py` | `3b11107e9290aa4f2323bae1c63d23329a8367a33357bf91cd743af27abbc26b` |

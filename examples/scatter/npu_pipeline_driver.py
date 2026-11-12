@@ -110,7 +110,7 @@ def verify_log_binding(record, evidence):
         raise ValueError('Original run log binding changed')
 
 
-def terminal_feedback(folder, request, result, evidence):
+def terminal_feedback(folder, request, result, evidence, config=None):
     """Project already verified terminal evidence; never execute or repair work."""
     if result.get('status') not in {'completed', 'failed'}:
         raise ValueError('Original evaluation has no terminal result; collect its existing handle')
@@ -135,6 +135,7 @@ def terminal_feedback(folder, request, result, evidence):
     # CPU-fallback qualification may differ from the raw original. Retain both.
     retain('qualified-result.json', (json.dumps(result, indent=2, allow_nan=False) + '\n').encode())
     texts = []
+    build_texts = []
     log = {'status': 'unavailable', 'complete': False,
            'reason': 'Legacy observation has no retained full log; no remote job was contacted'}
     log_receipt = folder / 'run-log.json'
@@ -176,16 +177,92 @@ def terminal_feedback(folder, request, result, evidence):
         # Old receipts remain readable offline. A tail is explicitly incomplete.
         retain('legacy-log-tail.txt', observation['log_tail'].encode())
         log['legacy_tail'] = artifacts['legacy-log-tail.txt']
+    build_feedback = {'status': 'unavailable', 'reason': 'Original result has no retained build diagnostics'}
+    build = result.get('build_diagnostics')
+    if isinstance(build, dict):
+        if build.get('candidate_sha256') != evidence['native_candidate_sha256']:
+            raise ValueError('Original build diagnostic candidate changed')
+        paths = build.get('artifacts') or {}
+        if not isinstance(paths, dict): raise ValueError('Original build diagnostic artifacts are invalid')
+        if paths:
+            if (not isinstance(build.get('source_digest'), str)
+                    or not re.fullmatch('[a-f0-9]{64}', build['source_digest'])
+                    or build.get('target') != result.get('soc')
+                    or (result.get('build_source_digest') is not None
+                        and build['source_digest'] != result['build_source_digest'])):
+                raise ValueError('Original build diagnostic source or target changed')
+        build_feedback = {key: build[key] for key in (
+            'schema_version', 'status', 'reason', 'issues', 'candidate_sha256', 'source_digest', 'target') if key in build}
+        copied = {}; unavailable = []; remaining = 4 * MAX_ARTIFACT; build_entries = {}
+        for index, (relative, expected) in enumerate(sorted(paths.items())[:64]):
+            path = Path(relative)
+            if (path.is_absolute() or '..' in path.parts or not path.parts or path.parts[0] != 'build'
+                    or not path.name.startswith('.kernelbridge-build-') or path.suffix not in {'.json', '.log'}):
+                raise ValueError('Original build diagnostic path is outside the bound build logs')
+            name = f'build-{index:03d}' + path.suffix
+            if config is None:
+                unavailable.append({'path': relative, 'reason': 'No original read-only transport supplied'})
+                continue
+            try:
+                collected = download_artifact(transport(config), evidence, relative, expected, output / name, remaining)
+            except (OSError, RuntimeError) as error:
+                unavailable.append({'path': relative, 'reason': str(error)[:2048]})
+                continue
+            if collected['status'] != 'completed':
+                unavailable.append(collected); continue
+            remaining -= collected['bytes']
+            data = (output / name).read_bytes(); retain(name, data)
+            copied[relative] = artifacts[name]
+            if path.suffix == '.log':
+                entry = (name, data.decode('utf-8', errors='replace'))
+                build_entries[relative] = entry
+        incomplete = bool(unavailable) or len(paths) > 64
+        build_feedback.update(artifacts=copied, unavailable_artifacts=unavailable,
+                              collection_complete=not incomplete, artifact_index_truncated=len(paths) > 64)
+        build_feedback['steps'] = []
+        def step_order(pair):
+            index, step = pair
+            stamp = step.get('started_at_ns')
+            exact = type(stamp) is int or isinstance(stamp, str) and re.fullmatch(r'[0-9]+', stamp)
+            return (int(stamp) if exact else index, index)
+
+        for _, step in sorted(enumerate(build.get('steps', [])), key=step_order):
+            projected = dict(step)
+            for key in ('started_at_ns', 'ended_at_ns'):
+                stamp = step.get(key)
+                if stamp is not None:
+                    if (isinstance(stamp, bool) or not isinstance(stamp, (str, int))
+                            or not re.fullmatch(r'[0-9]+', str(stamp))):
+                        raise ValueError('Original build diagnostic timestamp is not exact')
+                    projected[key] = str(int(stamp))
+            for key in ('log', 'metadata'):
+                item = step.get(key)
+                if isinstance(item, dict):
+                    projected[key] = {**item, 'artifact': copied.get(item.get('path'))}
+                    if key == 'log' and item.get('path') in build_entries:
+                        build_texts.append(build_entries.pop(item['path']))
+            build_feedback['steps'].append(projected)
+        build_texts.extend(build_entries.values())
+        texts.extend(build_texts)
+        if incomplete:
+            build_feedback['status'] = 'partial' if copied else 'unavailable'
     for field in ('message', 'traceback'):
         text = result.get(field)
         if not isinstance(text, str) or not text: continue
         retain(field + '.txt', text.encode())
         texts.append((field + '.txt', text))
 
-    def first_matching_line(pattern, flags=0):
-        for field, text in texts:
+    def first_matching_line(pattern, flags=0, entries=None):
+        for field, text in texts if entries is None else entries:
             lines = text.splitlines()
             for number, line in enumerate(lines, 1):
+                if line.lstrip().startswith('{'):
+                    try:
+                        value = json.loads(line)
+                        if isinstance(value, dict) and 'status' in value and 'source_sha256' in value:
+                            continue  # Final result JSON is not an independent log diagnostic.
+                    except ValueError:
+                        pass
                 if re.search(pattern, line, flags):
                     context = []
                     if number > 1 and re.search(r':\d+(?::\d+)?:\s*$', lines[number - 2]):
@@ -203,8 +280,12 @@ def terminal_feedback(folder, request, result, evidence):
     first = first_matching_line(r'\b(?:fatal )?error\s*:(?!:)|static assertion failed', re.IGNORECASE)
     if first is None:
         first = first_matching_line(r'CMake Error')
+    sdk_pattern = r'^\s*\[(?:E\d{4}\b|ERROR\b|FATAL\b)|\b(?:Execution_Error|Internal_Error|Runtime_Error)\([A-Z0-9]+\)'
+    sdk_error = first_matching_line(sdk_pattern, re.IGNORECASE, [*build_texts, *texts])
+    runtime_texts = [entry for entry in texts if entry not in build_texts]
     runtime_error = None if first else first_matching_line(
-        r'^\s*(?:[\w.]+\.)?\w+(?:Error|Exception)\s*:(?!:)|\[(?:ERROR|FATAL)\]|\bERR\d{5}\b')
+        r'^\s*(?:[\w.]+\.)?\w+(?:Error|Exception)\s*:(?!:)|\[(?:ERROR|FATAL)\]|\bERR\d{5}\b|' + sdk_pattern,
+        re.IGNORECASE, runtime_texts)
     diagnostics = result.get('diagnostics') or {}
     reports = []
     for kind in ('ir', 'profiler'):
@@ -217,9 +298,10 @@ def terminal_feedback(folder, request, result, evidence):
     return {'status': result['status'], 'correct': result.get('correct'),
         'case_count': len(result.get('cases') or []), 'geomean_speedup': result.get('geomean_speedup'),
         'error_type': str(result.get('error') or '')[:256], 'first_compiler_diagnostic': first,
-        'first_runtime_error': runtime_error, 'run_log': log,
+        'first_runtime_error': runtime_error, 'first_sdk_diagnostic': sdk_error,
+        'run_log': log, 'build_diagnostics': build_feedback,
         'build_completed': result.get('build_completed'), 'failure_stage': result.get('failure_stage'),
-        'error_excerpt': None if first else (runtime_error['text'] if runtime_error else str(result.get('message') or '')[:2048]),
+        'error_excerpt': None if first else (sdk_error['text'] if sdk_error else runtime_error['text'] if runtime_error else str(result.get('message') or '')[:2048]),
         'diagnostics': {'required': diagnostics.get('required'), 'satisfied': diagnostics.get('satisfied'), 'reports': reports},
         'artifacts': artifacts, 'native_candidate_sha256': evidence['native_candidate_sha256'],
         'remote_result_sha256': evidence['remote_result_sha256'],
@@ -228,8 +310,10 @@ def terminal_feedback(folder, request, result, evidence):
 
 READ_ARTIFACT = r'''import base64,hashlib,json,os,stat,sys
 from pathlib import Path
-r=json.load(sys.stdin); root=Path(sys.argv[1]); relative=Path(sys.argv[2]); path=root/relative
-if (not root.is_absolute() or root.resolve()!=root or relative.is_absolute() or '..' in relative.parts
+r=json.load(sys.stdin); declared_root=Path(sys.argv[1]); relative=Path(sys.argv[2])
+if not declared_root.is_absolute() or '..' in declared_root.parts:raise ValueError('Original job root is invalid')
+root=declared_root.resolve(strict=True); path=root/relative
+if (relative.is_absolute() or '..' in relative.parts
     or path.resolve()!=path or not path.is_relative_to(root) or not path.is_file()):raise ValueError('Original artifact is missing, linked or outside bounded job')
 folder=root.parent
 def original_file(name):
@@ -243,7 +327,8 @@ def wire(handle):
   value['started_ns']=str(stamp)
  return value
 handle=json.loads(original_file('launch.json').read_text())
-if wire(handle)!=wire(r['handle']) or handle.get('attempt')!=str(folder):raise ValueError('Original diagnostic handle changed')
+if (wire(handle)!=wire(r['handle']) or handle.get('attempt')!=str(declared_root.parent)
+    or Path(handle['attempt']).resolve(strict=True)!=folder):raise ValueError('Original diagnostic handle changed')
 intent=json.loads(original_file('intent.json').read_text())
 if intent.get('attempt',intent.get('round'))!=r['attempt'] or intent.get('source_sha256')!=r['source_sha256']:raise ValueError('Original diagnostic intent changed')
 if hashlib.sha256(original_file('candidate.py').read_bytes()).hexdigest()!=r['source_sha256']:raise ValueError('Original diagnostic candidate changed')
@@ -407,7 +492,7 @@ def execute(config, operation, request):
             recover_run_log(folder, transport(config))
     if operation in ('launch', 'collect'):
         return {'status': 'completed', 'phase': 'complete', 'handle': summary['original_handle'], 'job_status': result['status'],
-                'evaluation': terminal_feedback(folder, request, result, evidence),
+                'evaluation': terminal_feedback(folder, request, result, evidence, config),
                 'execution': 'E executed the complete native job once; F/G/J only project this original receipt', **evidence,
                 'read_only_projection': operation == 'collect'}
     cases = result.get('cases', [])

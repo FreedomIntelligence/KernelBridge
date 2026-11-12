@@ -752,3 +752,51 @@ remain in `.validation/operator-guidance-tests`. Final full and PTY results will
 be recorded after source freeze. New model trials must start without candidates
 or inherited sessions. This bundle repairs several independently evidenced
 defects; a subsequent speedup cannot be attributed to one change alone.
+
+### Complete uncapped-session replay and repair before landing
+
+The user requested stopping the original trial and auditing the complete
+session before further model testing. The original host recorded `paused`
+after 91 calls: 72 parent and 19 child, six native jobs, zero completed candidate
+cases and no E1/E3/H. The control acknowledgement timed out after 30 seconds,
+but the single original pause committed after 3.516 seconds; its following
+prepare-turn returned paused without a new model admission. No repeated control
+or replacement job was issued. The old trial remains paused.
+
+The replay covers every provider request and response, all associated tool
+outcomes, 13 exact candidate versions, and six original device receipts. Its
+full report and frozen original Journal are retained in
+`.validation/session-audit-20261112/trajectory-full.md` and
+`original-journal-at-pause.jsonl.gz`. Important distinctions:
+
+| Observed issue | Evidence and repair |
+| --- | --- |
+| Child pages skipped unseen text | Both children received only about 3.8 KiB of an 8 KiB ABI page, while the next cursor remained 8192. Their gap covered 4364 bytes of interface guidance. Projection now fits the complete observation envelope and advances only past visible content; code-point, UTF-8 byte and base64 cursors remain distinct. Original receipts are unchanged. |
+| Successful build concealed an SDK error | Jobs 2–4 compiled with exit code zero while independent build logs reported unregistered tiling data. Those logs were absent from every model request. Build-step receipts now retain source identity, actual return codes and readable logs, including successful steps. Diagnostic text does not override the true exit code or correctness result. |
+| Runtime root cause was lost | The original first lines reported GetWorkspaceSize / host tiling failure; the old 12 KB tail contained later calibration JSON. Full log recovery and SDK severity recognition expose the original line and exact read path. These jobs had not entered candidate device execution. |
+| IR collection used an unsupported mode | The original CCE recipe rejected the old appended `-S -emit-llvm`. The mode-preserving collector was independently qualified with the real compiler. That fixture does not retroactively qualify the old failed diagnostics. |
+| Original job root has a legitimate alias | The declared remote work root resolves to a different canonical prefix. Artifact reads now resolve that bound root while still checking original handle, candidate, result and file hashes, and rejecting internal symlinks or escaped artifact paths. |
+| Pause reply was expensive | The same retained Journal required five old status transactions, versus one in the already merged main implementation. Offline warm status was about 4.8 seconds versus 0.14–0.16 seconds; no runtime timeout was weakened. |
+
+General failure status was present in the next parent request after every
+evaluation; this is not evidence that the SDK root cause was delivered. Exact
+search of all 91 requests found neither the registration diagnostic nor the
+host tiling error. The replay also found unsupported model claims about output
+coverage, kernel naming and exhausted budgets. These remain model decisions,
+not measured kernel behavior or reasons to invent a failure attribution ratio.
+
+Generic CANN API notes now identify namespace, generated accessor and typed
+tiling-storage boundaries from the actual provisioned SDK headers. They contain
+no operator algorithm or candidate. New trials and deployment snapshots prepared
+before this audit are explicitly not launch-ready. The user's latest priority
+is to validate and push the repaired harness to main before further performance
+experiments; no eager speedup is claimed by this delivery.
+
+Final local qualification after merging `0b14f8a`: Python 400/400 passed with
+the CPU dependencies and original replay fixtures; the full TUI suite passed
+27/27 without flaky or environmental outcomes. Its full JavaScript run passed
+165 with three explicit condition skips, zero failures. The original NPU trial
+remains paused; this landing does not establish candidate correctness, ABBA
+acceleration or promotion. The audit and validation artifacts are archived at
+`.validation/operator-guidance-delivery-20261112/` after delivery, with their
+original contents and historical path identities retained.

@@ -177,6 +177,7 @@ def run(args):
     save_json(job / 'status.json', result)
     policy = {'on_failure': True, 'on_regression': True, 'required': bool(args.profile), 'scope': 'npu_diagnostic'}
     runtime = None
+    compiler = None
     profiler_error = None
     phase = 'setup'
     def set_phase(value):
@@ -270,6 +271,17 @@ def run(args):
                 if result['status'] == 'completed':
                     result.update(status='failed', correct=False, phase='cleanup', failure_stage='cleanup')
                 result['cleanup_error'] = str(error)
+    try:
+        if compiler is None:
+            import kernelcat_executor.backends.ascend.compiler as compiler
+        build_diagnostics = compiler.collect_build_diagnostics(job / 'build')
+    except Exception as error:
+        # A diagnostics failure must not replace the original compile/runtime result.
+        build_diagnostics = {'schema_version': 'kernelbridge.native-build-diagnostics/v1',
+                             'status': 'unavailable', 'source_digest': result.get('build_source_digest'),
+                             'target': result.get('build_target'), 'steps': [], 'artifacts': {},
+                             'reason': 'Build diagnostic collection failed: ' + str(error)}
+    result['build_diagnostics'] = {**build_diagnostics, 'candidate_sha256': source_sha}
     triggered = diagnostic_reason(policy, failed=result['status'] != 'completed',
                                   regression=any(row['speedup'] <= 1 for row in result['cases']))
     ir_error = None

@@ -95,6 +95,7 @@ def run(args):
     profiler_error = None
     noise = None
     runtime = None
+    compiler = None
     phase = 'setup'
     (job / 'status.json').write_text(json.dumps(result))
     try:
@@ -191,6 +192,17 @@ def run(args):
                 if result['status'] == 'completed':
                     result.update(status='failed', correct=False, phase='cleanup', failure_stage='cleanup')
                 result['cleanup_error'] = str(error)
+    try:
+        if compiler is None:
+            import kernelcat_executor.backends.ascend.compiler as compiler
+        build_diagnostics = compiler.collect_build_diagnostics(job / 'build')
+    except Exception as error:
+        # A diagnostics failure must not replace the original compile/runtime result.
+        build_diagnostics = {'schema_version': 'kernelbridge.native-build-diagnostics/v1',
+                             'status': 'unavailable', 'source_digest': result.get('build_source_digest'),
+                             'target': result.get('build_target'), 'steps': [], 'artifacts': {},
+                             'reason': 'Build diagnostic collection failed: ' + str(error)}
+    result['build_diagnostics'] = {**build_diagnostics, 'candidate_sha256': source_sha}
     if noise is not None and (job / 'noise.json').is_file():
         result['noise_calibration'] = noise
         result['noise_calibration_sha256'] = digest(job / 'noise.json')
