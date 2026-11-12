@@ -12,6 +12,10 @@ interface ActionRecord { id: string; tool: string; task: string; args: Json; par
 
 function resultText(outcome: Json): string {
   const data = outcome?.data;
+  if (outcome?.status === 'completed' && Array.isArray(data?.plan)) {
+    const mark: Record<string, string> = { completed: '✔', in_progress: '■', pending: '□' };
+    return [...(data.explanation ? [data.explanation, ''] : []), ...data.plan.map((item: Json) => `${mark[item.status] ?? '□'} ${item.step}`)].join('\n');
+  }
   if (outcome?.status === 'failed') return text(data?.error ?? data?.message ?? data ?? 'failed');
   if (data && typeof data === 'object' && data.result && typeof data.result === 'object') {
     const content = contentText(data.result.content);

@@ -70,10 +70,10 @@ export function createHostActions(control, effects, { observer = control } = {})
   };
   const syncTools = () => {
     if (governed && state.workspace_mode === 'project') {
-      const tools = governed.session.getActiveToolNames().filter(name => !['finish_goal', 'update_goal'].includes(name));
+      const tools = governed.session.getActiveToolNames().filter(name => !['finish_goal', 'update_goal', 'update_plan'].includes(name));
       // Pi captures its tool schema before beforeModel persists the new user
       // entry. That entry reactivates an awaiting Goal in the host journal.
-      if (['active', 'awaiting_user'].includes(state.goal?.status)) tools.push('finish_goal', 'update_goal');
+      if (['active', 'awaiting_user'].includes(state.goal?.status)) tools.push('finish_goal', 'update_goal', 'update_plan');
       governed.session.setActiveToolsByName(tools);
     }
   };

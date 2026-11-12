@@ -35,7 +35,7 @@ function providerDefinition(stream, modelInfo) {
 
 function directTools(hello, controller) {
   return hello.tools.filter(tool => hello.native_harness?.workspace?.mode === 'project'
-    ? ['read_receipt', 'finish_goal', 'get_goal', 'update_goal', 'delegate', 'agents_status', 'stop_agent', ...(hello.project_tools ?? [])].includes(tool.name)
+    ? ['read_receipt', 'finish_goal', 'get_goal', 'update_goal', 'update_plan', 'delegate', 'agents_status', 'stop_agent', ...(hello.project_tools ?? [])].includes(tool.name)
     : !['read_file', 'write_file', 'edit_file', RSI_TOOL, REPLAY_TOOL].includes(tool.name)).map(tool => ({
     name: tool.name, label: tool.name, description: tool.description, parameters: tool.parameters,
     exposure: 'model-only',

@@ -17,6 +17,14 @@ export const queuedInputs = state => Object.values(state?.inputs ?? {}).filter(i
  * With `columns`, details are dropped from the right so the row stays on one line;
  * the row itself adds a spinner and one column of padding on each side.
  */
+/** Footer line for the active Goal's plan: progress and the step in progress. */
+export function planFooter(plan) {
+  const steps = plan?.plan ?? [];
+  const done = steps.filter(item => item.status === 'completed').length;
+  const active = steps.find(item => item.status === 'in_progress');
+  return `计划 ${done}/${steps.length}` + (active ? ` · 正在：${active.step}` : done === steps.length ? ' · 已全部完成' : '');
+}
+
 export function workingMessage(state, startedAt, activity = '执行中', columns) {
   const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
   const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, '0')}s`;
@@ -195,6 +203,7 @@ export function installProductUI(context, getState, { demo = false } = {}) {
       return [
         fitRight(left, rights, width),
         ...(children ? [truncateToWidth(color('accent', `子代理 ${children} 个运行中 · /agents 查看`), width, '…')] : []),
+        ...(goal && state.plan?.plan?.length ? [truncateToWidth(color('muted', planFooter(state.plan)), width, '…')] : []),
         ...(budget.limit == null ? [] : [truncateToWidth(color('muted', [`预算 ${budget.spent ?? 0}/${budget.limit}`,
           ...(budget.reserved ? [`预留 ${budget.reserved}`] : []),
           ...(state.pending_effect_ids?.length ? [`待处理 ${state.pending_effect_ids.length}`] : [])].join(' · ')), width, '…')]),

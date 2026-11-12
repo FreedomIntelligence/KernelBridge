@@ -16,6 +16,9 @@ objective. Missing or omitted evidence is not success. blocked requires a
 specific external dependency or missing user input, not ordinary unfinished
 work. Explain what is verified or the next missing check. Never equate CPU,
 simulation or source-only evidence with device acceptance or official scores.
+A plan, when present, is the working agent's own checklist and is not evidence.
+Steps it left pending or in progress, or dropped without explanation, point to
+unfinished work: name them in the summary.
 """
 
 
@@ -48,7 +51,9 @@ def review(host, connection, state, latest):
             evidence.append(row); used += size
         harness = {"schema_version": "kernelcat.pi-harness/v1", "adapter": "pi@1.5.0",
             "system_prompt": SYSTEM, "tools": [], "messages": [{"role": "user", "content": canonical({
-                "objective": goal["objective"], "evidence": list(reversed(evidence)), "omitted_records": omitted})}]}
+                "objective": goal["objective"],
+                "plan": ({"steps": state["plan"]["plan"], "explanation": state["plan"].get("explanation")} if state.get("plan") else None),
+                "evidence": list(reversed(evidence)), "omitted_records": omitted})}]}
         route = policy.routes[0]
         result = propose(owner.gateway, owner.proposers[route], identity, host.task.id,
             route, {"policy": policy.model_dump(mode="json")}, (), (), harness=harness)

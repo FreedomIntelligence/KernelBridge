@@ -41,6 +41,7 @@ export function toolTitle(tool: string, args: Json): string {
   if (tool === 'grep') return '搜索 ' + firstLine(text(a.pattern ?? ''), 40);
   if (tool === 'find' || tool === 'ls') return '浏览 ' + (a.path ?? a.pattern ?? '.');
   if (tool === 'delegate') return '委派 ' + (a.agent ?? '子代理');
+  if (tool === 'update_plan' && Array.isArray(a.plan)) return `更新计划 ${a.plan.filter((item: Json) => item?.status === 'completed').length}/${a.plan.length}`;
   return tool;
 }
 

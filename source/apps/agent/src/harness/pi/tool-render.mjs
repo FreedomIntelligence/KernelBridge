@@ -399,9 +399,42 @@ export function renderReceiptResult(result, options, theme, context = {}) {
   }, context.outputPad);
 }
 
+const PLAN_MARK = { completed: '✔', in_progress: '■', pending: '□' };
+const planCount = plan => `${(plan ?? []).filter(item => item.status === 'completed').length}/${(plan ?? []).length}`;
+
+/** Codex-style plan cell: completed steps struck through, the active step highlighted, pending ones dim. */
+export function planRows(plan, explanation, theme) {
+  const style = (name, text) => typeof theme[name] === 'function' ? theme[name](text) : text;
+  const rows = explanation ? [theme.fg('muted', style('italic', explanation))] : [];
+  for (const item of plan ?? []) {
+    if (item.status === 'completed') rows.push(`${theme.fg('success', PLAN_MARK.completed)} ${theme.fg('dim', style('strikethrough', item.step))}`);
+    else if (item.status === 'in_progress') rows.push(theme.fg('accent', `${PLAN_MARK.in_progress} ${style('bold', item.step)}`));
+    else rows.push(theme.fg('dim', `${PLAN_MARK.pending} ${item.step}`));
+  }
+  return rows;
+}
+
+function planCall(args, theme, context) {
+  return new Rows(width => headerRows(theme, context, '更新计划', `${planCount(args?.plan)} 完成`, width), context.outputPad);
+}
+
+function planResult(result, _options, theme, context = {}) {
+  const outcome = result.details?.outcome;
+  return new Rows(width => {
+    const data = outcome?.data ?? {};
+    if (result.isError || (outcome && outcome.status !== 'completed')) {
+      // Host refusals carry their reason in the receipt; show it, not the receipt JSON.
+      const reason = data.error ?? data.reason;
+      return hanging(reason ? [theme.fg('error', `失败：${oneLine(reason).slice(0, 200)}`)] : failure(result, context, theme), width, theme);
+    }
+    return hanging(planRows(data.plan ?? context.args?.plan, data.explanation, theme), width, theme);
+  }, context.outputPad);
+}
+
 /** Renderers for Host-sealed direct tools; delegate gets live child progress. */
 export function directRenderers(name) {
   const boundary = render => (args, theme, context) => { joinGroup(context.toolCallId, name); return render(args, theme, context); };
   if (name === 'delegate') return { renderShell: 'self', renderCall: boundary(delegateCall), renderResult: delegateResult };
+  if (name === 'update_plan') return { renderShell: 'self', renderCall: boundary(planCall), renderResult: planResult };
   return { renderShell: 'self', renderCall: boundary(receiptCall(name)), renderResult: renderReceiptResult };
 }
