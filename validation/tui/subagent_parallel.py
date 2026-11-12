@@ -183,10 +183,10 @@ def main():
             state = client.call('status')
             return (state['subagents'][-1]['status'] == 'running'
                     and any(row['text'] == 'BACKGROUND_START' and row['status'] == 'completed' for row in state['inputs'].values())
-                    and 'BACKGROUND_STARTED' in ui.text() and '后台任务运行中' in ui.text())
+                    and 'BACKGROUND_STARTED' in ui.text() and '子代理 1 个运行中' in ui.text())
         ui.until(background_ready, timeout=180)
         (output / 'background-running-screen.txt').write_text(ui.text())
-        assert '等待 1 个子代理完成' in ui.text()
+        assert '子代理 1 个运行中 · /agents 查看' in ui.text()
         ui.send('WHILE_CHILD_RUNNING')
         def foreground_finished():
             state = client.call('status')
@@ -199,6 +199,8 @@ def main():
         settle(1)
         screen = ui.text(); (output / 'background-done-screen.txt').write_text(screen)
         assert '⏺ kernel-scout「后台扫描」已完成' in screen, screen
+        notice = next(line.strip() for line in screen.splitlines() if 'kernel-scout「后台扫描」已完成' in line)
+        assert notice.startswith('⏺ '), notice  # A managed result must not acquire the user input gutter.
         state = client.call('status')
         background = state['subagents'][-1]
         assert background['background'] and background['status'] == 'completed' and 'CHILD_BG' in background['summary']

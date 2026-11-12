@@ -137,6 +137,10 @@ def main():
         until(lambda: '从历史位置提交中文输入' in text() and '回到最新消息' not in text())
         save('submitted-screen')
 
+        # D12 keeps the detach policy at a wide width; a long branch can take
+        # priority over that optional label once the terminal narrows.
+        until(lambda: '退出暂停' in text())
+        branch = subprocess.check_output(['git', 'branch', '--show-current'], cwd=state()['cwd'], text=True).strip()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 48, 0, 0))
         screen.resize(24, 48)
         os.killpg(child.pid, signal.SIGWINCH)
@@ -151,7 +155,9 @@ def main():
         save('narrow-goal-screen')
         send('/help')
         until(lambda: all(part in text() for part in ['/goal pause | resume | clear', '/quit', '可用命令', '/agents', '/trace']))
-        assert '退出暂停' in text()
+        footer = next(line.rstrip() for line in reversed(screen.display) if line.strip())
+        assert footer.endswith('/help'), footer
+        if branch: assert f'({branch})' in footer, footer
         # Zero counters are not shown; every rendered row fits the 48-column terminal.
         assert '待处理 0' not in text() and '预留 0' not in text()
         assert all(len(line) <= 48 for line in screen.display), screen.display

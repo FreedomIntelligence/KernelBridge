@@ -4356,8 +4356,8 @@
       "sha256": "66cab8020e355589692e846e06f20a0c9d257b44b2538f341d512ab955ccbb15"
     },
     "validation/tui/interaction_scenario.py": {
-      "bytes": 9393,
-      "sha256": "a6cd8c2c07d8faecb6e7f4eeddfa61eeded2b480e161f0290cc8cb41fff3f55e"
+      "bytes": 9863,
+      "sha256": "9cf6906c404c0c414ac6bad7ccdf03f859ab9a4bd01707fd434e1e529e7fc1f7"
     },
     "validation/tui/lifecycle-scenario.mjs": {
       "bytes": 4368,
@@ -4480,8 +4480,8 @@
       "sha256": "7ebe6380b6a71aaec60482f9570da6614193d9db09d55665adb532d9c1f5e8ad"
     },
     "validation/tui/subagent_parallel.py": {
-      "bytes": 15084,
-      "sha256": "a4d6c5e72a64982334dcfa72469d0a9366ee1d2c88bccd5ab82f739d67b42f9d"
+      "bytes": 15332,
+      "sha256": "880c5c5589ea6b411c0a3b63c4d518cd1ca909f020184818a31590af4e06819f"
     },
     "validation/tui/subagent_stop_scenario.py": {
       "bytes": 4646,
