@@ -7,8 +7,8 @@
     "node": ">=22.19.0"
   },
   "scripts": {
-    "test": "npm run check:types && node --test ../../../validation/*.mjs ../../../validation/tui/compatibility.mjs ../../../validation/tui/interaction.mjs ../../../validation/tui/agents-panel.mjs ../../../validation/tui/subagent-presentation.mjs ../../../validation/tui/session-discovery.mjs ../../../validation/tui/model-delta-isolation.mjs ../../../validation/tui/input-settlement.mjs",
-    "check:types": "tsc --noEmit -p tsconfig.json && node scripts/check-managed-continuation.ts",
+    "test": "npm run check:types && node --test ../../../validation/*.mjs ../../../validation/tui/compatibility.mjs ../../../validation/tui/interaction.mjs ../../../validation/tui/agents-panel.mjs ../../../validation/tui/subagent-presentation.mjs ../../../validation/tui/session-discovery.mjs ../../../validation/tui/model-delta-isolation.mjs ../../../validation/tui/input-settlement.mjs ../../../validation/tui/pi-lattice-trace.mjs ../../../validation/tui/trace-projection.mjs",
+    "check:types": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p ../../packages/pi-lattice-trace/tsconfig.json && node scripts/check-managed-continuation.ts",
     "test:integration": "python3 -B ../../../validation/tui/run.py",
     "smoke:subagents": "node scripts/smoke-subagents.ts",
     "start": "node src/main.ts",

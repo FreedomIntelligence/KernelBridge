@@ -1,6 +1,18 @@
 # Lattice Trace 做成 pi 插件，以及 TUI 待完善项：计划与 TODO
 
-状态：计划，尚未实施。日期 2026-11-11。基线 `main` = `9d98de8`。
+状态：§0 已完成（`18afa13`）；§A 第一版（A0–A6）已完成，在分支 `feat/pi-trace-plugin`；§B 的 D9、D10 已合入，D5、D12 在分支 `feat/tui-d5-d12` 进行中。日期 2026-11-11，2026-11-12 更新。
+
+## 进展（2026-11-12）
+
+- §0：另一个会话以 `7d474e3` 为共同祖先做了三方合并，Pi patch 用 patch builder 重建，`PIN_MANIFEST.json` 重新生成；`npm test` 62/62。未跟踪但被引用的 28 个文件一并提交。旧 worktree 和已合并分支已清理，磁盘可用空间 3.4 → 11.8 GiB。
+- §A：共享核心抽到 `source/packages/pi-lattice-trace/`，KernelBridge 的 `/trace` 对同一 Journal 的投影和页面与重构前逐字节一致；插件、单元测试（7 项）、真实 Pi 端到端场景（6 项，含 headless Chrome）完成；`npm test` 74/74。
+- A0 结论：
+  1. pi 用 jiti 加载插件，`.ts` 相对导入和 `import.meta.url` 读取 `viewer/` 都可用，安装到 `node_modules` 下也一样。
+  2. `message_end` 处理函数运行时，这条消息还没进 `getBranch()`，下一个事件才看得到；插件用 100 ms 去抖后再取。并行工具的 `tool_execution_end` 按完成顺序到达，toolResult 等整批结束后才按源顺序写入，所以运行中的工具要由插件自己记。
+  3. `/new` 之后 pi 复用已加载的模块，只重新调用工厂函数，模块级单例保留；新会话的 `session_start` 会到达两次（新旧实例各一次），处理必须幂等。
+  4. KernelBridge 用 `noExtensions: true` 加显式工厂列表加载 Pi，用户安装的插件不会进入 `kernelagent`。
+  5. pi 的 `usage.input` 不含缓存命中：`input + cacheRead + cacheWrite` 等于 provider 的 `prompt_tokens`。assistant 的 `message.timestamp` 是请求开始时间，记录的 `timestamp` 是写入时间。
+  6. pi 的压缩阈值是 `contextWindow − reserveTokens`（默认 16384），不是 80%。
 
 文档分三部分：
 
@@ -31,15 +43,15 @@
 
 ### 0.2 TODO
 
-- [ ] **0-0** 确认没有别的会话还在改主目录（S）。Codex 的 `codex/harness-20turn` worktree 和另一个“仍活跃的验收 checkout”都要看一下。确认之前不要动主目录。
-- [ ] **0-1** 备份（S）。只读操作，输出写到 `/tmp`：
+- [x] **0-0** 确认没有别的会话还在改主目录（S）。Codex 的 `codex/harness-20turn` worktree 和另一个“仍活跃的验收 checkout”都要看一下。确认之前不要动主目录。
+- [x] **0-1** 备份（S）。只读操作，输出写到 `/tmp`：
   ```sh
   cd ~/Desktop/KernelBridge
   FILES=$(git diff --name-only | grep -v '^PIN_MANIFEST.json$')
   git diff 7d474e3 -- $FILES > /tmp/kb-wip-20261111.patch      # 未提交改动，相对它真正的基线
   git ls-files --others --exclude-standard -z | xargs -0 tar czf /tmp/kb-wip-untracked-20261111.tgz
   ```
-- [ ] **0-2** 在独立 worktree 里把这些改动提交，再变基到 `main`（M）：
+- [x] **0-2** 在独立 worktree 里把这些改动提交，再变基到 `main`（M）：
   ```sh
   git worktree add /tmp/kb-wip -b wip/redesign-followup 7d474e3
   cd /tmp/kb-wip && git apply /tmp/kb-wip-20261111.patch && tar xzf /tmp/kb-wip-untracked-20261111.tgz
@@ -47,15 +59,15 @@
   git rebase main     # 冲突只应出现在 C 类那 9 个源码和文档文件
   ```
   合并原则：`HEAD` 的布局、`/trace`、`commandHelp`、`elidePath` 全部保留，未提交的行为修复（generation 过滤、agents 面板实时刷新、子代理耗时等）也全部保留。补丁的 `.json` 摘要按合并后的 `.patch` 重新计算。
-- [ ] **0-3** 用 `source/scripts/update_manifest.py` 重新生成 `PIN_MANIFEST.json`，不要手工合并（S）。
-- [ ] **0-4** 验证（S）：
+- [x] **0-3** 用 `source/scripts/update_manifest.py` 重新生成 `PIN_MANIFEST.json`，不要手工合并（S）。
+- [x] **0-4** 验证（S）：
   - `npm test` 51/51 通过；
   - `install.py --verify-only` 通过；
   - `./kernelagent` 能启动到空闲状态；
   - `node validation/tui/trace-projection.mjs` 通过。
-- [ ] **0-5** 把 `/tmp/kbtrace-wt` 里那 5 个文件提交到 `feat/tui-polish-2`，再合进 `main`（S）。这部分属于 §B 的 D9 和 D10，验收在 §B 完成。
-- [ ] **0-6** 主目录执行 `git checkout main && git reset --hard` 到合并后的 `main`（必须在 0-1 的备份确认之后）（S）。然后用 `git worktree remove` 删掉 `/tmp/kbpolish-wt`、`/tmp/kbtrace-wt`、`/tmp/kb-wip`。已合并的 `feat/*` 分支可以删除。
-- [ ] **0-7** 腾出磁盘空间（S）。目标是剩余空间不少于 30 GiB，然后再做任何 PTY 验收。`.validation/` 里的旧 artifacts 先确认已经在结果索引里有 SHA256 记录，再清理。
+- [x] **0-5** 把 `/tmp/kbtrace-wt` 里那 5 个文件提交到 `feat/tui-polish-2`，再合进 `main`（S）。这部分属于 §B 的 D9 和 D10，验收在 §B 完成。
+- [x] **0-6** 主目录执行 `git checkout main && git reset --hard` 到合并后的 `main`（必须在 0-1 的备份确认之后）（S）。然后用 `git worktree remove` 删掉 `/tmp/kbpolish-wt`、`/tmp/kbtrace-wt`、`/tmp/kb-wip`。已合并的 `feat/*` 分支可以删除。
+- [ ] **0-7** 腾出磁盘空间（S）。目标是剩余空间不少于 30 GiB，然后再做任何 PTY 验收。`.validation/` 里的旧 artifacts 先确认已经在结果索引里有 SHA256 记录，再清理。（部分：清掉 Kiro 残留、旧 Chrome 签名副本和可重建缓存后为 11.8 GiB；剩下的大头是微信、桌面归档和实验回执，等用户决定）
 - [ ] **0-8** 约定（S）：以后在 worktree 里提交后，回到主目录用 `git merge --ff-only`，不再用 `update-ref` 直接移动 `main`。这一条写进 `CLAUDE.md` 或 `AGENTS.md`。
 
 ---
@@ -177,17 +189,17 @@ startTraceServer(options: {
 
 **A0 Spike：先核实前提**（S）
 
-- [ ] **A0-1** pi 加载已安装包里的 `.ts` 插件时，能不能处理带 `.ts` 扩展名的相对导入，能不能用 `import.meta.url` 读到 `viewer/*.html`。完成标准：一个最小插件用 `node_modules/.bin/pi -e <dir>` 加载后，能读到 HTML 的长度。
-- [ ] **A0-2** 在 `message_end` 时，`getBranch()` 是否已经包含刚结束的 assistant 消息；并行工具执行时 toolResult 写入会话的时机。完成标准：记录事件顺序，写进本节。
-- [ ] **A0-3** 插件模块在 `/new` 等重载之后，`globalThis` 单例是否还在。
-- [ ] **A0-4** KernelBridge 冻结了资源集，确认用户全局安装的 pi 包不会被 KernelBridge 的 TUI 加载（所以不会出现两个 `/trace`）。
+- [x] **A0-1** pi 加载已安装包里的 `.ts` 插件时，能不能处理带 `.ts` 扩展名的相对导入，能不能用 `import.meta.url` 读到 `viewer/*.html`。完成标准：一个最小插件用 `node_modules/.bin/pi -e <dir>` 加载后，能读到 HTML 的长度。
+- [x] **A0-2** 在 `message_end` 时，`getBranch()` 是否已经包含刚结束的 assistant 消息；并行工具执行时 toolResult 写入会话的时机。完成标准：记录事件顺序，写进本节。
+- [x] **A0-3** 插件模块在 `/new` 等重载之后，`globalThis` 单例是否还在。
+- [x] **A0-4** KernelBridge 冻结了资源集，确认用户全局安装的 pi 包不会被 KernelBridge 的 TUI 加载（所以不会出现两个 `/trace`）。
 
 **A1 抽出共享核心**（M）：纯重构，KernelBridge 的行为不能变
 
-- [ ] **A1-1** 新建包目录，把 `lattice-viewer.html` 和 `live-adapter.js` 移进去。KernelBridge 改为从包里导入。
-- [ ] **A1-2** `server.ts` 拆成核心（接受 snapshot）和 KernelBridge 的文件追读层。
-- [ ] **A1-3** `journal-trace.ts` 里与数据源无关的函数（`calibrate`、`applyWrite`、`applyEdit`、`toolTitle`、`clip`、`firstLine`）移到 `trace-core.ts`。
-- [ ] **A1-4** 完成标准：
+- [x] **A1-1** 新建包目录，把 `lattice-viewer.html` 和 `live-adapter.js` 移进去。KernelBridge 改为从包里导入。
+- [x] **A1-2** `server.ts` 拆成核心（接受 snapshot）和 KernelBridge 的文件追读层。
+- [x] **A1-3** `journal-trace.ts` 里与数据源无关的函数（`calibrate`、`applyWrite`、`applyEdit`、`toolTitle`、`clip`、`firstLine`）移到 `trace-core.ts`。
+- [x] **A1-4** 完成标准：
   - `node validation/tui/trace-projection.mjs` 5 项通过；
   - `trace_scenario.py` 5 项通过（需要先满足 0-7 的磁盘空间）；
   - `update_manifest.py` 更新 PIN；
@@ -195,8 +207,8 @@ startTraceServer(options: {
 
 **A2 投影 `session-trace.ts`**（M–L）
 
-- [ ] **A2-1** 按 A.4 的映射实现 `projectSession(entries, { header, running, model, now })`，纯函数。
-- [ ] **A2-2** 合成 fixtures，每种对应一个测试：
+- [x] **A2-1** 按 A.4 的映射实现 `projectSession(entries, { header, running, model, now })`，纯函数。
+- [x] **A2-2** 合成 fixtures，每种对应一个测试：
   - 单轮对话；
   - 同一条消息里有 3 个并行工具；
   - 工具出错；
@@ -208,13 +220,13 @@ startTraceServer(options: {
   - `/tree` 之后 `getBranch()` 只包含当前路径；
   - 追加记录之后 ID 不变；
   - 校准之后，每次模型调用的 `ctx` 等于下一次调用的 `tokIn`。
-- [ ] **A2-3** 真实会话回放：KernelBridge 的 `state/pi-sessions/` 存的就是 pi 原生会话，可以挑 2–3 个本地跑一遍，确认不抛异常、步数合理。这些会话可能含私人内容，不提交；只提交一份脱敏后的 fixture。
-- [ ] **A2-4** 完成标准：全部单元测试通过，用 `node --test` 运行。
+- [ ] **A2-3**（未做：本地没有可用的真实 pi 会话；KernelBridge 的 `state/pi-sessions/` 用 KernelBridge 的 provider 记录，留待下一轮）真实会话回放：KernelBridge 的 `state/pi-sessions/` 存的就是 pi 原生会话，可以挑 2–3 个本地跑一遍，确认不抛异常、步数合理。这些会话可能含私人内容，不提交；只提交一份脱敏后的 fixture。
+- [x] **A2-4** 完成标准：全部单元测试通过，用 `node --test` 运行。
 
 **A3 插件入口**（M）
 
-- [ ] **A3-1** 实现 `extensions/trace.ts`：A.5 的事件、单例、`/trace` 参数、打开浏览器、SSH 提示。
-- [ ] **A3-2** 完成标准：用 `PI_CODING_AGENT_DIR=$(mktemp -d)` 隔离出一个 pi 配置目录（不碰用户自己的 `~/.pi`），然后：
+- [x] **A3-1** 实现 `extensions/trace.ts`：A.5 的事件、单例、`/trace` 参数、打开浏览器、SSH 提示。
+- [x] **A3-2** 完成标准：用 `PI_CODING_AGENT_DIR=$(mktemp -d)` 隔离出一个 pi 配置目录（不碰用户自己的 `~/.pi`），然后：
   - `node_modules/.bin/pi -e ./source/packages/pi-lattice-trace` 启动；
   - `/trace --no-open` 输出 URL，`trace.json` 能取到；
   - 再发一条提示后，SSE 的版本号会增加；
@@ -223,26 +235,26 @@ startTraceServer(options: {
 
 **A4 适配脚本参数化**（S）
 
-- [ ] **A4-1** `live-adapter.js` 里写死的“KernelBridge · Pi”“Journal（只读）”“由宿主准入与记账”“项目模式不快照工作区”这些文字，改为从 `T.config.labels` 读取。KernelBridge 一侧传入原来的文字。
-- [ ] **A4-2** pi 一侧配置区显示的内容：模型、思考级别、上下文上限、压缩阈值、工具数、已加载插件数。完成标准：页面上不出现 KernelBridge 字样；KernelBridge 的 `/trace` 页面与改动前逐字一致（快照测试）。
+- [x] **A4-1** `live-adapter.js` 里写死的“KernelBridge · Pi”“Journal（只读）”“由宿主准入与记账”“项目模式不快照工作区”这些文字，改为从 `T.config.labels` 读取。KernelBridge 一侧传入原来的文字。
+- [x] **A4-2** pi 一侧配置区显示的内容：模型、思考级别、上下文上限、压缩阈值、工具数、已加载插件数。完成标准：页面上不出现 KernelBridge 字样；KernelBridge 的 `/trace` 页面与改动前逐字一致（快照测试）。（实际做法：适配脚本改了，页面字节随之变化；改为用 `trace_scenario.py` 的浏览器检查确认 KernelBridge 页面照旧渲染，投影 JSON 仍逐字节一致；“已加载插件数”没有做，pi 的插件上下文里拿不到这个数）
 
 **A5 打包**（S）
 
-- [ ] **A5-1** `package.json`：
+- [x] **A5-1** `package.json`：
   - `name: pi-lattice-trace`，`type: module`，`version: 0.1.0`；
   - `keywords: ["pi-package"]`；
   - `pi.extensions: ["./extensions/trace.ts"]`；
   - `peerDependencies: {"@earendil-works/pi-coding-agent": "*"}`；
   - 没有运行时依赖，只用 Node 内置模块；
   - `files` 包含 `viewer/`、`src/`、`extensions/`。
-- [ ] **A5-2** 写 README（安装、使用、安全说明、截图）和 CHANGELOG（`## [0.1.0]`）。
-- [ ] **A5-3** 完成标准：在隔离的配置目录里 `pi install ./source/packages/pi-lattice-trace` 之后，`pi list` 能列出这个包；启动时不出现 “host-provided package in dependencies” 警告。
+- [x] **A5-2** 写 README（安装、使用、安全说明、截图）和 CHANGELOG（`## [0.1.0]`）。
+- [x] **A5-3** 完成标准：在隔离的配置目录里 `pi install ./source/packages/pi-lattice-trace` 之后，`pi list` 能列出这个包；启动时不出现 “host-provided package in dependencies” 警告。
 
 **A6 端到端验收**（M）
 
-- [ ] **A6-1** 复用 `validation/tui/` 里脚本化的 OpenAI 兼容 provider，在 PTY 里驱动原生 pi：读文件、并行工具、出错、压缩，然后 `/trace`。
-- [ ] **A6-2** 安装了 Playwright 时，用 headless Chrome 渲染页面，断言没有页面错误，时间线步数等于 `trace.json` 里的步数。
-- [ ] **A6-3** 完成标准：新脚本 `validation/tui/pi_plugin_trace_scenario.py` 全部检查通过，并把结果记进 `ACCEPTANCE.md`。
+- [x] **A6-1** 复用 `validation/tui/` 里脚本化的 OpenAI 兼容 provider，在 PTY 里驱动原生 pi：读文件、并行工具、出错、压缩，然后 `/trace`。
+- [x] **A6-2** 安装了 Playwright 时，用 headless Chrome 渲染页面，断言没有页面错误，时间线步数等于 `trace.json` 里的步数。
+- [x] **A6-3** 完成标准：新脚本 `validation/tui/pi_plugin_trace_scenario.py` 全部检查通过，并把结果记进 `ACCEPTANCE.md`。
 
 **A7–A10：第二版及以后**
 

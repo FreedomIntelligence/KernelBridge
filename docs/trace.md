@@ -22,6 +22,8 @@ server.ts          127.0.0.1:<port>/<token>/  page · trace.json · events (SSE)
 lattice-viewer.html + live-adapter.js   the viewer renders the live dataset
 ```
 
+The viewer, page assembly, step helpers and HTTP server live in `source/packages/pi-lattice-trace/` and are shared with the Pi plugin below. `source/apps/agent/src/trace/` keeps only the Journal projection and the Journal tail.
+
 - **Authority.** The trace is derived from the Journal and never writes to it. In the TUI, the trusted CLI process hosts the server and the TUI worker only receives the URL over IPC. The worker gets no Journal access of its own.
 - **Access.** The server binds 127.0.0.1 only and serves only under a random 128-bit path token. It rejects other `Host` headers, which stops DNS rebinding. Responses are `no-store`. The `/trace` server lives as long as the interactive session; `kernelagent trace` lives until Ctrl-C.
 - **Live updates.** Each change re-projects the Journal; projection takes about 4 ms for 1,200 rows. The full trace is pushed as an SSE `trace` event. The page applies at most two updates per second. It follows the newest step unless you selected an older one, and it keeps zoom, lane visibility and open panels.
@@ -42,11 +44,13 @@ Executor rows have no clock. Each step's start comes from the nearest applicatio
 
 ## Viewer
 
-`source/apps/agent/src/trace/lattice-viewer.html` is a vendored, unmodified copy of Lattice Trace v15 (`Agent轨迹Demo-v15-20261104.html`, sha256 `bc5e28f7…742e`). At serve time the server:
+`source/packages/pi-lattice-trace/viewer/lattice-viewer.html` is a vendored, unmodified copy of Lattice Trace v15 (`Agent轨迹Demo-v15-20261104.html`, sha256 `bc5e28f7…742e`). At serve time the server:
 
 1. embeds the initial trace as JSON;
 2. injects `live-adapter.js` just before the viewer boots;
 3. applies a short table of exact-match replacements: live base context, the 实时会话 label, the real harness configuration, and no simulated fork button.
+
+Host wording in the adapter (harness name, data source, workspace and file notes) comes from the trace's optional `labels`; without it the KernelBridge text applies.
 
 Each replacement anchor must occur exactly once. A changed viewer therefore fails with an explicit error instead of rendering demo data. To update the viewer, replace the file and run `node validation/tui/trace-projection.mjs`.
 
@@ -56,3 +60,17 @@ The live page shows one session; the demo studies are hidden. Views that need da
 
 - `node validation/tui/trace-projection.mjs`: projection of a synthetic Journal, covering children, edits, compaction, fork, calibration, stable IDs and torn tails. Also viewer assembly and transforms, and the server's token, Host check and SSE growth.
 - `validation/tui/trace_scenario.py --launcher kernelagent --output DIR`: a real TUI session that runs a read and two subagents, then `/trace`. It checks the served trace, SSE growth on a new turn, and a headless Chrome render with no page errors (when Playwright is installed). It also checks that the server stops on `/quit` and that standalone `kernelagent trace` reads the saved session.
+
+## Pi plugin
+
+The same viewer also ships as a Pi package, `source/packages/pi-lattice-trace`, for plain Pi without KernelBridge. It reads the current session from `ctx.sessionManager` inside the Pi process, adds executing tools and a streaming reply from Pi's events, and serves the result with the shared server. See its [README](../source/packages/pi-lattice-trace/README.md).
+
+```sh
+pi install ./source/packages/pi-lattice-trace
+/trace                                   # in Pi
+```
+
+KernelBridge loads Pi with `noExtensions` and an explicit factory list, so an installed copy of the plugin never loads inside `kernelagent` and does not compete with its `/trace`.
+
+- `node validation/tui/pi-lattice-trace.mjs`: Pi session projection (token counts, parallel tools, errors, compaction, markers, `!!` commands, file history, running and streaming steps, stable ids), the Pi page and source switching on the shared server.
+- `python3 validation/tui/pi_plugin_trace_scenario.py --output DIR`: real Pi 1.5.0 in RPC mode with an isolated `PI_CODING_AGENT_DIR` and a scripted provider. It checks the served trace, a running tool, SSE growth, a headless Chrome render with Pi labels, `/new` on the same URL, and the server stopping when Pi exits.

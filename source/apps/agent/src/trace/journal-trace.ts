@@ -1,95 +1,14 @@
 // Read-only projection of a KernelBridge Journal into the Lattice Trace step
 // model (kernelbridge.trace/v1). The Journal stays the only authority: this
 // module never writes and tolerates a partially written tail.
+import {
+  MAIN, TRACE_SCHEMA, clip, contentText, finishSteps, firstLine, recordFileChange, round2, summarize, text, tokens, toolTitle,
+  type Json, type Step, type Trace,
+} from '../../../../packages/pi-lattice-trace/src/trace-core.ts';
 
-export const TRACE_SCHEMA = 'kernelbridge.trace/v1';
-const MAIN = 'M/main';
-const OUT_LIMIT = 4000;
-
-type Json = any;
-export type Step = Record<string, Json>;
-export interface Trace {
-  schema: string; seq: number; live: boolean;
-  session: { id: string | null; title: string; model: string | null; cwd: string | null; started_ns: number | null; updated_ns: number | null; status: string };
-  limit: number; thresh: number; budget: number; config: Json;
-  agents: Record<string, Json>; rows: string[]; branches: Record<string, Json>;
-  steps: Step[]; commits: Json[]; files: Record<string, [string, string][]>; result: Record<string, Json>;
-}
-
-// Tool outputs and inputs are sized by estimate; scale each gap so that the
-// context the viewer rebuilds matches the provider's prompt_tokens exactly.
-function calibrate(steps: Step[]) {
-  const lanes = new Map<string, Step[]>();
-  for (const step of steps) { const lane = lanes.get(step.agent) ?? []; lane.push(step); lanes.set(step.agent, lane); }
-  for (const lane of lanes.values()) {
-    let end: number | null = null; let between: Step[] = [];
-    const size = (step: Step) => step.src === 'tool' ? step.outTok ?? 0 : step.addTok ?? 0;
-    for (const step of lane) {
-      if (step.src === 'model' && step.status !== 'running') {
-        const estimate = between.reduce((sum, item) => sum + size(item), 0); const target = end === null ? 0 : step.tokIn - end;
-        if (end !== null && estimate > 0 && target > 0) {
-          let left = target;
-          between.forEach((item, index) => {
-            const value = index === between.length - 1 ? Math.max(1, left) : Math.max(1, Math.round(size(item) * target / estimate));
-            left -= value; if (item.src === 'tool') item.outTok = value; else item.addTok = value;
-          });
-        }
-        end = step.tokIn + step.tokOut; between = [];
-      } else if (step.src === 'harness' && step.kind === 'compact') { end = step.after; between = []; }
-      else if (step.src === 'tool' || step.addTok) between.push(step);
-    }
-  }
-  const running = new Map<string, number>();
-  for (const step of steps) {
-    const prior = running.get(step.agent) ?? 0;
-    if (step.src === 'model') step.ctx = step.tokIn + step.tokOut;
-    else if (step.src === 'tool') step.ctx = prior + (step.outTok ?? 0);
-    else if (step.kind === 'compact') step.ctx = step.after;
-    else step.ctx = prior + (step.addTok ?? 0);
-    running.set(step.agent, step.ctx);
-  }
-}
-
-// File contents rebuilt from this session's own write/edit calls: [line, commit] pairs.
-function applyWrite(files: Record<string, [string, string][]>, path: string, content: string, commit: string) {
-  const del = files[path]?.length ?? 0;
-  files[path] = content.split('\n').map(line => [line, commit]);
-  return { add: files[path].length, del };
-}
-
-function applyEdit(files: Record<string, [string, string][]>, path: string, args: Json, commit: string) {
-  let edits: Json = args?.edits ?? [{ oldText: args?.oldText, newText: args?.newText }];
-  if (typeof edits === 'string') { try { edits = JSON.parse(edits); } catch { edits = []; } }
-  if (!Array.isArray(edits)) edits = [edits];
-  let lines: [string, string][] = files[path] ?? [['…（修改前的内容不在本会话中）', '—']];
-  let add = 0, del = 0;
-  for (const edit of edits) {
-    if (typeof edit?.oldText !== 'string' || typeof edit?.newText !== 'string') continue;
-    const body = lines.map(line => line[0]).join('\n'); const index = body.indexOf(edit.oldText);
-    const fresh = edit.newText.split('\n').map((line: string): [string, string] => [line, commit]);
-    add += fresh.length; del += edit.oldText.split('\n').length;
-    if (index < 0 || !edit.oldText) { lines = [...lines, ['…', '—'], ...fresh]; continue; }
-    const first = body.slice(0, index).split('\n').length - 1; const last = first + edit.oldText.split('\n').length - 1;
-    const head = body.slice(0, index).split('\n').pop() ?? ''; const tail = body.slice(index + edit.oldText.length).split('\n')[0] ?? '';
-    fresh[0][0] = head + fresh[0][0]; fresh[fresh.length - 1][0] += tail;
-    lines = [...lines.slice(0, first), ...fresh, ...lines.slice(last + 1)];
-  }
-  files[path] = lines;
-  return { add, del };
-}
+export { TRACE_SCHEMA, type Step, type Trace };
 
 interface ActionRecord { id: string; tool: string; task: string; args: Json; parents: string[]; admitted: number; started?: number; settled?: number; outcome?: Json; elapsed?: number; gate?: Json }
-
-const round2 = (value: number) => Math.round(value * 100) / 100;
-const text = (value: unknown) => typeof value === 'string' ? value : value === undefined || value === null ? '' : JSON.stringify(value);
-const clip = (value: string, limit = OUT_LIMIT) => value.length > limit ? value.slice(0, limit) + `\n…（截断，共 ${value.length} 字符）` : value;
-const firstLine = (value: string, limit = 60) => { const line = value.trim().split('\n').find(Boolean) ?? ''; return line.length > limit ? line.slice(0, limit - 1) + '…' : line; };
-const tokens = (value: string) => Math.max(1, Math.ceil(value.length / 4));
-
-function contentText(content: Json): string {
-  if (!Array.isArray(content)) return text(content);
-  return content.map(block => block?.type === 'text' ? block.text : block?.type === 'thinking' ? block.thinking ?? block.text ?? '' : '').filter(Boolean).join('\n');
-}
 
 function resultText(outcome: Json): string {
   const data = outcome?.data;
@@ -100,19 +19,6 @@ function resultText(outcome: Json): string {
   }
   if (data && typeof data === 'object' && typeof data.summary === 'string') return data.summary;
   return text(data);
-}
-
-function toolTitle(tool: string, args: Json): string {
-  const a = args && typeof args === 'object' ? args : {};
-  const path = a.path ?? a.file ?? a.file_path;
-  if (tool === 'read' || tool === 'read_file') return '读取 ' + (path ?? '');
-  if (tool === 'write' || tool === 'write_file') return '写入 ' + (path ?? '');
-  if (tool === 'edit') return '修改 ' + (path ?? '');
-  if (tool === 'bash' || tool === 'run_command') return '运行 ' + firstLine(text(a.command ?? a.cmd ?? ''), 48);
-  if (tool === 'grep') return '搜索 ' + firstLine(text(a.pattern ?? ''), 40);
-  if (tool === 'find' || tool === 'ls') return '浏览 ' + (a.path ?? a.pattern ?? '.');
-  if (tool === 'delegate') return '委派 ' + (a.agent ?? '子代理');
-  return tool;
 }
 
 /** Parse complete JSONL rows; an unterminated final line is left for the next read. */
@@ -251,13 +157,7 @@ export function projectTrace(rows: Json[], options: { now_ns?: number; live?: bo
       continue;
     }
     steps.push(base); ctx.set(agent, prior + outTok);
-    const path = a.args?.path ?? a.args?.file_path;
-    if (!span.running && !failed && !isError && ['write', 'edit', 'write_file'].includes(a.tool) && typeof path === 'string') {
-      const commit = 'E' + String(commits.length + 1).padStart(2, '0');
-      const change = a.tool === 'edit' ? applyEdit(files, path, a.args, commit) : applyWrite(files, path, text(a.args.content), commit);
-      base.commit = commit;
-      commits.push({ id: commit, step: base.id, commitStep: base.id, agent, branch: 'M', t: base.t1, files: [{ path, ...change }] });
-    }
+    if (!span.running && !failed && !isError) recordFileChange(base, a.tool, a.args, files, commits);
   }
 
   for (const { index, data } of inputs) {
@@ -275,23 +175,14 @@ export function projectTrace(rows: Json[], options: { now_ns?: number; live?: bo
       title: op === 'fork' ? '/fork 新分支' : op === 'reset' ? '/new 新上下文' : '上下文切换', status: 'ok',
       note: op === 'fork' ? '对话从这里 fork 成新的 Pi 会话；原分支保留。' : '新的对话上下文；之前的历史不再进入模型。', ctx: 0 });
   }
-  steps.sort((a, b) => a.t0 - b.t0 || a.id.localeCompare(b.id));
-  calibrate(steps);
-  // Stack index of tool calls within one model turn (as the viewer's own builders do).
-  const count: Record<string, number> = {};
-  for (const step of steps) if (step.src === 'tool') { const key = step.turn ?? step.id; step.stack = count[key] ?? 0; count[key] = step.stack + 1; }
-  for (const step of steps) if (step.src === 'model') step.nTools = count[step.id] ?? 0;
-
-  const pending = steps.some(step => step.status === 'running');
-  status = pending ? 'running' : steps.length ? 'idle' : 'empty';
-  const failures = steps.filter(step => step.status === 'error').length;
-  const end = steps.reduce((value, step) => Math.max(value, step.t1), 0);
+  finishSteps(steps);
+  const summary = summarize(steps, rowsOrder.length); status = summary.status;
   return {
     schema: TRACE_SCHEMA, seq, live: options.live ?? false,
     session: { id: session, title: firstLine(named || title || objective || firstPrompt, 120) || 'KernelBridge 会话', model, cwd, started_ns: known.find(v => v !== undefined) ?? null, updated_ns: updated, status },
     limit, thresh: Math.round(limit * 0.8), budget, config,
     agents, rows: rowsOrder, branches: { M: { name: '当前会话', variant: model ?? 'KernelBridge' } },
     steps, commits, files,
-    result: { M: { ok: failures === 0, label: pending ? '进行中' : failures ? `${failures} 处失败` : '正常', note: `${steps.length} 步 · ${rowsOrder.length - 1} 个子代理`, endLabel: pending ? '进行中' : (end / 60).toFixed(1) + ' min' } },
+    result: summary.result,
   };
 }

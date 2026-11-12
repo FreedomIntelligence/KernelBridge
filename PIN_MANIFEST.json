@@ -1256,8 +1256,8 @@
       "sha256": "00caab7fe47dfe32d8361fd341199905397a91454f9c8610f15df7a8fcb85ded"
     },
     "source/apps/agent/package.json": {
-      "bytes": 1820,
-      "sha256": "2ccf20ea8cf76a0910b1ff90a139e8bc3ad5787b2463c21ac14299684a5a1b89"
+      "bytes": 1975,
+      "sha256": "b236ff37c6860c3ff342479a9e822d55594ba3898b0ae8c58f7a7c12b63b1908"
     },
     "source/apps/agent/patches/pi-coding-agent-1.5.0-host-actions.json": {
       "bytes": 718,
@@ -1904,20 +1904,12 @@
       "sha256": "ac4289983ade358b398de6562cb0476dd3afedcde91a5785bb53d48d66fb9f73"
     },
     "source/apps/agent/src/trace/journal-trace.ts": {
-      "bytes": 20226,
-      "sha256": "e027212a553d9bf178ad3dd6f4a6e925ae3ab3743b26373010173fc943cda0e7"
-    },
-    "source/apps/agent/src/trace/lattice-viewer.html": {
-      "bytes": 879518,
-      "sha256": "bc5e28f7fbc2c274a4b9e179cb5f64cc4031159bcc2ecd86ff2dd61c1466742e"
-    },
-    "source/apps/agent/src/trace/live-adapter.js": {
-      "bytes": 7922,
-      "sha256": "94e39595db4c2ed0aec771b7eaf23020160c9f3bd2f0dc303c64d9a04b894a94"
+      "bytes": 13338,
+      "sha256": "5ad835bb813b47c954390a915bee0e5f933daee5585a1948d9830b3083c52108"
     },
     "source/apps/agent/src/trace/server.ts": {
-      "bytes": 8422,
-      "sha256": "3d289113e2026455008e2b6d84e14d36626b70699bd816f080183908c617a76a"
+      "bytes": 2919,
+      "sha256": "878c78139dd576d40f1bd5033085196d86ef45ce703a4eee7161d20c5af6cc6c"
     },
     "source/apps/agent/src/workspaces/object-graph.ts": {
       "bytes": 2931,
@@ -3926,6 +3918,50 @@
     "source/packages/knowledge/src/kernelcat_knowledge/trajectories/registration.py": {
       "bytes": 4074,
       "sha256": "af5c211c7f5db18fc842c76396d56333d8d768adced3f3e5922f81bfd4441c93"
+    },
+    "source/packages/pi-lattice-trace/CHANGELOG.md": {
+      "bytes": 567,
+      "sha256": "ffa5094b1f94179242bb825ee70009204da1d53b82da18df3b492caf24d81bc7"
+    },
+    "source/packages/pi-lattice-trace/README.md": {
+      "bytes": 3684,
+      "sha256": "97bac29774704e4eeca3532a776bd11e9277087c19ff6af5fb696212c7af4355"
+    },
+    "source/packages/pi-lattice-trace/extensions/trace.ts": {
+      "bytes": 5958,
+      "sha256": "d9d531474d51cb9f51b50d23437e9c842532e6c29ed85cdb028601b4e6dfdcf2"
+    },
+    "source/packages/pi-lattice-trace/package.json": {
+      "bytes": 515,
+      "sha256": "59614b148745b445db5d68450fcc9f36746e2e574bc8360959daca232f99b8f9"
+    },
+    "source/packages/pi-lattice-trace/src/server.ts": {
+      "bytes": 4681,
+      "sha256": "f71e6c0da5e5d8191c21a617209c08b04be4ea56ab50ca8658184924f381b879"
+    },
+    "source/packages/pi-lattice-trace/src/session-trace.ts": {
+      "bytes": 11420,
+      "sha256": "1942b3a7bf1943a9f7d18c47609388c8ebcbc8c7b22c59989e87031f315da101"
+    },
+    "source/packages/pi-lattice-trace/src/trace-core.ts": {
+      "bytes": 8479,
+      "sha256": "c017f72548bff37e3e869c63ccb24f7a3c84841948f6304961ddacbff3baee43"
+    },
+    "source/packages/pi-lattice-trace/src/viewer-page.ts": {
+      "bytes": 3701,
+      "sha256": "911b00e2420c490cb999d3cf77be41174ae00cb5e57de05411b99306d76889b8"
+    },
+    "source/packages/pi-lattice-trace/tsconfig.json": {
+      "bytes": 467,
+      "sha256": "8261cac5df9bf4a7e6ba844c1c90863648a88ff062ec486e7490473a21c8b208"
+    },
+    "source/packages/pi-lattice-trace/viewer/lattice-viewer.html": {
+      "bytes": 879518,
+      "sha256": "bc5e28f7fbc2c274a4b9e179cb5f64cc4031159bcc2ecd86ff2dd61c1466742e"
+    },
+    "source/packages/pi-lattice-trace/viewer/live-adapter.js": {
+      "bytes": 8478,
+      "sha256": "73768796cf1e6b5714f3555f189a2c6f13052178e463872ee8d773317fd9ba71"
     },
     "source/runtime-resources.json": {
       "bytes": 58358,
