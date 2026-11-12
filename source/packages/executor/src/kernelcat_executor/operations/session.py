@@ -46,6 +46,7 @@ from kernelcat_executor.operations.gateway import Gateway
 from kernelcat_executor.operations.hooks import OutcomeObserver
 from kernelcat_executor.operations.recovery import ModelRetry, authorize_model_retry
 from kernelcat_executor.operations.turns import BatchResult, CallCancelled, read_batch_plan
+from kernelcat_executor.state.goal_progress import model_call_progress
 
 RPCHandler = Callable[[str, Json], Json]
 RPCTransport = Callable[[RPCHandler], Json]
@@ -354,14 +355,15 @@ class ExecutionSession:
     def _context(self, task: Task, state: Json, agent: Json | None) -> Json:
         import json
         policy = Policy.model_validate_json(canonical(state["policy"]))
-        context = project(task, policy, state, self.skills, agent=agent)
+        context = project(task, policy, state, self.skills, agent=agent,
+            goal_progress=model_call_progress(self.gateway.store))
         if self.transform_context is None:
             return context
         transformed = self.transform_context(json.loads(canonical(context)))
         transformed = json.loads(canonical(transformed))
         if not isinstance(transformed, dict):
             raise Conflict("context transform must return an object")
-        for key in ("task", "policy", "budget", "agent"):
+        for key in ("task", "policy", "budget", "agent", "goal_progress"):
             if transformed.get(key) != context.get(key):
                 raise Conflict(f"context transform changed protected {key}")
         if len(canonical(transformed).encode("utf-8")) > policy.context_bytes:

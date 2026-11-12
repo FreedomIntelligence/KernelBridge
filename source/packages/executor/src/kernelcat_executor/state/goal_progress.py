@@ -50,7 +50,10 @@ def goal_usage(events, goal):
             outcome = row["outcome"]
             group = groups[category(admitted[row['action_id']]['action'])]
             group['pending_calls'] -= 1
-            usage = outcome.get("data", {}).get("usage") or outcome.get("details", {}).get("usage")
+            data = outcome.get("data", {})
+            failure_details = data.get("failure_details")
+            usage = (data.get("usage") or outcome.get("details", {}).get("usage")
+                     or (failure_details.get("usage") if isinstance(failure_details, dict) else None))
             if isinstance(usage, dict) and usage:
                 tokens += token_count(usage)
                 group['tokens'] += token_count(usage)
@@ -67,3 +70,44 @@ def continuation_has_progress(events, receipt):
     return any(row["kind"] == "admitted" and row.get("seq", -1) > start
                and not row["action"]["tool"].startswith("__")
                and row["action"]["tool"] != "get_goal" for row in events)
+
+
+def model_call_progress(store):
+    """Read one original Journal snapshot; never reserve or authorize a call.
+
+    application_state identifies the bound application only. Its Goal and usage
+    are both projected again from the same events snapshot to avoid mixing a
+    replaced Goal with the preceding Goal's usage. No default ceiling is invented.
+    """
+    application_state = getattr(store, "application_state", None)
+    application = application_state() if application_state is not None else None
+    if application is None:
+        return None
+    from kernelcat_executor.state.application import project
+    from kernelcat_executor.state.journal import Journal
+    rows = store.events()
+    state = project(rows, application["application_session_id"])
+    goal = state.get("goal")
+    # Only an active Goal can admit a model call under this ceiling. Inactive
+    # Goals remain history, not a budget for subsequent ordinary codegen.
+    limit = goal.get("max_model_turns") if goal and goal.get("status") == "active" else None
+    if type(limit) is not int or limit < 1:
+        return None
+    used = goal_usage(list(Journal._events(rows)), goal)["model_turns"]
+    # The request is prepared before admission. Never pretend that this
+    # observation reserves its slot, or change the input after it is committed.
+    return {"goal_id": goal.get("goal_id"), "observed_seq": state["cursor"],
+        "max_model_turns": limit, "model_calls_admitted": used,
+        "remaining_calls_including_this_request": max(0, limit - used), "current_request_cost": 1,
+        "counting": "all_model_calls_including_compact_child_review",
+        "concurrent_calls_may_consume_remaining": True}
+
+
+def with_model_call_progress(context, store):
+    """Attach or refresh trusted metadata before compilation and input hashing."""
+    value = dict(context)
+    value.pop("goal_progress", None)
+    progress = model_call_progress(store)
+    if progress is not None:
+        value["goal_progress"] = progress
+    return value

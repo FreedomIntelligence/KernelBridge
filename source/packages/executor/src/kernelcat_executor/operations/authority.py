@@ -51,6 +51,7 @@ from kernelcat_executor.operations.delegated import DelegatedEffects
 from kernelcat_executor.operations.native import NativeEffects
 from kernelcat_executor.operations.recovery import ModelRetry, latest_model_attempt
 from kernelcat_executor.operations.requests import propose, recorded_harness_tools
+from kernelcat_executor.state.goal_progress import model_call_progress, with_model_call_progress
 from kernelcat_executor.operations.turns import CallCancelled, execute_calls
 
 SCOUT_TOOLS = frozenset({"read_file", "load_skill", "read_receipt", "read_learned_skill", "finish"})
@@ -213,7 +214,7 @@ class ExecutionRPC:
                 # the initial task or old user requests via the authority prefix.
                 context_task = context_task.model_copy(update={"goal": "Follow the user's request in the current conversation."})
             self.context_source = source(context_task, policy, self.store.snapshot(),
-                                         self.owner.skills, agent=self.agent)
+                self.owner.skills, agent=self.agent, goal_progress=model_call_progress(self.store))
             if project_session:
                 from kernelcat_executor.operations.control import input_identity
                 session_id = application.get("checkpoint", {}).get("pi_session_id")
@@ -300,7 +301,10 @@ class ExecutionRPC:
                 parents = (*parents, self.retry.failed_id)
                 identity = self.retry.next_id
         if proposal is None:
-            if self.context is None:
+            if self.context is None or not self.owner.external_context:
+                # Legacy provider fallbacks are separate admitted model calls.
+                # Re-project before preparing their bytes, just as an external
+                # client receives refreshed source after each failed attempt.
                 self.context = self.owner._context(self.task, state, self.agent)
             try:
                 proposal = propose(self.gateway, self.owner.proposers[route], identity,
@@ -366,6 +370,7 @@ class ExecutionRPC:
                          "budget": {key: state[key] for key in ("limit", "spent", "reserved")}}
             if isinstance(self.store, ManagedStore):
                 refreshed["runtime"] = self.store.runtime_state()["stamp"]
+            refreshed = with_model_call_progress(refreshed, self.store)
             self.context_source = refreshed
             self.context = None
             failed["context_source"] = validate_context_source(refreshed)

@@ -78,7 +78,7 @@ def audit(run):
             'admitted_seq': row['seq'], 'status': outcome.get('status', 'pending'),
             'tokens': tokens(usage) if isinstance(usage, dict) and usage else None,
             'elapsed_ms': (end or {}).get('elapsed_ms'), 'proposed_tools': names})
-    calls = []; stages = Counter(); diagnostics = []; reads = []
+    calls = []; stages = Counter(); composed_stages = Counter(); diagnostics = []; reads = []
     for identity, row in admitted.items():
         action = row['action']; tool = action['tool']; args = action['arguments']
         if tool.startswith('__'):
@@ -94,6 +94,10 @@ def audit(run):
             item['stage'] = stage; stages[stage] += 1
         if args.get('driver'):
             item['driver'] = args['driver']
+        # New envelopes retain diagnostics beside the original F/G result so
+        # projection cannot alter the result used by acceptance verification.
+        if data.get('diagnostics'):
+            item['automatic_diagnostics'] = data['diagnostics']
         if isinstance(result, dict):
             if result.get('error'):
                 item['error'] = result['error']
@@ -102,6 +106,18 @@ def audit(run):
             if tool == 'pipeline_pair':
                 item['pair'] = {key: result.get(key) for key in
                     ('speedup', 'cases', 'families', 'regressions', 'qualification')}
+        if tool == 'pipeline_evaluate':
+            summary = result if isinstance(result, dict) else data.get('evaluation_summary')
+            if isinstance(summary, dict):
+                item['evaluation'] = {key: summary.get(key) for key in
+                    ('evaluation_status', 'source_sha256', 'source_changed', 'continuation')}
+                # These phases are original tool records, not additional model
+                # calls and not proof of successful correctness or acceptance.
+                phases = summary.get('stages', [])
+                item['composed_stages'] = [phase for phase in phases if isinstance(phase, dict)]
+                for phase in item['composed_stages']:
+                    if phase.get('stage') in {'D', 'E', 'F'}:
+                        composed_stages[phase['stage']] += 1
         if stage == 'J':
             diagnostics.append(item)
         if tool == 'pipeline_read':
@@ -122,6 +138,7 @@ def audit(run):
         'within_20_calls': len(models) <= 20, 'goal': goals[-1] if goals else None,
         'evidence': evidence, 'accepted_e3': bool(promoted), 'e4_claimed': False,
         'stages_called': dict(stages),
+        'composed_stages_recorded': dict(composed_stages),
         'tool_counts': dict(Counter(item['tool'] for item in calls if item['initiator'] == 'model')),
         'initialization_tool_counts': dict(Counter(item['tool'] for item in calls if item['initiator'] == 'host_seed')),
         'explicit_diagnostic_calls': diagnostics, 'artifact_reads': reads,

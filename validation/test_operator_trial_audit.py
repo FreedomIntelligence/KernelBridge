@@ -32,7 +32,13 @@ class AuditTests(unittest.TestCase):
                 admitted('j', 'task', 'pipeline_run', {'stage': 'J', 'driver': 'ir'}),
                 settled('j', {'run': 'original', 'result': {'status': 'unavailable'}}),
                 admitted('read', 'task', 'pipeline_read', {'run': 'original', 'path': 'compiler.log'}),
-                settled('read', {'text': 'unsupported export'})]
+                settled('read', {'text': 'unsupported export'}),
+                admitted('composite', 'task', 'pipeline_evaluate'),
+                settled('composite', {'result': 'Read result.json with pipeline_read',
+                    'diagnostics': {'status': 'unavailable'},
+                    'evaluation_summary': {'evaluation_status': 'pending', 'source_changed': True,
+                        'stages': [{'stage': 'D', 'status': 'completed'},
+                                   {'stage': 'E', 'status': 'failed'}]}})]
             previous = '0' * 64; rows = []
             for seq, entry in enumerate(entries):
                 row = dict(entry, seq=seq, prev=previous)
@@ -49,6 +55,11 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(len(result['explicit_diagnostic_calls']), 1)
             self.assertEqual(result['artifact_reads'][0]['path'], 'compiler.log')
             self.assertFalse(result['accepted_e3'])
+            self.assertEqual(result['composed_stages_recorded'], {'D': 1, 'E': 1})
+            self.assertEqual(result['stages_called'], {'J': 1})
+            self.assertEqual(result['tool_counts']['pipeline_evaluate'], 1)
+            self.assertEqual(result['tool_calls'][-1]['automatic_diagnostics']['status'], 'unavailable')
+            self.assertEqual(result['tool_calls'][-1]['evaluation']['evaluation_status'], 'pending')
             path.write_text(path.read_text().replace('total_tokens": 12', 'total_tokens": 99'))
             with self.assertRaisesRegex(ValueError, 'hash chain'):
                 module.audit(root)

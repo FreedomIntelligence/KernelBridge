@@ -134,5 +134,95 @@ class OperatorAcceptanceTests(unittest.TestCase):
         result.write_text('{}')
         self.assertIsNone(self.receipt())
 
+    def composite_f(self, origin='f'):
+        evidence = self.actions['h']['outcome']['data']['promotion_evidence']
+        old_path = evidence['check']['receipt']
+        raw = json.loads(Path(old_path).read_text())
+        internal = origin + '/phase/1-F'
+        run = hashlib.sha256(internal.encode()).hexdigest()
+        folder = self.root / run
+        path = folder / 'driver/receipt.json'
+        path.parent.mkdir(parents=True)
+        path.write_bytes(Path(old_path).read_bytes())
+        receipt_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        manifest = folder / 'manifest.json'
+        manifest.write_text(json.dumps({'driver/receipt.json': receipt_hash}))
+        descriptor = {'stage': 'F', 'tool': 'pipeline_run', 'action_id': internal,
+            'run': run, 'status': 'completed',
+            'manifest_sha256': hashlib.sha256(manifest.read_bytes()).hexdigest(),
+            'receipt': {'path': str(path), 'sha256': receipt_hash}}
+        result = {'evaluation_status': 'completed', 'check_receipt': raw, 'stages': [descriptor]}
+        del evidence['receipts'][old_path]
+        evidence['receipts'][str(path)] = receipt_hash
+        evidence['check']['receipt'] = str(path)
+        self.actions['f']['action'].update(tool='pipeline_evaluate', arguments={})
+        self.actions['f']['outcome']['data'] = {'result': result,
+            'diagnostics': {'status': 'unavailable', 'reason': 'fixture has no NPU'}}
+        if origin != 'f':
+            prior = copy.deepcopy(self.actions['f'])
+            prior['action']['id'] = origin
+            prior.update(terminal=False, outcome={'status': 'unknown'})
+            self.actions[origin] = prior
+            self.contexts[origin] = copy.deepcopy(self.contexts['f'])
+            descriptor.update(origin_action_id=origin, reused=True)
+            result['resume_run'] = hashlib.sha256(origin.encode()).hexdigest()
+            self.actions['f']['action']['arguments']['resume_run'] = result['resume_run']
+        return result, folder
+
+    def test_composite_f_uses_original_receipt_and_preserves_e3_gate(self):
+        self.composite_f()
+        accepted = self.receipt()
+        self.assertEqual(accepted['original_f'], 'f')
+        self.assertEqual(accepted['evidence_tier'], 'E3')
+        self.actions['g']['outcome']['status'] = 'unknown'
+        self.assertIsNone(self.receipt())
+
+    def test_composite_f_rejects_forged_phase_and_changed_raw_evidence(self):
+        result, folder = self.composite_f()
+        original = copy.deepcopy(result)
+        for field, bad in [('action_id', 'foreign/phase/1-F'), ('run', '0' * 64),
+                           ('status', 'failed'), ('manifest_sha256', '0' * 64)]:
+            with self.subTest(field=field):
+                result['stages'][0][field] = bad
+                self.assertIsNone(self.receipt())
+                result['stages'] = copy.deepcopy(original['stages'])
+        result['check_receipt'] = {'result': {'checks': {'full': True}}}
+        self.assertIsNone(self.receipt())
+        result['check_receipt'] = original['check_receipt']
+        (folder / 'manifest.json').write_text('{}')
+        self.assertIsNone(self.receipt())
+
+    def test_composite_large_result_is_bound_to_outer_admission(self):
+        result, _ = self.composite_f()
+        outer = self.root / hashlib.sha256(b'f').hexdigest()
+        outer.mkdir()
+        result['large_note'] = 'x' * 20000
+        path = outer / 'result.json'
+        path.write_text(json.dumps({'status': 'completed', 'data': result,
+                                   'diagnostics': {'status': 'unavailable'}}))
+        manifest = outer / 'manifest.json'
+        manifest.write_text(json.dumps({'result.json': hashlib.sha256(path.read_bytes()).hexdigest()}))
+        self.actions['f']['outcome']['data'] = {'run': outer.name,
+            'result': 'Read result.json with pipeline_read',
+            'manifest_sha256': hashlib.sha256(manifest.read_bytes()).hexdigest()}
+        self.assertIsNotNone(self.receipt())
+        path.write_text('{}')
+        self.assertIsNone(self.receipt())
+
+    def test_orphan_f_requires_original_admission_and_direct_resume(self):
+        result, _ = self.composite_f(origin='crashed-owner')
+        self.assertIsNotNone(self.receipt())
+        self.actions['f']['action']['arguments']['resume_run'] = '0' * 64
+        self.assertIsNone(self.receipt())
+        self.actions['f']['action']['arguments']['resume_run'] = result['resume_run']
+        for field in ('task_version', 'source_sha256', 'evaluator_sha256'):
+            with self.subTest(field=field):
+                prior = self.contexts['crashed-owner'][field]
+                self.contexts['crashed-owner'][field] = 'changed'
+                self.assertIsNone(self.receipt())
+                self.contexts['crashed-owner'][field] = prior
+        del self.actions['crashed-owner']
+        self.assertIsNone(self.receipt())
+
 
 if __name__ == '__main__': unittest.main()
