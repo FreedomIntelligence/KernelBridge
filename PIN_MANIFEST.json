@@ -1256,8 +1256,8 @@
       "sha256": "00caab7fe47dfe32d8361fd341199905397a91454f9c8610f15df7a8fcb85ded"
     },
     "source/apps/agent/package.json": {
-      "bytes": 2141,
-      "sha256": "60be1ca2bc2a5d92e0dcaa46a26317724d6d04ff10abb43d5a70a84c1c5c486e"
+      "bytes": 2179,
+      "sha256": "9c88795dcc014956724498c3abab0270c1cf20fee3a517b0b5cd6c00173b8d67"
     },
     "source/apps/agent/patches/pi-coding-agent-1.5.0-host-actions.json": {
       "bytes": 718,

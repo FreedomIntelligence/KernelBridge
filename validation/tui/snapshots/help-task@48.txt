@@ -1,0 +1,16 @@
+命令
+  /goal 目标内容          持续执行直到完成
+  /goal pause | resume | clear
+                          暂停、恢复、清除目标
+  /context reset  /new    开始新 Trial
+  /fork  /tree            分支对话或浏览历史
+  /resume  /import        恢复带源码检查点的会话
+  /agents                 子代理类型与运行记录
+  /trace                  浏览器中查看实时轨迹
+  /compact                压缩上下文
+  /model  /settings       模型路由与会话设置
+  /detach                 退出并允许 Goal 继续
+  /quit                   退出并按策略暂停
+快捷键
+  esc 中断 · ctrl+o 展开工具输出 · ! 运行 shell
+  !! 不进上下文 · 输入 / 查看全部可用命令
