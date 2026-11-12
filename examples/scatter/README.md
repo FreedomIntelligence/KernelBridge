@@ -11,7 +11,8 @@ The independent CPU oracle checks all six cases and is excluded from timing.
 CPU fallback does not qualify as an NPU baseline.
 
 Prepare an empty trial after deploying the pinned `npu_*.py` helpers and
-`../operator_pipeline/diagnostic_policy.py` to the authorized remote profile:
+`../operator_pipeline/diagnostic_policy.py` and `../operator_pipeline/preflight.py`
+to the authorized remote profile's `tools/` directory:
 
 ```sh
 python3 -B examples/scatter/prepare_npu_campaign.py \

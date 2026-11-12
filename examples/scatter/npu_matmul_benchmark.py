@@ -4,7 +4,6 @@ This driver supplies no candidate implementation. Each invocation owns one fresh
 job directory; recover its receipt after interruption instead of running it again.
 """
 import argparse
-import ast
 import hashlib
 import json
 import math
@@ -22,11 +21,13 @@ from npu_candidate_audit import audit_wrapper, audit_native_binding
 from npu_diagnostics import collect_ir, validated_ir_artifacts
 try:
     from diagnostic_policy import assess_diagnostics, diagnostic_reason
+    from preflight import NATIVE_SOURCE_FIELDS, parse_literal_sources
 except ModuleNotFoundError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'operator_pipeline'))
     from diagnostic_policy import assess_diagnostics, diagnostic_reason
+    from preflight import NATIVE_SOURCE_FIELDS, parse_literal_sources
 
-FIELDS = {'project_json_src', 'host_tiling_src', 'host_operator_src', 'kernel_src', 'python_bind_src', 'model_src'}
+FIELDS = set(NATIVE_SOURCE_FIELDS)
 SEEDS = (1024, 1025, 1026, 1027, 1028)
 CASE_ID = 'matmul-fp16-128x128x128'
 PROTOCOL = 'cube-fp16-128-eager-abba-12x20-v1'
@@ -52,19 +53,7 @@ def canonical_digest(value):
 
 
 def sources(path):
-    result = {}
-    for node in ast.parse(Path(path).read_text()).body:
-        if not isinstance(node, ast.Assign) or len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
-            raise ValueError('Candidate must contain six literal source assignments')
-        name = node.targets[0].id
-        if name not in FIELDS or name in result:
-            raise ValueError('Unexpected/duplicate source assignment')
-        result[name] = ast.literal_eval(node.value)
-        if not isinstance(result[name], str):
-            raise ValueError('Source must be a string')
-    if set(result) != FIELDS:
-        raise ValueError('Six source fields required')
-    return result
+    return parse_literal_sources(Path(path).read_bytes(), FIELDS)
 
 
 def audit_sources(parsed):

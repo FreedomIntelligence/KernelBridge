@@ -114,8 +114,6 @@ def _build_proposers(
     task_instructions: TaskInstructions | None = None,
 ) -> dict[str, Proposer]:
     """Construct transports without sending requests or mutating operator policy."""
-    if task_instructions is not None and not child:
-        raise ValueError("task instruction inheritance is restricted to child transports")
     result: dict[str, Proposer] = {}
     for route, provider in providers.items():
         wire_options = provider.wire_options
@@ -326,10 +324,11 @@ def build(config: Config, base: Path, task: Task, *,
             tools.append(ValidateImprovement(store, validator,
                 digest({"config": v.model_dump(mode="json"), "files": validator_hashes})))
             observers.append(PromoteOnFinish())
-    providers = _build_proposers(config.providers)
+    instructions = admitted_task_instructions(task, workspace_mode=config.workspace_mode,
+        readonly_paths=config.readonly_paths, workspace_root=workspace.root)
+    providers = _build_proposers(config.providers, task_instructions=instructions)
     child_providers = _build_proposers(config.providers, child=True,
-        task_instructions=admitted_task_instructions(task, workspace_mode=config.workspace_mode,
-            readonly_paths=config.readonly_paths))
+        task_instructions=instructions)
     gateway = Gateway(store, [*tools, *extra_tools], task.scope, guards)
     rsi = None if config.rsi is None else RsiEffects(
         gateway, workspace, artifacts, state_dir, task.id, config.rsi)
@@ -351,6 +350,7 @@ def build(config: Config, base: Path, task: Task, *,
                           "case_sensitive": filesystem_case_sensitive(workspace.root),
                           "mode": config.workspace_mode, "home": str(Path.home())},
         role=worker.role, child_proposers=child_providers, profile=config.agent_profile,
+        instruction_files=instructions.files if instructions else (),
         observers=tuple(observers), task_identity=digest(task), options=config.agent_options,
         external_context=external_context, rsi=rsi,
         should_stop_after_turn=(lambda _state: pending_request(records) is not None)

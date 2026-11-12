@@ -3,6 +3,7 @@
 This module never executes a driver or changes workflow state. Filesystem reads
 only verify the original evidence returned by the declared driver protocol.
 """
+import ast
 import hashlib
 import json
 from pathlib import Path
@@ -12,6 +13,59 @@ PROTOCOL = 'kernelbridge.driver-preflight/v1'
 ARTIFACTS = ('preflight/expected-contract.json', 'preflight/actual-contract.json',
              'preflight/differences.json')
 MAX_ARTIFACT_BYTES = 32 * 1024 * 1024
+SOURCE_ARTIFACT = 'preflight/source-validation.json'
+NATIVE_SOURCE_FIELDS = ('host_operator_src', 'host_tiling_src', 'kernel_src',
+                        'model_src', 'project_json_src', 'python_bind_src')
+
+
+class SourceFormatError(ValueError):
+    """A deterministic rejection of source bytes, before any execution."""
+    def __init__(self, code, message, *, line=None, column=None):
+        super().__init__(message)
+        self.detail = {'code': code, 'message': message}
+        if line is not None: self.detail['line'] = line
+        if column is not None: self.detail['column'] = column
+
+
+def parse_literal_sources(data, fields):
+    """Parse source strings without evaluating candidate code.
+
+    A leading Python module docstring is documentation. Every remaining statement
+    must assign one of the declared fields exactly once to a literal string.
+    """
+    if isinstance(data, bytes):
+        try:
+            data = data.decode('utf-8')
+        except UnicodeDecodeError as error:
+            raise SourceFormatError('encoding', 'Candidate must be UTF-8 source') from error
+    try:
+        nodes = ast.parse(data, filename='<candidate>').body
+    except (SyntaxError, ValueError) as error:
+        raise SourceFormatError('syntax', getattr(error, 'msg', str(error)),
+                                line=getattr(error, 'lineno', None),
+                                column=getattr(error, 'offset', None)) from error
+    if (nodes and isinstance(nodes[0], ast.Expr) and isinstance(nodes[0].value, ast.Constant)
+            and isinstance(nodes[0].value.value, str)):
+        nodes = nodes[1:]
+    result = {}
+    for node in nodes:
+        detail = {'line': node.lineno, 'column': node.col_offset + 1}
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+            raise SourceFormatError('statement', 'Candidate must contain only literal source assignments after its optional module docstring', **detail)
+        name = node.targets[0].id
+        if name not in fields or name in result:
+            raise SourceFormatError('field', 'Unexpected or duplicate source assignment: ' + name, **detail)
+        try:
+            value = ast.literal_eval(node.value)
+        except (ValueError, TypeError, SyntaxError) as error:
+            raise SourceFormatError('literal', 'Source field must be a literal string: ' + name, **detail) from error
+        if not isinstance(value, str):
+            raise SourceFormatError('string', 'Source field must be a string: ' + name, **detail)
+        result[name] = value
+    missing = sorted(set(fields) - set(result))
+    if missing:
+        raise SourceFormatError('missing', 'Missing source fields: ' + ', '.join(missing))
+    return result
 
 
 def encoded(value):
@@ -99,6 +153,58 @@ def make_rejection(request, expected, actual):
     return value, artifacts
 
 
+def make_source_rejection(request, filename, fields):
+    """Prove a pure format rejection against the original frozen source bytes."""
+    if fields != list(NATIVE_SOURCE_FIELDS):
+        raise ValueError('Source rejection must retain the native six-field declaration')
+    source = request['source']; root = Path(source['root'])
+    path = root / filename
+    if (not isinstance(filename, str) or Path(filename).is_absolute() or '..' in Path(filename).parts
+            or root.resolve() != root or path.resolve() != path or not path.is_file()
+            or source['sha256'] != digest(source['files']) or filename not in source['files']):
+        raise ValueError('Invalid original frozen source for format rejection')
+    raw = path.read_bytes(); file_sha = hashlib.sha256(raw).hexdigest()
+    if file_sha != source['files'][filename]:
+        raise ValueError('Original frozen source changed during format validation')
+    try:
+        parse_literal_sources(raw, fields)
+    except SourceFormatError as error:
+        validation = {'schema_version': 'kernelbridge.literal-source-validation/v1',
+                      'file': filename, 'sha256': file_sha,
+                      'format': {'fields': fields, 'allow_module_docstring': True},
+                      'error': error.detail}
+    else:
+        raise ValueError('A source format rejection requires invalid frozen source')
+    artifacts = {SOURCE_ARTIFACT: encoded(validation) + b'\n'}
+    message = 'Candidate source format rejected: ' + validation['error']['message']
+    value = {'protocol': PROTOCOL, 'status': 'rejected', 'phase': 'preflight',
+             'dispatch_outcome': 'not_started', 'operation': 'launch',
+             'action_id': request['action_id'], 'request_sha256': digest(request),
+             'source_sha256': source['sha256'], 'binding': request['binding'],
+             'error': {'code': 'candidate_format', 'message': text_prefix(message, 2048),
+                       'file': filename, 'detail': {key: validation['error'][key]
+                           for key in ('code', 'line', 'column') if key in validation['error']},
+                       'truncated': len(message.encode('utf-8')) > 2048},
+             'evidence': {'source_validation_sha256': digest(validation),
+                          'artifacts': {name: hashlib.sha256(data).hexdigest()
+                                        for name, data in artifacts.items()}}}
+    return value, artifacts
+
+
+def original_document(folder, name, expected_sha):
+    path = folder / name
+    if (path.resolve() != path or not path.is_file()
+            or not 0 < path.stat().st_size <= MAX_ARTIFACT_BYTES):
+        raise ValueError('Preflight artifact is missing, escaped or too large')
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != expected_sha:
+        raise ValueError('Original preflight artifact hash changed')
+    document = json.loads(raw)
+    if raw != encoded(document) + b'\n':
+        raise ValueError('Preflight evidence must retain canonical original JSON bytes')
+    return document
+
+
 def validate_rejection(value, request, folder):
     """Validate exact request identity and complete original rejection evidence.
 
@@ -124,6 +230,18 @@ def validate_rejection(value, request, folder):
             or encoded(value['binding']) != encoded(request['binding'])):
         raise ValueError('Preflight rejection request or source identity differs')
     evidence = value['evidence']
+    if isinstance(value.get('error'), dict) and value['error'].get('code') == 'candidate_format':
+        if (not isinstance(evidence, dict) or set(evidence) != {'source_validation_sha256', 'artifacts'}
+                or not isinstance(evidence['artifacts'], dict) or set(evidence['artifacts']) != {SOURCE_ARTIFACT}):
+            raise ValueError('Invalid source rejection evidence fields')
+        validation = original_document(folder, SOURCE_ARTIFACT, evidence['artifacts'][SOURCE_ARTIFACT])
+        if digest(validation) != evidence['source_validation_sha256']:
+            raise ValueError('Original source validation evidence changed')
+        rebuilt, artifacts = make_source_rejection(request, validation['file'], validation['format']['fields'])
+        if (encoded(value) != encoded(rebuilt)
+                or encoded(validation) + b'\n' != artifacts[SOURCE_ARTIFACT]):
+            raise ValueError('Source rejection differs from original frozen source validation')
+        return value
     if not isinstance(evidence, dict) or set(evidence) != {
             'expected_contract_sha256', 'actual_contract_sha256', 'artifacts'}:
         raise ValueError('Invalid preflight rejection evidence fields')
@@ -131,17 +249,7 @@ def validate_rejection(value, request, folder):
         raise ValueError('Preflight rejection requires all original contract/diff artifacts')
     documents = []
     for name in ARTIFACTS:
-        path = folder / name
-        if (path.resolve() != path or not path.is_file()
-                or not 0 < path.stat().st_size <= MAX_ARTIFACT_BYTES):
-            raise ValueError('Preflight artifact is missing, escaped or too large')
-        raw = path.read_bytes()
-        if hashlib.sha256(raw).hexdigest() != evidence['artifacts'][name]:
-            raise ValueError('Original preflight artifact hash changed')
-        document = json.loads(raw)
-        if raw != encoded(document) + b'\n':
-            raise ValueError('Preflight evidence must retain canonical original JSON bytes')
-        documents.append(document)
+        documents.append(original_document(folder, name, evidence['artifacts'][name]))
     expected, actual, differences = documents
     if (digest(expected) != evidence['expected_contract_sha256']
             or digest(actual) != evidence['actual_contract_sha256']

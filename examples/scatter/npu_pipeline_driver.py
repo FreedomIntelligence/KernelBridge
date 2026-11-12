@@ -8,12 +8,13 @@ import re
 import sys
 
 from npu_trial import LOG_PAGE_BYTES, MAX_LOG_BYTES, attempt_records, attempt_number, invoke_remote, recover_run_log, save, transport, trial, same_handle, wire_handle, wire_summary
+from npu_benchmark import FIELDS, sources
 from npu_diagnostics import MAX_ARTIFACT
 try:
-    from preflight import PROTOCOL, contract_differences, digest as preflight_digest, make_rejection
+    from preflight import PROTOCOL, SourceFormatError, contract_differences, digest as preflight_digest, make_rejection, make_source_rejection
 except ModuleNotFoundError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'operator_pipeline'))
-    from preflight import PROTOCOL, contract_differences, digest as preflight_digest, make_rejection
+    from preflight import PROTOCOL, SourceFormatError, contract_differences, digest as preflight_digest, make_rejection, make_source_rejection
 
 
 def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -58,6 +59,35 @@ def verify_contract(config, request):
     expected['oracle']['files'] = {name: sha(path) for name, path in expected['oracle']['files'].items()}
     if contract_differences(expected, declared):
         raise ContractMismatch(expected, declared)
+
+
+def original_launch_action(config, request):
+    """Recognize prior effects before a new-input preflight can reject them."""
+    action_id = request.get('action_id')
+    if not isinstance(action_id, str) or not action_id:
+        raise ValueError('Original pipeline tool action ID is required')
+    if set(request['source']['files']) != {'candidate.py'}:
+        raise ValueError('Freeze exactly candidate.py')
+    matches = []
+    for path in attempt_records(Path(config['state']).resolve()):
+        if path.resolve() != path:
+            raise ValueError('Original attempt identity contains a link')
+        intent = json.loads(path.read_text())
+        if intent['action_id'] == action_id:
+            matches.append((path.parent, intent))
+    if len(matches) > 1:
+        raise ValueError('Ambiguous original action identity')
+    if not matches:
+        return None
+    folder, intent = matches[0]
+    candidate = folder / 'candidate.py'
+    expected = request['source']['files']['candidate.py']
+    if (intent.get('source_sha256') != expected
+            or request['binding']['source'] != request['source']['sha256']
+            or candidate.resolve() != candidate or not candidate.is_file()
+            or sha(candidate) != expected):
+        raise ValueError('Original action source identity changed; recover its original receipt')
+    return folder
 
 
 def round_for(config, request):
@@ -450,10 +480,11 @@ def execute(config, operation, request):
         config = dict(config, wait_seconds=min(config.get('wait_seconds', 900), remaining),
                       poll_seconds=min(config.get('poll_seconds', 5), max(0.05, remaining)))
     verify(request['source'])
+    prior_attempt = original_launch_action(config, request) if operation == 'launch' else None
     try:
         verify_contract(config, request)
     except ContractMismatch as error:
-        if operation != 'launch':
+        if operation != 'launch' or prior_attempt is not None:
             raise
         rejection, artifacts = make_rejection(request, error.expected, error.actual)
         for name, data in artifacts.items():
@@ -463,6 +494,17 @@ def execute(config, operation, request):
         if set(request['source']['files']) != {'candidate.py'}: raise ValueError('Freeze exactly candidate.py')
         action_id = request.get('action_id')
         if not isinstance(action_id, str) or not action_id: raise ValueError('Original pipeline tool action ID is required')
+        # Only a new action can be rejected before dispatch. An existing action
+        # retains its original source/receipt and the trial's recovery ordering,
+        # even if a later parser would reject that historical source shape.
+        if prior_attempt is None:
+            try:
+                sources(Path(request['source']['root']) / 'candidate.py')
+            except SourceFormatError:
+                rejection, artifacts = make_source_rejection(request, 'candidate.py', sorted(FIELDS))
+                for name, data in artifacts.items():
+                    write_preflight_artifact(Path(request['output']) / name, data)
+                return rejection
         source_sha = request['source']['files']['candidate.py']
         stage = Path(config['state']).parent / 'trial-inputs' / hashlib.sha256(action_id.encode()).hexdigest()
         stage.mkdir(parents=True, exist_ok=True)

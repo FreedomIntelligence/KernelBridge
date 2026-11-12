@@ -8,8 +8,10 @@ describes the API protocol, not the model vendor. These are not GPT-in-Codex
 trials. Comparisons with earlier Codex work change the model, framework, prior
 context and call allowance together and cannot establish their separate effects.
 
-The ceiling is 20 model admissions shared by parent, child, compaction and
-review, not 20 source-edit/device-experiment iterations. Model reasoning and
+The initial bounded trials used 20 model admissions shared by parent, child,
+compaction and review, not 20 source-edit/device-experiment iterations. Later
+uncapped trials follow the user's removal of aggregate turn and token limits;
+their actual calls and usage remain recorded. Model reasoning and
 candidate generation, the generic agent runtime, our domain tools, and CANN
 compilation/profiling have different responsibilities. Improvements in prompts,
 source, logs and knowledge resources are not evidence of model-weight updates.
@@ -800,3 +802,112 @@ remains paused; this landing does not establish candidate correctness, ABBA
 acceleration or promotion. The audit and validation artifacts are archived at
 `.validation/operator-guidance-delivery-20261112/` after delivery, with their
 original contents and historical path identities retained.
+
+## 2026-11-12: clean instruction-delivery trial and pre-dispatch rejection
+
+After `ad03725` was pushed to main, a separate clean max session was started
+from that exact source. Its new deployment contained 306 verified files, used
+an idle device 0 through the existing Hong Kong transport, and retained the
+original eager, cases and measurement protocol. No candidate or conversation
+was copied into the new workspace. Total model-turn, token and credit limits
+were absent, following the user's later instruction; the earlier 20-turn
+target is not a limit for this run.
+
+The session `application-8e462fb0-021b-478c-986e-8d7b655a3ee6` is retained under
+`harness-eager-validation/KernelBridge/.validation/harness-trials/max/`.
+Its first 21 completed model calls were parent calls, using 818,827 reported
+tokens. The first candidate was written at call 8; the first composite
+evaluation was requested at call 12. There was no original device attempt or
+handle, build, correctness result, IR/profiler artifact, pair or promotion.
+
+All 21 actual provider request bodies contained the complete admitted
+`AGENTS.md` (14,732 UTF-8 bytes) and `AGENTS.task.md` (2,092 bytes). All 12
+successful artifact-read pages were present in the subsequent request. This
+establishes instruction and page delivery for this parent path; it does not
+establish that every agent mode or operating system was exercised, or that the
+model used every instruction correctly.
+
+Two independent harness failures explain the stalled run:
+
+- The candidate contained all six literal source assignments, preceded by a
+  Python module docstring. The final source parser rejected that first AST
+  node before creating an attempt or invoking the transport. The pipeline had
+  already written its dispatch marker, so it incorrectly exposed this local
+  rejection as an unknown launch. Subsequent recovery looked for an attempt
+  that did not exist. The outer tool process succeeded in returning this
+  business failure; its exit code was not the launch subprocess's exit code.
+- The host durably queued a continuation after call 21, but its input repeated
+  the full task, including instruction and ABI seed files. That exceeded the
+  normal 64 KiB input limit. The UI caught the validation error while the Goal
+  remained active. This was an input-delivery failure, not exhausted tokens or
+  a measured device stall.
+
+The model had read the parser's source earlier, but did not read the actual
+launch traceback. It read the later collect traceback instead. The complete
+request/response audit, source changes, original receipts and verified Journal
+snapshot are in the same worktree's
+`.validation/trajectory-observation/max/`, including
+`stage-21-causal-audit.md`. The original candidate and session are retained;
+repairs are developed separately and subsequent performance trials start
+clean. No eager speedup is claimed from these 21 calls.
+
+The original session was then paused with one control request. Journal sequence
+623 atomically records the paused Goal and interruption of the old queued
+policy; the 21-call audit through sequence 621 is preserved separately. No
+candidate or provider prompt was changed to rescue that session.
+
+### Repairs derived from the retained 21-call trace
+
+Three independently replayed repairs are under local qualification. Instruction
+delivery now uses one admitted immutable snapshot for the parent, foreground and
+background children, and the legacy model adapter. Project mode admits the
+selected workspace's `AGENTS.md` and `AGENTS.task.md`; isolated mode uses the
+task's readonly seed files. Empty snapshots do not fall back to ambient files.
+This does not add ancestor discovery or claim qualification on another OS.
+
+Native source validation accepts an optional module docstring followed by the
+same six unique literal assignments. It remains a pure AST check: imports,
+execution and additional statements are rejected. New actions return a
+source-bound local rejection before dispatch. An existing action is recovered
+first using its original identity and bytes, even if today's parser would
+reject its historical format. Contract or source conflicts still fail closed;
+unknown effects never become a new launch or a `not_started` receipt. The same
+parser serves scatter and Cube, without changing either implementation,
+oracle, eager baseline or measurement protocol.
+
+Continuation inputs now reference the original task identity and evidence
+instead of repeating seed-file bodies. Replaying the original queued policy
+reduced its size from 66,794 to 1,898 UTF-8 bytes while retaining the complete
+objective and decision. The normal 64 KiB user-input limit is unchanged.
+Admission precedes queueing; definite rejection is durable and visible, while
+an uncertain acknowledgement is reconciled using the original input ID.
+Concurrent Goal changes remain protected by the Goal identity check. These
+instruction and input repairs apply to ordinary coding and non-scatter tasks.
+
+The first full local pass is retained, including failures: Python discovery
+ran 421 tests with one failure, ten errors and one optional dependency skip;
+TUI acceptance passed 26 of 27 groups. Seven Python errors came from test-only
+hardcoded `/usr/bin/node`; two delegation errors did not recur in the explicit
+Node-environment rerun, whose 13 cases all passed. A real cached-action recovery
+regression and a wall-clock-dependent pending-job fixture were repaired rather
+than hidden. The TUI runtime group's three worker deadline errors occurred
+under heavy load; the same cases passed in the Python run. That failure remains
+recorded and requires a successful follow-up. JavaScript passed 190 of 193 tests,
+with three explicit condition skips and no failures. Logs are retained in
+`agent-guidance-parity/KernelBridge/.validation/acceptance/`. These are harness
+checks, not evidence of NPU correctness or eager acceleration.
+
+After those fixes, full Python discovery passed 424/424 tests, with no skips,
+using explicit Node resolution, the existing CPU dependencies and original
+private replay fixtures (`.validation/acceptance/python-r2.log`). No production
+deadline was increased. The auxiliary task remains the independent Cube task
+specified in [the task report](harness-auxiliary-task.md); its matrix execution,
+tiling, accumulation and workspace requirements differ from scatter. It is
+still a fixed-shape contract, not evidence of generalization across matrix sizes.
+
+The isolated TUI runtime follow-up also passed all seven tests; its runner
+passed deployment and runtime (2/2) in
+`.validation/acceptance/tui-runtime-r2/acceptance.json`. Combined with the 26
+successful groups from the retained full run, every required local TUI group
+has a passing result. This is a full run plus a focused follow-up, not a new
+single 27/27 run. There were no further production changes after qualification.

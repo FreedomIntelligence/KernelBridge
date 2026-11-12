@@ -123,15 +123,29 @@ class EvaluatePipelineTests(unittest.TestCase):
 
     def test_bounded_pending_resumes_original_handle_without_launching_again(self):
         self.gate.unlink()
-        first = self.evaluate(wait_seconds=.18); pending = self.result(first)
+        # Establish the original running job before exercising a zero wait;
+        # startup and durable freeze latency are not part of this assertion.
+        self.call('pipeline_freeze', files={'candidate.py': str(self.source)}, origin={'scope': 'fixture'})
+        launched = self.call('pipeline_run', stage='E', driver='launch')
+        original_handle = launched['result']['result']['handle']
+        self.assertEqual(launched['result']['result']['job_status'], 'running')
+        original_launch = self.calls('launch')[0]
+        first = self.evaluate(wait_seconds=0); pending = self.result(first)
         self.assertEqual(pending['evaluation_status'], 'pending')
-        self.assertEqual(len(self.calls('launch')), 1); self.assertEqual(self.calls('check'), [])
+        self.assertEqual(pending['original_handle'], original_handle)
+        self.assertFalse(pending['source_changed']); self.assertEqual(pending['stages'], [])
+        self.assertEqual(self.calls('launch'), [original_launch]); self.assertEqual(self.calls('check'), [])
         self.gate.touch()
         continuation = pending['continuation']
+        self.assertEqual(continuation['arguments']['resume_run'], first['run'])
         resumed = self.result(self.call(continuation['tool'], **{**continuation['arguments'], 'wait_seconds': 2}))
         self.assertEqual(resumed['evaluation_status'], 'completed')
-        self.assertEqual(len(self.calls('launch')), 1); self.assertEqual(len(self.calls('check')), 1)
+        self.assertEqual(self.calls('launch'), [original_launch]); self.assertEqual(len(self.calls('check')), 1)
+        self.assertEqual([row['handle'] for row in self.calls('collect')], [original_handle])
+        self.assertEqual(self.calls('check')[0]['handle'], original_handle)
         self.assertEqual({row['source'] for row in self.calls()}, {pending['source_sha256']})
+        retained = Pipeline(self.config).state['handles']
+        self.assertEqual(len(retained), 1); self.assertEqual(retained[0]['launch_run'], launched['run'])
 
     def crash_during(self, kind):
         self.source.write_text('slow_' + kind + '\n')

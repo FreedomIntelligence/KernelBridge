@@ -4,7 +4,6 @@ Each invocation owns a fresh output directory. A prior invocation is recovered
 from its result and process handle, never re-executed under the same identity.
 """
 import argparse
-import ast
 import hashlib
 import json
 import os
@@ -20,28 +19,20 @@ from npu_diagnostics import collect_ir, validated_ir_artifacts
 from npu_candidate_audit import audit_wrapper, audit_native_binding
 try:
     from diagnostic_policy import assess_diagnostics, diagnostic_reason
+    from preflight import NATIVE_SOURCE_FIELDS, parse_literal_sources
 except ModuleNotFoundError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'operator_pipeline'))
     from diagnostic_policy import assess_diagnostics, diagnostic_reason
+    from preflight import NATIVE_SOURCE_FIELDS, parse_literal_sources
 
-FIELDS = {'project_json_src', 'host_tiling_src', 'host_operator_src', 'kernel_src', 'python_bind_src', 'model_src'}
+FIELDS = set(NATIVE_SOURCE_FIELDS)
 
 
 def digest(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def sources(path):
-    result = {}
-    for node in ast.parse(path.read_text()).body:
-        if not isinstance(node, ast.Assign) or len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
-            raise ValueError('Candidate must contain six literal source assignments')
-        name = node.targets[0].id
-        if name not in FIELDS or name in result:
-            raise ValueError('Unexpected/duplicate source assignment')
-        result[name] = ast.literal_eval(node.value)
-        if not isinstance(result[name], str): raise ValueError('Source must be a string')
-    if set(result) != FIELDS: raise ValueError('Six source fields required')
-    return result
+    return parse_literal_sources(Path(path).read_bytes(), FIELDS)
 
 
 def suite(torch, mode, device):

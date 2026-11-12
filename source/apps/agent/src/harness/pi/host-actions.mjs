@@ -139,17 +139,47 @@ export function createHostActions(control, effects, { observer = control } = {})
     });
     pi.on('input', async event => {
       explorationBoundary();
+      let receipt;
       try {
-        const receipt = inputs.consume(event.text);
-        if (receipt.status !== 'queued') return { action: 'handled' };
+        receipt = inputs.take(event.text);
+        if (inputs.uncertain.has(receipt.input_id)) receipt = await currentInput(receipt);
+        if (receipt.status !== 'queued') {
+          finishUndelivered(receipt);
+          showInputOutcome(receipt);
+          return { action: 'handled' };
+        }
+        effects.bind({ input_id: receipt.input_id });
+        let acknowledgement;
+        try {
+          acknowledgement = await effects.call('application_enqueue', { input_id: receipt.input_id });
+        } catch {
+          // A lost ACK is not a rejection. Observe the original receipt before
+          // one bounded, idempotent retry; never invent a replacement input.
+          receipt = await currentInput(receipt);
+          if (receipt.status !== 'queued') {
+            finishUndelivered(receipt);
+            showInputOutcome(receipt);
+            return { action: 'handled' };
+          }
+          acknowledgement = await effects.call('application_enqueue', { input_id: receipt.input_id });
+        }
+        if (acknowledgement?.status === 'rejected') {
+          if (acknowledgement.input_id !== receipt.input_id) throw new Error('Input rejection does not match the original receipt');
+          finishUndelivered(receipt);
+          showInputOutcome({ ...receipt, ...acknowledgement });
+          return { action: 'handled' };
+        }
+        inputs.complete(receipt);
         applying.push(receipt);
         activeInput = receipt;
-        effects.bind({ input_id: receipt.input_id });
-        await effects.call('application_enqueue', { input_id: receipt.input_id });
         if (governed) { governed.controller.stopped = false; governed.controller.stopResult = undefined; }
         return { action: 'continue' };
       } catch (error) {
-        context?.ui.notify(String(error), 'error');
+        if (receipt) {
+          inputs.retain(receipt);
+          releaseUndelivered(receipt);
+        }
+        context?.ui.notify(`${String(error)}${receipt ? `\n原输入 ${receipt.input_id} 已保留；重新提交相同文本或重连时先查询原回执，不会创建替代输入。` : ''}`, 'error');
         return { action: 'handled' };
       }
     });
@@ -350,6 +380,29 @@ export function createHostActions(control, effects, { observer = control } = {})
 
   const report = error => { showProductFeedback(context, String(error), true); };
 
+  async function currentInput(receipt) {
+    const current = (await refresh()).inputs?.[receipt.input_id];
+    if (!current) throw new Error(`Original input ${receipt.input_id} has no observable receipt; delivery remains unknown`);
+    return current;
+  }
+
+  function releaseUndelivered(receipt) {
+    delivered.delete(receipt.input_id);
+    applying = applying.filter(item => item.input_id !== receipt.input_id);
+    if (activeInput?.input_id === receipt.input_id) activeInput = undefined;
+  }
+
+  function finishUndelivered(receipt) {
+    inputs.complete(receipt);
+    releaseUndelivered(receipt);
+  }
+
+  function showInputOutcome(receipt) {
+    const rejected = ['failed', 'rejected'].includes(receipt.status);
+    context?.ui.notify(`输入 ${receipt.input_id}：${receipt.status}${receipt.reason ? ` (${receipt.reason})` : ''}${receipt.error_summary ? `\n${receipt.error_summary}` : ''}`,
+      rejected ? 'error' : 'info');
+  }
+
   async function persistInput(receipt, entryId) {
     await settlement;
     const manager = governed.session.sessionManager;
@@ -402,7 +455,16 @@ export function createHostActions(control, effects, { observer = control } = {})
     advancing = true;
     try {
       const decision = await control.call('next');
-      if (!decision.receipt) return false;
+      if (!decision.receipt) {
+        if (decision.reason === 'continuation_input_invalid' && decision.error_summary) {
+          context?.ui.notify(`Goal 自动继续输入被拒绝：${decision.error_summary}`, 'error');
+        }
+        return false;
+      }
+      // Stop a headless polling loop after unresolved admission. The original
+      // receipt remains retryable through submission/reconnect, without an
+      // applying/running fence or an unbounded automatic dispatch loop.
+      if (inputs.uncertain.has(decision.receipt.input_id)) return false;
       if (decision.action === 'reset') await resetContext();
       if (decision.action === 'fork') await governed.runtime.fork(decision.receipt.target_entry_id, { position: 'at' });
       await deliver(decision.receipt);
@@ -413,12 +475,13 @@ export function createHostActions(control, effects, { observer = control } = {})
   async function deliver(receipt) {
     if (receipt.status !== 'queued' || !governed || delivered.has(receipt.input_id)) return;
     if (receipt.kind === 'prompt' && governed.session.isStreaming) return;
-    delivered.add(receipt.input_id);
     if (receipt.kind === 'control') {
+      delivered.add(receipt.input_id);
       await actions.submit(receipt.text, { streaming: governed.session.isStreaming, compacting: governed.session.isCompacting }, receipt);
       return;
     }
-    inputs.enqueue(receipt);
+    if (!inputs.enqueue(receipt)) return;
+    delivered.add(receipt.input_id);
     if (receipt.initiator === 'loopx' && receipt.kind === 'policy') policyInputs.add(receipt.text);
     const streamingBehavior = receipt.kind === 'follow_up' ? 'followUp' : 'steer';
     await governed.prompt(receipt.text, { source: 'rpc', ...(governed.session.isStreaming ? { streamingBehavior } : {}) });

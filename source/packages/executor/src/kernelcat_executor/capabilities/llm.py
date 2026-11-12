@@ -153,7 +153,7 @@ class APIProposer:
             limit = context.get("policy", {}).get("context_bytes")
             if (type(limit) is int and len(canonical(context).encode("utf-8"))
                     + len(task_prompt.encode("utf-8")) > limit):
-                raise ContextOverflow("child task instructions and context exceed context_bytes")
+                raise ContextOverflow("host task instructions and context exceed context_bytes")
             system += task_prompt
         if self.provider == "openai":
             endpoint = "/chat/completions"

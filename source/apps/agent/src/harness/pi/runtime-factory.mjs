@@ -142,7 +142,7 @@ export async function createGovernedRuntime(client, home, dependencies, options 
     // community plugin's separate fleet/async widgets out of the product UI.
     mkdirSync(join(agentDir, 'extensions/subagent'), { recursive: true, mode: 0o700 });
     writeFileSync(join(agentDir, 'extensions/subagent/config.json'), JSON.stringify({ fleetView: false, asyncWidget: false }) + '\n', { mode: 0o600 });
-    const frozenInstructions = projectInstructions(cwd);
+    const frozenInstructions = projectInstructions(cwd, hello.project_instructions);
     let bridge;
     let plugin;
     const receipts = native ? createReceiptContextBinding() : undefined;

@@ -291,11 +291,10 @@ def trial(config, action=None, recover=None):
     with (state / 'lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         prior_records = [(path, json.loads(path.read_text())) for path in attempt_records(state)]
-        run = transport(config)
         if recover is not None:
             matches = [path.parent for path, intent in prior_records if attempt_number(intent) == recover]
             if len(matches) != 1: raise ValueError('Recovery requires one original attempt number')
-            return collect(config, matches[0], run)
+            return collect(config, matches[0], transport(config))
         if not isinstance(action.get('id'), str) or not action['id']:
             raise ValueError('Original tool action ID is required')
         matches = [path.parent for path, intent in prior_records if intent['action_id'] == action['id']]
@@ -303,7 +302,7 @@ def trial(config, action=None, recover=None):
         if matches:
             folder = matches[0]
             if (folder / 'result.json').exists(): return {'status': 'completed', 'data': wire_summary(json.loads((folder / 'result.json').read_text()))}
-            return collect(config, folder, run)
+            return collect(config, folder, transport(config))
         for path, _ in prior_records:
             if not (path.parent / 'result.json').is_file():
                 return {'status': 'unknown', 'data': {'error': 'An earlier original attempt has no final receipt; recover it before starting another attempt', 'record': str(path)}}
@@ -318,6 +317,7 @@ def trial(config, action=None, recover=None):
         if not re.fullmatch(r'[A-Za-z0-9_-]+', namespace): raise ValueError('attempt_namespace must be one path component')
         benchmark = config.get('benchmark_script', 'npu_benchmark.py')
         if not re.fullmatch(r'npu_[A-Za-z0-9_]+[.]py', benchmark): raise ValueError('Expected a task-owned NPU benchmark filename')
+        run = transport(config)
         number = max((attempt_number(intent) for _, intent in prior_records), default=0) + 1
         folder = state / f'attempt-{number:04d}'; folder.mkdir()
         intent = {'attempt': number, 'action_id': action['id'], 'input_id': action.get('input_id'),

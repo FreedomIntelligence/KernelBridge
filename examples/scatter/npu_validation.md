@@ -24,7 +24,8 @@ attempt. The parent coordinator supplies `requested.json` with `round` and
 
 The transport exports `run(argv, stdin=bytes, timeout=seconds)` returning
 `returncode`, `stdout`, and `stderr`. Provision the remote `profile.json`, the
-executor sources and `tools/npu_*.py` plus `tools/diagnostic_policy.py` first.
+executor sources and `tools/npu_*.py` plus `tools/diagnostic_policy.py` and
+`tools/preflight.py` first.
 `npu_enter.py` activates only that profile's SDK/Python and optional Python
 development headers. `ascend_sources.candidate(mode, 33)` supplies an initial
 six-source candidate. The campaign tool requires a native implementation change;

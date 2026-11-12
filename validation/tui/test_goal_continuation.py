@@ -8,6 +8,8 @@ now states each limit and its usage, and a continuation that again makes no tool
 progress returns control to the user in task mode too (it was project mode only).
 """
 from pathlib import Path
+import copy
+import json
 import sys
 from types import SimpleNamespace
 import unittest
@@ -17,6 +19,8 @@ for path in [*ROOT.glob("source/packages/*/src"), ROOT / "source/apps/worker/src
     sys.path.insert(0, str(path))
 
 from kernelcat_executor.state.goal_progress import limits_text
+from kernelcat_executor.contracts.agent import AgentInput
+from kernelcat_executor.contracts.models import canonical, digest
 
 UNLIMITED = {"goal_id": "g", "status": "active", "objective": "max operator", "start_seq": 3, "resume_seq": None,
              "max_model_turns": None, "token_budget": None, "max_trials": 1, "max_forks": None,
@@ -96,6 +100,13 @@ class NextInputTests(unittest.TestCase):
         # The decision stays the last line; the TUI reads its model_turns from there.
         self.assertTrue(text.rsplit("\n", 1)[1].startswith("{"))
 
+    def test_the_last_line_carries_what_the_tui_label_reads(self):
+        import json
+        facts = json.loads(self.continuation("task").rsplit("\n", 1)[1])
+        self.assertEqual(facts["decision"]["model_turns"], 67)
+        self.assertEqual((facts["goal"]["max_model_turns"], facts["goal"]["token_budget"]), (None, None))
+        self.assertIsNone(facts["budget"]["limit"])
+
     def test_project_mode_continuation_states_the_limits(self):
         text = self.continuation("project")
         self.assertIn("call update_goal with status blocked", text)
@@ -119,6 +130,64 @@ class NextInputTests(unittest.TestCase):
         rows = [{"kind": "admitted", "seq": 13, "action": {"tool": "pipeline_read", "id": "t/step/48/model/ds/call/0"}}]
         host = self.host("task", state(inputs={"loopx-1": policy}), rows)
         self.assertEqual(host.next_input(SimpleNamespace(worker={"worker_id": "w"}))["action"], "continue")
+
+    def test_large_unicode_seed_is_referenced_without_replacing_original_context(self):
+        task = {"id": "scatter-max", "scope": "code", "goal": "implement max", "contract": {},
+                "seed_files": {"AGENTS.md": "完整的工具与 ABI 指令\n" * 9000,
+                               "native-interface.md": "immutable ABI signature"}}
+        objective = "完整目标：实现 max，保持精确语义和测量协议。"
+        value = state({**UNLIMITED, "objective": objective}, task=task)
+        original = copy.deepcopy(value)
+        host = self.host("task", value)
+        decision = host.next_input(SimpleNamespace(worker={"worker_id": "w"}))
+        receipt = next(data for kind, data in host.commands if kind == "accept")
+        text = AgentInput(kind="prompt", text=receipt["text"]).text
+        facts = json.loads(text.rsplit("\n", 1)[-1])
+        self.assertLess(len(text.encode("utf-8")), 65536)
+        self.assertNotIn("seed_files", facts["task"])
+        self.assertEqual(facts["task"]["id"], task["id"])
+        self.assertEqual(facts["task"]["snapshot_sha256"], digest(task))
+        self.assertEqual(facts["goal"]["objective"], objective)
+        self.assertEqual(facts["decision"]["model_turns"], decision["model_turns"])
+        self.assertEqual(receipt["goal_id"], UNLIMITED["goal_id"])
+        self.assertEqual(receipt["continuation_format"], "task-reference/v2")
+        self.assertEqual(value, original)
+
+    def test_large_results_keep_exact_evidence_lookup_and_original_record_hash(self):
+        raw = [{"path": f"run/measurements/part-{i}.log", "sha256": "a" * 64} for i in range(400)]
+        best = {"evidence_ref": "evidence/best.json", "source_sha256": "b" * 64, "score": 1.1,
+                "raw_data_ref": raw, "result": "large full evidence" * 10000}
+        latest = {"evidence_ref": "evidence/failed.json", "raw_data_ref": "original/run.log",
+                  "task_version": 1, "evidence_tier": "E0",
+                  "error": "actual full compiler failure" * 10000}
+        host = self.host("task", state(best=best, evidence=[latest]))
+        host.next_input(SimpleNamespace(worker={"worker_id": "w"}))
+        text = next(data["text"] for kind, data in host.commands if kind == "accept")
+        facts = json.loads(text.rsplit("\n", 1)[-1])
+        AgentInput(kind="prompt", text=text)
+        self.assertEqual(facts["best"]["record_sha256"], digest(best))
+        self.assertEqual(facts["best"]["evidence_ref"], best["evidence_ref"])
+        self.assertEqual(facts["best"]["raw_data_ref"]["sha256"], digest(raw))
+        self.assertEqual(facts["latest_evidence"]["evidence_ref"], latest["evidence_ref"])
+        self.assertEqual(facts["latest_evidence"]["raw_data_ref"], latest["raw_data_ref"])
+        self.assertEqual(facts["latest_evidence"]["record_sha256"], digest(latest))
+        self.assertNotIn("actual full compiler failure", text)
+
+    def test_oversized_objective_fails_before_policy_acceptance_without_truncation(self):
+        objective = "完整目标" * 6000
+        value = state({**UNLIMITED, "objective": objective})
+        host = self.host("task", value)
+        decision = host.next_input(SimpleNamespace(worker={"worker_id": "w"}))
+        self.assertEqual(decision["reason"], "continuation_input_invalid")
+        self.assertIn("65536", decision["error_summary"])
+        self.assertFalse(any(kind == "accept" for kind, _ in host.commands))
+        rejected = next(data for kind, data in host.commands if kind == "configuration")
+        self.assertEqual(rejected["operation"], "continuation_rejected")
+        self.assertGreater(rejected["input_bytes"], 65536)
+        outcome = next(data for kind, data in host.commands if kind == "goal_outcome")
+        self.assertEqual(outcome["status"], "awaiting_user")
+        self.assertEqual(value["goal"]["objective"], objective)
+        self.assertNotIn(objective, canonical(rejected))
 
 
 if __name__ == "__main__":

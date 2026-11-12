@@ -26,7 +26,8 @@ class NativePreflightRejectionTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve()
         self.oracle = self.root / 'oracle.py'; self.oracle.write_text('# independent fixture oracle\n')
-        self.candidate = self.root / 'candidate.py'; self.candidate.write_text('# no operator implementation\n')
+        self.candidate = self.root / 'candidate.py'
+        self.candidate.write_text('\n'.join(name + ' = "protocol fixture"' for name in sorted(adapter.FIELDS)) + '\n')
         self.source = {'root': str(self.root), 'files': {'candidate.py': adapter.sha(self.candidate)}}
         self.source['sha256'] = adapter.manifest_sha(self.source['files'])
         oracle = {'root': str(self.root), 'files': {'oracle.py': adapter.sha(self.oracle)}}
@@ -164,7 +165,61 @@ class NativePreflightRejectionTests(unittest.TestCase):
         self.assertEqual(boundary['request_sha256'], preflight.digest(self.request))
         self.assertFalse((self.output / 'preflight').exists())
 
-    def pipeline(self, *, opt_in, post_boundary=False):
+    def source_bytes(self, data):
+        self.candidate.write_bytes(data)
+        self.source['files']['candidate.py'] = adapter.sha(self.candidate)
+        self.source['sha256'] = adapter.manifest_sha(self.source['files'])
+        self.request['binding']['source'] = self.source['sha256']
+
+    def test_source_shape_rejection_is_bound_before_trial_or_transport_for_all_modes(self):
+        for mode in ('max', 'min', 'matmul'):
+            with self.subTest(mode=mode):
+                self.config['mode'] = mode
+                self.request['output'] = str(self.root / ('source-' + mode))
+                self.source_bytes(b'import os\nkernel_src = "not executed"\n')
+                value = self.rejection()
+                self.assertEqual(value['error']['code'], 'candidate_format')
+                self.assertEqual(value['error']['detail'], {'code': 'statement', 'line': 1, 'column': 1})
+                validation = json.loads((Path(self.request['output']) / preflight.SOURCE_ARTIFACT).read_text())
+                self.assertEqual(validation['sha256'], adapter.sha(self.candidate))
+                self.assertEqual(validation['format']['fields'], sorted(adapter.FIELDS))
+                self.assertFalse(Path(self.config['state']).exists())
+                self.assertFalse((self.root / 'trial-inputs').exists())
+
+    def test_source_rejection_recomputes_original_bytes_fields_and_error(self):
+        self.source_bytes(b'kernel_src = "incomplete"\n')
+        value = self.rejection()
+        artifact = self.output / preflight.SOURCE_ARTIFACT
+        original = artifact.read_bytes()
+        document = json.loads(original)
+        for field, replacement in (('sha256', '0' * 64), ('file', '../candidate.py'),
+                                    ('error', {'code': 'statement', 'message': 'fabricated'}),
+                                    ('format', {'fields': ['made_up_field'], 'allow_module_docstring': True})):
+            changed_doc = copy.deepcopy(document); changed_doc[field] = replacement
+            raw = preflight.encoded(changed_doc) + b'\n'; artifact.write_bytes(raw)
+            changed = copy.deepcopy(value)
+            changed['evidence']['artifacts'][preflight.SOURCE_ARTIFACT] = hashlib.sha256(raw).hexdigest()
+            changed['evidence']['source_validation_sha256'] = preflight.digest(changed_doc)
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                preflight.validate_rejection(changed, self.request, self.output)
+        artifact.write_bytes(original)
+        for key, replacement in (('action_id', 'changed'), ('request_sha256', '0' * 64),
+                                  ('source_sha256', '0' * 64), ('operation', 'collect')):
+            changed = copy.deepcopy(value); changed[key] = replacement
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                preflight.validate_rejection(changed, self.request, self.output)
+        original_source = self.candidate.read_bytes()
+        self.candidate.write_bytes(original_source + b'# changed\n')
+        with self.assertRaises(ValueError): preflight.validate_rejection(value, self.request, self.output)
+        self.candidate.write_bytes(original_source)
+        (self.output / 'dispatch-boundary.json').write_text('{}')
+        with self.assertRaises(ValueError): preflight.validate_rejection(value, self.request, self.output)
+
+    def test_source_rejection_cannot_be_fabricated_for_valid_source(self):
+        with self.assertRaisesRegex(ValueError, 'requires invalid frozen source'):
+            preflight.make_source_rejection(self.request, 'candidate.py', sorted(adapter.FIELDS))
+
+    def pipeline(self, *, opt_in, post_boundary=False, contract_mismatch=True):
         native_config = self.root / 'native-config.json'; native_config.write_text(json.dumps(self.config))
         driver = ROOT / 'examples/scatter/npu_pipeline_driver.py'
         if post_boundary:
@@ -184,7 +239,7 @@ class NativePreflightRejectionTests(unittest.TestCase):
         config = {'state': self.config['pipeline_state'], 'read_roots': [str(self.root)], 'drivers': {'launch': spec}}
         pipeline = Pipeline(config)
         contract = copy.deepcopy(self.config['contract'])
-        if not post_boundary: contract['extra'] = True
+        if not post_boundary and contract_mismatch: contract['extra'] = True
         for tool, arguments in [('pipeline_bind', {'contract': contract}),
                 ('pipeline_plan', {'stage': 'C', 'record': {'hypothesis': 'fixture'}}),
                 ('pipeline_freeze', {'files': {'candidate.py': str(self.candidate)}, 'origin': {'scope': 'fixture'}})]:
@@ -213,6 +268,49 @@ class NativePreflightRejectionTests(unittest.TestCase):
         self.assertIn('ContractMismatch', (run / 'driver/stderr.log').read_text())
         self.assertEqual(len(Pipeline(pipeline.config).pending_launches()), 1)
         self.assertNotIn('launch_rejections', pipeline.state)
+
+    def test_composite_source_refusal_settles_without_collect_then_accepts_source_fix(self):
+        self.config['attempt_namespace'] = 'protocol-fixture'
+        self.source_bytes(b'kernel_src = "incomplete"\n')
+        pipeline = self.pipeline(opt_in=True, contract_mismatch=False)
+        launch = pipeline.config['drivers']['launch']
+        for name, operation in (('collect', 'collect'), ('check', 'check')):
+            spec = copy.deepcopy(launch); spec['kind'] = name
+            spec['argv'][-1] = operation; spec.pop('preflight_rejection_protocol')
+            pipeline.config['drivers'][name] = spec
+        reply = pipeline.apply({'id': 'evaluate-source-invalid', 'tool': 'pipeline_evaluate',
+                                'arguments': {'wait_seconds': 5}})
+        self.assertEqual(reply['status'], 'completed', reply)
+        result = reply['data']['result']
+        self.assertEqual(result['evaluation_status'], 'failed')
+        self.assertEqual(result['failure_phase'], 'preflight')
+        self.assertEqual(result['dispatch_outcome'], 'not_started')
+        self.assertIsNone(result['original_handle']); self.assertIsNone(result['continuation'])
+        self.assertEqual([stage['stage'] for stage in result['stages']], ['E'])
+        pipeline = Pipeline(pipeline.config)
+        self.assertEqual(pipeline.pending_launches(), [])
+        self.assertFalse(Path(self.config['state']).exists())
+        run = result['stages'][0]['run']
+        self.assertEqual(pipeline.workflow()['next_actions'][0]['tool'], 'pipeline_freeze')
+        read = main(pipeline.config, {'id': 'read-original-rejection', 'tool': 'pipeline_read',
+            'arguments': {'run': run, 'path': 'driver/' + preflight.SOURCE_ARTIFACT}})
+        self.assertEqual(read['status'], 'completed', read)
+        self.assertIn('Missing source fields', read['data']['text'])
+        # A new complete source is admitted after the committed rejection. The
+        # deliberately failing transport still leaves an unknown effect fence.
+        self.source_bytes(('"""ordinary documentation"""\n' + '\n'.join(
+            name + ' = "fixed protocol fixture"' for name in sorted(adapter.FIELDS))).encode())
+        frozen = pipeline.apply({'id': 'freeze-corrected-source', 'tool': 'pipeline_freeze',
+            'arguments': {'files': {'candidate.py': str(self.candidate)}, 'origin': {'scope': 'fixture repair'}}})
+        self.assertEqual(frozen['status'], 'completed', frozen)
+        self.assertNotEqual(Pipeline(pipeline.config).workflow()['next_actions'][0].get('failure_phase'), 'preflight')
+        launched = pipeline.apply({'id': 'launch-corrected-source', 'tool': 'pipeline_run',
+                                   'arguments': {'stage': 'E', 'driver': 'launch'}})
+        self.assertEqual(launched['data']['result']['launch_outcome'], 'unknown')
+        original = Path(pipeline.config['state']) / launched['data']['run']
+        self.assertTrue((original / 'driver/dispatch-boundary.json').exists())
+        self.assertIn('transport must not even be imported', (original / 'driver/stderr.log').read_text())
+        self.assertEqual(len(Pipeline(pipeline.config).pending_launches()), 1)
 
     def test_prepare_pins_helper_and_opts_in_only_native_launch_for_all_modes(self):
         for mode in ('max', 'min', 'matmul'):

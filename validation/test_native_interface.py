@@ -20,7 +20,7 @@ class NativeInterfaceTest(unittest.TestCase):
         document = NATIVE_INTERFACE.read_text()
         self.assertIn(NATIVE_INTERFACE_VERSION, document)
         records = re.findall(r'\| `([^`]+)` \| `([a-f0-9]{64})` \|', document)
-        self.assertEqual(len(records), 10)
+        self.assertEqual(len(records), 11)
         for relative, expected in records:
             with self.subTest(source=relative):
                 self.assertEqual(hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(), expected)

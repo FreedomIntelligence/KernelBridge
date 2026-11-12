@@ -290,6 +290,30 @@ these ignored artifacts are archived under
 `.validation/operator-guidance-delivery-20261112/`; recorded original paths are
 historical identities and are not rewritten.
 
+## Instruction snapshot and continuation follow-up (2026-11-12)
+
+The first source-frozen run at `codex/agent-guidance-parity`, recorded in
+`.validation/acceptance/tui-r1/acceptance.json`, passed 26 of 27 groups at timeout
+scale 1.0. The runtime group failed three worker deadlines under heavy load;
+it is not counted as passed. All PTY groups, including parallel children,
+completion notifications, stop, resume, fork, compact and Goal interaction,
+passed. The full JavaScript check passed 190 tests, skipped three conditional
+cases and failed none (193 total). Follow-up verification must retain this
+failed attempt and use unchanged behavioral assertions and production limits.
+
+The subsequent full Python run, `.validation/acceptance/python-r2.log`, passed
+424/424 with zero skips in 227.755 seconds. It used explicit Node resolution,
+the existing CPU Torch dependency path and original private replay fixtures.
+The earlier 421-test run's failure, errors and skip are retained. The fixtures
+now use production Node discovery and an already-launched original handle for
+the zero-wait recovery check; production deadlines were not increased.
+
+The focused `.validation/acceptance/tui-runtime-r2/acceptance.json` then passed
+deployment and runtime (2/2, runtime 7/7 in 10.67 seconds). The runner selected
+timeout scale 1.32 for its outer process deadline; no runtime assertion or worker
+limit changed. Every required group now has a passing result across the full run
+and focused follow-up; this does not describe a second full 27/27 invocation.
+
 ## Shared Journal admission stress follow-up
 
 Four stress scenarios passed in `.validation/propose-admit-stress-summary.json`: 32 independent Gateway/Journal instances issued 320 proposals (192 original HTTP completions and 128 budget rejections); 64 concurrent copies of one ID dispatched once; parent admission survived 32 concurrent child proposals; 32 real child permits retained an unknown-result fence until original-receipt recovery. Every Journal prefix was checked for nonnegative reservations, no overspend and unique admission/start/settlement. All final reservations were zero. The first child fixture omitted its parent dependency and was correctly rejected; that failed fixture log remains retained. No runtime policy was weakened.

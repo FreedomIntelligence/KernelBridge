@@ -89,9 +89,11 @@ successful diagnostic or a reason to rerun a broken kernel.
 
 ## Clean trial inputs and evidence boundary
 
-The trial starts in an empty workspace with the clean task and NPU profile, a new
-application session, and `application.max_model_turns=20`. The task declares the
-ABI and frozen measurement contract, not an implementation. Its oracle and eager
+The trial starts in an empty workspace with the clean task and NPU profile and a
+new application session. Initial trials used `application.max_model_turns=20`;
+subsequent trials follow the user's removal of total turn/token limits and leave
+that setting unset, recording actual parent, child and compaction usage. The task
+declares the ABI and frozen measurement contract, not an implementation. Its oracle and eager
 files are pinned evaluation resources. `baseline.py`, `native/`, old candidates,
 old sessions and `task.compiled.json` are excluded: the compiled task embeds the
 old complete solution under `reference/native-template.py`. The trial runner
