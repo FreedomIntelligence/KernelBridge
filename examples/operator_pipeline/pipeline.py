@@ -18,9 +18,21 @@ import time
 import zipfile
 from diagnostic_policy import diagnostic_reason, verify_record
 from qualification import aggregate, qualify, read_calibration_artifacts
+from isolation import requirement as isolation_requirement, verify as verify_isolation, module as isolation_module, read as isolation_read, ARTIFACTS as ISOLATION_ARTIFACTS
 from job_identity import same_handle, wire_handles
 from preflight import PROTOCOL as PREFLIGHT_PROTOCOL, validate_rejection
 from observation import PROTOCOL as OBSERVATION_PROTOCOL, envelope as observation_envelope, read_documents, launch_validator
+
+
+NATIVE_ADMISSION_PROTOCOL = 'kernelbridge.native-admission/v1'
+NATIVE_ADMISSION_FILES = {'admission/admission.json', 'admission/isolation-samples.jsonl', 'admission/execution-request.json'}
+
+
+class NativeAdmissionRejected(Exception):
+    """Original supervisor evidence proves that this launch never spawned a child."""
+    def __init__(self, record, feedback):
+        super().__init__(feedback['error']['message'])
+        self.record, self.feedback = record, feedback
 
 
 class PreflightRejected(Exception):
@@ -287,6 +299,176 @@ class Pipeline:
             'receipt_sha256': sha(folder / 'receipt.json'), 'rejection_sha256': digest(data)}
         return record, data
 
+    def validate_native_admission(self, folder, receipt):
+        """Verify remote no-effect proof independently of the adapter's envelope."""
+        if folder != self.root / folder.parent.name / 'driver':
+            raise ValueError('Invalid native admission receipt location')
+        request_path = folder / 'request.json'
+        if folder.resolve() != folder or request_path.resolve() != request_path:
+            raise ValueError('Native admission request path is linked')
+        request = preflight_json(request_path.read_bytes())
+        driver = self.config['drivers'].get(receipt.get('driver'), {})
+        recovery = request.get('recovery')
+        original_action = recovery.get('action_id') if isinstance(recovery, dict) else request.get('action_id')
+        if (driver.get('kind') not in {'launch', 'collect'}
+                or driver.get('native_admission_protocol') != NATIVE_ADMISSION_PROTOCOL
+                or driver['kind'] == 'collect' and not isinstance(recovery, dict)
+                or request.get('role') != 'E' or not isinstance(original_action, str) or not original_action):
+            raise ValueError('Native admission requires an opted-in original launch or recovery')
+        run = hashlib.sha256(original_action.encode()).hexdigest()
+        original_root = self.root / run
+        intent_path = original_root / 'launch-intent.json'
+        original_request_path = original_root / 'driver/request.json'
+        if intent_path.resolve() != intent_path or original_request_path.resolve() != original_request_path:
+            raise ValueError('Original native admission launch path is linked')
+        intent = preflight_json(intent_path.read_bytes())
+        original_request = preflight_json(original_request_path.read_bytes())
+        original_driver = self.config['drivers'].get(intent.get('driver'), {})
+        if (original_driver.get('kind') != 'launch'
+                or original_driver.get('native_admission_protocol') != NATIVE_ADMISSION_PROTOCOL
+                or intent.get('action_id') != original_action
+                or intent.get('driver_configuration_sha256') != digest(original_driver)
+                or intent.get('native_admission_protocol') != NATIVE_ADMISSION_PROTOCOL
+                or encoded(intent.get('driver_files')) != encoded(original_driver.get('files'))
+                or original_request.get('action_id') != original_action
+                or original_request.get('role') != 'E'
+                or original_request.get('output') != str(original_root / 'driver')
+                or intent.get('output') != str(original_root / 'driver')
+                or request.get('output') != str(folder)
+                or receipt.get('kind') != driver['kind']
+                or receipt.get('driver_configuration_sha256') != digest(driver)
+                or receipt.get('request_sha256') != sha(request_path)
+                or receipt.get('launch_intent_sha256') != sha(intent_path)
+                or encoded(receipt.get('driver_files')) != encoded(driver.get('files'))):
+            raise ValueError('Native admission original driver/request identity changed')
+        for key in ('source', 'binding', 'contract'):
+            if encoded(request.get(key)) != encoded(intent.get(key)) or encoded(original_request.get(key)) != encoded(intent.get(key)):
+                raise ValueError('Native admission differs from the immutable original launch binding')
+        if receipt.get('source') != request['source']['sha256'] or receipt.get('contract') != digest(request['contract']):
+            raise ValueError('Native admission source/contract projection changed')
+        self.verify(request['source']); self.verify(request['contract']['oracle']['files'])
+        for path, expected in {**original_driver['files'], **driver['files']}.items():
+            pinned = Path(path)
+            if pinned.resolve() != pinned or not pinned.is_file() or sha(pinned) != expected:
+                raise ValueError('Native admission driver pin changed')
+        for key in ('native_admission_validator', 'native_admission_source_file', 'native_admission_pins'):
+            if driver.get(key) != original_driver.get(key):
+                raise ValueError('Native admission recovery changed the original verifier')
+        # The adapter crossed its dispatch boundary; preserve this fact. Only the
+        # original supervisor proof below can now establish that no child began.
+        boundary_path = original_root / 'driver/dispatch-boundary.json'
+        boundary = preflight_json(boundary_path.read_bytes())
+        if (boundary_path.resolve() != boundary_path or boundary.get('action_id') != original_action
+                or boundary.get('request_sha256') != digest(original_request)
+                or boundary.get('source_sha256') != request['source']['sha256']):
+            raise ValueError('Original native dispatch boundary changed')
+        data = receipt.get('result')
+        required = isolation_requirement(request['contract']['measurement'], self.config.get('device_isolation'))
+        if (required is None or not isinstance(data, dict) or set(data) != {
+                'protocol', 'status', 'dispatch_outcome', 'dispatched', 'action_id', 'source_sha256',
+                'request_sha256', 'policy_sha256', 'artifacts', 'error'}
+                or data.get('protocol') != NATIVE_ADMISSION_PROTOCOL or data.get('status') != 'not_started'
+                or data.get('dispatch_outcome') != 'not_started' or data.get('dispatched') is not False
+                or data.get('action_id') != original_action or data.get('source_sha256') != request['source']['sha256']
+                or data.get('request_sha256') != digest(request) or data.get('policy_sha256') != required['policy_sha256']
+                or not isinstance(data.get('artifacts'), dict) or set(data['artifacts']) != NATIVE_ADMISSION_FILES
+                or not isinstance(data.get('error'), dict) or set(data['error']) != {'code', 'message'}
+                or data['error'].get('code') != 'native_admission_not_started'
+                or not isinstance(data['error'].get('message'), str) or not 0 < len(data['error']['message'].encode()) <= 4096):
+            raise ValueError('Invalid native admission projection')
+        raw = {}
+        for name, expected in data['artifacts'].items():
+            path = folder / name
+            if path.resolve() != path or not path.is_file() or not 0 < path.stat().st_size <= 16 * 1024 * 1024:
+                raise ValueError('Native admission original artifact missing, linked or too large')
+            raw[name] = path.read_bytes()
+            if len(raw[name]) > 16 * 1024 * 1024 or hashlib.sha256(raw[name]).hexdigest() != expected:
+                raise ValueError('Native admission original artifact changed')
+        remote = preflight_json(raw['admission/execution-request.json'])
+        remote_intent = remote.get('intent')
+        source_file = driver.get('native_admission_source_file')
+        pins = driver.get('native_admission_pins', {})
+        if (not isinstance(remote_intent, dict) or remote_intent.get('action_id') != original_action
+                or source_file not in request['source']['files']
+                or remote_intent.get('source_sha256') != request['source']['files'][source_file]
+                or remote_intent.get('device') != request['contract']['measurement'].get('device')
+                or set(pins) != {'supervisor_sha256', 'isolation_code_sha256', 'process_isolation_code_sha256', 'npu_enter_code_sha256'}
+                or any(path not in driver['files'] or remote.get(key) != driver['files'][path] for key, path in pins.items())
+                or pins['isolation_code_sha256'] != driver.get('native_admission_validator')):
+            raise ValueError('Native admission original source/action/device/code pins changed')
+        validator = isolation_module(driver['native_admission_validator'], driver['files'])
+        validated = validator.validate_admission(raw['admission/admission.json'], raw['admission/isolation-samples.jsonl'],
+            raw['admission/execution-request.json'], intent=remote_intent, policy=required['policy'])
+        if validated.get('status') != 'not_started' or validated.get('dispatched') is not False:
+            raise ValueError('Native admission validator did not prove no dispatch')
+        if data['error']['message'] != str(validated.get('reason'))[:2000]:
+            raise ValueError('Native admission feedback differs from the original refusal reason')
+        if encoded(preflight_json((folder / 'stdout.log').read_bytes())) != encoded(data):
+            raise ValueError('Native admission differs from original adapter output')
+        record = {'schema_version': 'kernelbridge.launch-rejection/v1', 'protocol': NATIVE_ADMISSION_PROTOCOL,
+            'run': run, 'receipt_run': folder.parent.name, 'action_id': original_action,
+            'driver': receipt['driver'], 'driver_configuration_sha256': digest(driver),
+            'source_sha256': request['source']['sha256'], 'binding': request['binding'],
+            'request_sha256': sha(request_path), 'original_request_sha256': sha(original_request_path),
+            'intent_sha256': sha(intent_path), 'dispatch_boundary_sha256': sha(boundary_path),
+            'receipt_sha256': sha(folder / 'receipt.json'), 'rejection_sha256': digest(data)}
+        return record, data
+
+    def native_admission_feedback(self, record, data):
+        run = record['receipt_run']; folder = self.root / run
+        names = ['driver/request.json', 'driver/receipt.json', 'driver/stdout.log', 'driver/stderr.log',
+                 *('driver/' + name for name in data['artifacts'])]
+        artifacts = {name: {'sha256': sha(folder / name), 'size_bytes': (folder / name).stat().st_size,
+            'read': {'tool': 'pipeline_read', 'arguments': {'run': run, 'path': name}}} for name in names}
+        return {'protocol': NATIVE_ADMISSION_PROTOCOL, 'operation': 'launch', 'run': record['run'], 'receipt_run': run,
+            'action_id': record['action_id'], 'source_sha256': record['source_sha256'], 'binding': record['binding'],
+            'rejection_sha256': record['rejection_sha256'], 'failure_phase': 'native_admission',
+            'dispatch_outcome': 'not_started', 'dispatched': False, 'error': data['error'], 'artifacts': artifacts,
+            'qualification': 'Device admission refused before child execution; this is neither a compile failure nor F/G/H evidence.'}
+
+    def committed_native_admission(self, declared):
+        receipt_run = declared['receipt_run']; original_run = declared['run']
+        chain = '0' * 64; committed = None
+        for event in sorted(self.root.glob('event-*.json')):
+            row = json.loads(event.read_bytes())
+            if row['parent'] != chain or row['sha256'] != digest(row['body']):
+                raise ValueError('Native admission receipt chain changed')
+            chain = sha(event)
+            records = row['body']['receipts']
+            if records and records[-1]['run'] == receipt_run:
+                if declared not in row['body'].get('launch_rejections', []):
+                    raise ValueError('Native admission was not committed with its receipt')
+                committed = records[-1]; break
+        if committed is None: return None
+        if committed.get('tool') != 'pipeline_run' or committed.get('status') != 'failed':
+            raise ValueError('Invalid native admission commit')
+        for run in {receipt_run, original_run}:
+            root = self.root / run
+            retained = next((row for row in self.state['receipts'] if row['run'] == run), None)
+            # An interrupted original launch may have no committed wrapper. Its
+            # exact request/intent/boundary hashes remain in the recovery record.
+            if retained is None and run == original_run and run != receipt_run: continue
+            if retained is None or sha(root / 'manifest.json') != retained['manifest_sha256']:
+                raise ValueError('Committed native admission manifest changed')
+            manifest = json.loads((root / 'manifest.json').read_bytes())
+            for name, expected in manifest.items():
+                path = root / name
+                if path.resolve() != path or not path.is_relative_to(root) or sha(path) != expected:
+                    raise ValueError('Committed native admission evidence changed')
+            if run == receipt_run and not {'result.json', 'driver/request.json', 'driver/receipt.json',
+                    'driver/stdout.log', 'driver/stderr.log', *('driver/' + name for name in NATIVE_ADMISSION_FILES)}.issubset(manifest):
+                raise ValueError('Committed native admission evidence is incomplete')
+        folder = self.root / receipt_run / 'driver'
+        receipt = preflight_json((folder / 'receipt.json').read_bytes())
+        actual, data = self.validate_native_admission(folder, receipt)
+        if encoded(actual) != encoded(declared): raise ValueError('Committed native admission identity changed')
+        result = preflight_json((folder.parent / 'result.json').read_bytes())
+        if (result.get('status') != 'failed' or result.get('data', {}).get('failure_phase') != 'native_admission'
+                or result['data'].get('dispatch_outcome') != 'not_started'
+                or result['data'].get('native_admission_rejection', {}).get('rejection_sha256') != digest(data)):
+            raise ValueError('Committed result is not its original native admission refusal')
+        return self.native_admission_feedback(actual, data)
+
     def committed_launch_rejection(self, run):
         """Only a verified receipt-chain commit can settle an old launch intent."""
         candidates = [item for item in self.state.get('launch_rejections', []) if item.get('run') == run]
@@ -295,6 +477,8 @@ class Pipeline:
         if len(candidates) != 1:
             raise ValueError('Ambiguous committed launch rejection')
         declared = candidates[0]
+        if declared.get('protocol') == NATIVE_ADMISSION_PROTOCOL:
+            return self.committed_native_admission(declared)
         chain = '0' * 64; committed = None
         for event in sorted(self.root.glob('event-*.json')):
             row = json.loads(event.read_text())
@@ -377,13 +561,100 @@ class Pipeline:
                 pending[intent['key']] = dict(intent, status='unknown', intent=str(path), run=path.parent.parent.name)
         return list(pending.values())
 
-    def matching_handle(self):
+    def terminal_isolation_retry(self, retained):
+        """A real original exit plus invalid isolation permits explicit remeasurement.
+
+        Ordinary failures, missing artifacts and unknown execution never grant
+        this exception to unchanged-source reuse. No result or score is selected.
+        """
+        if not retained.get('collected'): return None
+        required = isolation_requirement(retained['contract']['measurement'], self.config.get('device_isolation'))
+        if required is None: return None
+        path = Path(retained['collected'])
+        folder = path.parent; root = folder.parent
+        if folder != self.root / root.name / 'driver' or path.name != 'receipt.json':
+            raise ValueError('Original terminal isolation receipt path changed')
+        committed = next((row for row in self.state['receipts'] if row['run'] == root.name), None)
+        if committed is None or sha(root / 'manifest.json') != committed['manifest_sha256']:
+            raise ValueError('Original terminal isolation manifest changed')
+        manifest = preflight_json((root / 'manifest.json').read_bytes())
+        receipt = preflight_json(isolation_read(path))
+        data = receipt.get('result', {})
+        descriptor = data.get('device_isolation')
+        if descriptor is None: return None  # Legacy/missing evidence cannot unlock a retry.
+        driver = self.config['drivers'].get(receipt.get('driver'), {})
+        if (driver.get('native_admission_protocol') != NATIVE_ADMISSION_PROTOCOL
+                or driver.get('kind') not in {'launch', 'collect'}
+                or encoded(receipt.get('driver_files')) != encoded(driver.get('files'))
+                or receipt.get('source') != retained['source']['sha256']
+                or receipt.get('contract') != digest(retained['contract'])
+                or data.get('phase') != 'complete' or data.get('status') != 'completed'
+                or not same_handle(data.get('handle'), retained['handle'])
+                or not isinstance(descriptor, dict) or descriptor.get('schema_version') != 'kernelbridge.device-isolation-evidence/v1'
+                or descriptor.get('policy_sha256') != required['policy_sha256']
+                or set(descriptor.get('artifacts', {})) != set(ISOLATION_ARTIFACTS)):
+            raise ValueError('Terminal isolation proof lacks its original complete execution')
+        for name in ('driver/receipt.json', 'driver/request.json', *('driver/' + name for name in ISOLATION_ARTIFACTS)):
+            if sha(root / name) != manifest.get(name):
+                raise ValueError('Original terminal isolation evidence changed')
+        request = preflight_json(isolation_read(folder / 'request.json'))
+        launch_intent_path = self.root / retained['launch_run'] / 'launch-intent.json'
+        if launch_intent_path.resolve() != launch_intent_path: raise ValueError('Original isolation launch intent is linked')
+        launch_intent = preflight_json(launch_intent_path.read_bytes())
+        original_action = launch_intent.get('action_id')
+        original_driver = self.config['drivers'].get(launch_intent.get('driver'), {})
+        if (not isinstance(original_action, str) or hashlib.sha256(original_action.encode()).hexdigest() != retained['launch_run']
+                or launch_intent.get('driver_configuration_sha256') != digest(original_driver)
+                or encoded(launch_intent.get('source')) != encoded(retained['source'])
+                or encoded(launch_intent.get('binding')) != encoded(retained['binding'])
+                or encoded(launch_intent.get('contract')) != encoded(retained['contract'])
+                or encoded(request.get('source')) != encoded(retained['source'])
+                or encoded(request.get('contract')) != encoded(retained['contract'])
+                or driver['kind'] == 'launch' and request.get('action_id') != original_action
+                or driver['kind'] == 'collect' and not (
+                    (request.get('recovery') or {}).get('action_id') == original_action
+                    or same_handle(request.get('handle'), retained['handle']))):
+            raise ValueError('Terminal isolation original launch binding changed')
+        for key in ('native_admission_protocol', 'native_admission_validator', 'native_admission_source_file', 'native_admission_pins'):
+            if driver.get(key) != original_driver.get(key):
+                raise ValueError('Terminal isolation recovery verifier changed')
+        self.verify(retained['source']); self.verify(retained['contract']['oracle']['files'])
+        for file, expected in {**original_driver['files'], **driver['files']}.items():
+            if hashlib.sha256(isolation_read(file)).hexdigest() != expected:
+                raise ValueError('Terminal isolation verifier pin changed')
+        raw = {name: isolation_read(folder / name) for name in ISOLATION_ARTIFACTS}
+        if any(hashlib.sha256(value).hexdigest() != descriptor['artifacts'][name] for name, value in raw.items()):
+            raise ValueError('Terminal isolation original artifact digest changed')
+        remote = preflight_json(raw['execution-request.json']); intent = remote['intent']
+        source_file = driver.get('native_admission_source_file'); pins = driver.get('native_admission_pins', {})
+        if (source_file not in retained['source']['files'] or intent.get('action_id') != original_action
+                or intent.get('source_sha256') != retained['source']['files'][source_file]
+                or intent.get('device') != retained['contract']['measurement'].get('device')
+                or set(pins) != {'supervisor_sha256', 'isolation_code_sha256', 'process_isolation_code_sha256', 'npu_enter_code_sha256'}
+                or any(file not in driver['files'] or remote.get(key) != driver['files'][file] for key, file in pins.items())
+                or pins['isolation_code_sha256'] != driver.get('native_admission_validator')):
+            raise ValueError('Terminal isolation original request identity changed')
+        validator = isolation_module(driver['native_admission_validator'], driver['files'])
+        evidence = validator.validate_evidence(raw['isolation-samples.jsonl'], raw['isolation-receipt.json'],
+            raw['execution-request.json'], raw['execution-exit.json'], handle=retained['handle'], intent=intent, policy=required['policy'])
+        # Missing/incomplete execution cannot supply this validated exit digest.
+        if evidence.get('execution_exit_sha256') != hashlib.sha256(raw['execution-exit.json']).hexdigest():
+            return None
+        if evidence.get('result_sha256') != data.get('remote_result_sha256'):
+            raise ValueError('Terminal isolation benchmark binding changed')
+        if evidence.get('verdict') not in {'foreign', 'unknown'}: return None
+        return {'original_launch_run': retained['launch_run'], 'original_receipt': str(path),
+                'verdict': evidence['verdict'], 'artifacts': descriptor['artifacts'],
+                'qualification': 'The original child exited, but its sampled device isolation is nonqualifying. Explicit remeasurement may retain this same source.'}
+
+    def matching_handle(self, *, for_retry=False):
         # Changing only the performance comparator does not change a completed
         # source/contract execution. Keep observing its original job identity.
         binding = self.binding()
         return next((row for row in reversed(self.state['handles'])
                      if row['source']['sha256'] == binding['source']
-                     and row['binding']['contract'] == binding['contract']), None)
+                     and row['binding']['contract'] == binding['contract']
+                     and (not for_retry or self.terminal_isolation_retry(row) is None)), None)
 
     def driver(self, name, source, folder, role, handle=None, *, contract=None, binding=None, recovery=None, trigger=None):
         driver = self.config['drivers'].get(name)
@@ -399,6 +670,11 @@ class Pipeline:
                     continue  # Only this newly created diagnostic intent may enter.
                 unresolved.append(item)
             if unresolved: raise ValueError('Original phase/diagnostic execution is unresolved; inspect its intent before new device work')
+        if driver['kind'] == 'launch' and driver.get('native_admission_protocol') == NATIVE_ADMISSION_PROTOCOL:
+            if any(not row.get('collected') for row in self.state['handles']):
+                raise ValueError('An acknowledged original execution is unresolved; collect it before another launch')
+            if self.matching_handle(for_retry=True) is not None:
+                raise ValueError('This source already has an original execution; reuse its handle and receipts')
         self.verify(source)
         contract = self.state['contract'] if contract is None else contract
         self.verify(contract['oracle']['files'])
@@ -421,6 +697,8 @@ class Pipeline:
             save(folder.parent / 'launch-intent.json', {'driver': name, 'driver_files': driver['files'],
                 'source': source, 'contract': contract, 'binding': request['binding'], 'output': str(folder),
                 'action_id': self.action_id, 'driver_configuration_sha256': digest(driver),
+                **({'native_admission_protocol': driver['native_admission_protocol']}
+                   if 'native_admission_protocol' in driver else {}),
                 **({'preflight_rejection_protocol': driver['preflight_rejection_protocol']}
                    if 'preflight_rejection_protocol' in driver else {})})
         if driver['kind'] in {'check', 'measure', 'diagnostic', 'calibrate'}:
@@ -457,6 +735,19 @@ class Pipeline:
             save(folder / 'receipt.json', receipt)
             record, projection = self.validate_observation(folder, receipt)
             raise PendingObservation(record, projection)
+        if isinstance(data, dict) and isinstance(data.get('protocol'), str) and data['protocol'].startswith('kernelbridge.native-admission'):
+            if sha(folder / 'request.json') != request_sha or data.get('request_sha256') != digest(request):
+                raise ValueError('Native admission changed the dispatched pipeline request')
+            original_action = (recovery or {}).get('action_id', self.action_id)
+            original_run = hashlib.sha256(original_action.encode()).hexdigest()
+            original_intent = self.root / original_run / 'launch-intent.json'
+            if driver['kind'] == 'launch' and sha(original_intent) != launch_intent_sha:
+                raise ValueError('Native admission changed the original launch intent')
+            receipt.update(driver_configuration_sha256=digest(driver), request_sha256=request_sha,
+                           launch_intent_sha256=sha(original_intent))
+            save(folder / 'receipt.json', receipt)
+            record, refusal = self.validate_native_admission(folder, receipt)
+            raise NativeAdmissionRejected(record, self.native_admission_feedback(record, refusal))
         opted_in = driver.get('preflight_rejection_protocol') == PREFLIGHT_PROTOCOL and driver['kind'] == 'launch'
         preflight_claim = isinstance(data, dict) and (
             isinstance(data.get('protocol'), str) and data['protocol'].startswith('kernelbridge.driver-preflight')
@@ -613,7 +904,10 @@ class Pipeline:
                 or observed.get('status') == 'settling' and observed.get('alive') is False
                     and observed.get('supervisor_identity_verified') is True and observed.get('supervisor_alive') is True
                 or retained and not retained.get('collected') and retained.get('job_status') == 'running')
-        waiting = bool(unresolved or not live and (pending or retained and not retained.get('collected')
+        isolation_wait = self.terminal_isolation_retry(retained) if retained else None
+        admission_wait = (result.get('failure_phase') == 'native_admission'
+                          or last.get('failure_phase') == 'native_admission' and last.get('source') == (state.get('candidate') or {}).get('sha256'))
+        waiting = bool(admission_wait or isolation_wait or unresolved or not live and (pending or retained and not retained.get('collected')
                        or result.get('evaluation_status') == 'pending' and result.get('pending_kind') != 'phase_ready'
                        or result.get('evaluation_outcome') == 'unknown'
                        or last.get('evaluation_outcome') == 'unknown'))
@@ -628,7 +922,7 @@ class Pipeline:
             'qualification': {key: qualification.get(key) for key in ('qualified', 'paired_delta', 'noise_threshold', 'raw_pairing_sha256')},
             'incumbent': (state.get('incumbent') or {}).get('sha256'),
             'last_attempt': {key: last.get(key) for key in ('stage', 'status', 'evaluation_outcome', 'source', 'dispatch_outcome')},
-            'original_observation': observed, 'waiting': waiting}
+            'original_observation': observed, 'terminal_isolation': isolation_wait, 'waiting': waiting}
         # Hypothesis and workload records are real workflow changes, unlike the
         # new receipt/run ID written by every status or recovery wrapper.
         for key in ('B', 'C'):
@@ -643,7 +937,9 @@ class Pipeline:
             identity = 'pipeline-launch:' + retained['launch_run']
         return {'version': 1, 'identity': identity, 'fingerprint': digest(semantic),
                 'state': 'waiting' if waiting else 'progress',
-                'summary': 'Waiting for the original execution receipt; no replacement dispatch is authorized.' if waiting
+                'summary': 'Device admission refused before execution; resolve device availability before an explicit retry.' if admission_wait
+                    else 'The original child exited but device isolation is nonqualifying; resolve availability before an explicit remeasurement.' if isolation_wait
+                    else 'Waiting for the original execution receipt; no replacement dispatch is authorized.' if waiting
                     else 'Source-bound workflow state is available in the retained receipt.',
                 'receipt_refs': receipt_refs[:4]}
 
@@ -664,7 +960,7 @@ class Pipeline:
         next_actions = []
         pending = self.pending_launches()
         last = s.get('last_attempt', {})
-        refusal = self.committed_launch_rejection(last['run']) if last.get('dispatch_outcome') == 'not_started' else None
+        refusal = self.committed_launch_rejection(last.get('original_launch_run', last['run'])) if last.get('dispatch_outcome') == 'not_started' else None
         unresolved = self.pending_phases() + self.pending_effects() + self.pending_diagnostics()
         if unresolved:
             next_actions = [step(last.get('stage'), None, {}, 'Original phase or diagnostic execution is unresolved; inspect its retained intent and logs before new device work.', status='blocked', unresolved=unresolved)]
@@ -674,6 +970,11 @@ class Pipeline:
         elif last.get('evaluation_outcome') == 'unknown':
             next_actions = [step(last.get('stage'), None, {}, 'Original execution is unresolved; inspect its original logs and handle before continuing.',
                                  status='blocked', run=last['run'])]
+        elif refusal and refusal.get('failure_phase') == 'native_admission':
+            next_actions = [step('E', None, {},
+                'No child was started: device resources were busy or their observation was inconclusive. Read the original admission evidence. Retry explicitly only after resolving device admission; no compilation failure was established.',
+                status='waiting', failure_phase='native_admission', dispatch_outcome='not_started',
+                error=refusal['error'], evidence=refusal['artifacts'])]
         elif (refusal and s.get('contract') and refusal['binding']['contract'] == digest(s['contract'])
                 and (refusal['error']['code'] != 'candidate_format'
                      or refusal['binding']['source'] == (s.get('candidate') or {}).get('sha256'))):
@@ -706,10 +1007,15 @@ class Pipeline:
                         'stop_condition': 'Repair source identity before any new execution.'}
             check = s.get('check')
             terminal = self.matching_handle()
+            isolation_retry = self.terminal_isolation_retry(terminal) if terminal else None
             diagnostics = s.get('diagnostics') or {}
             trigger = diagnostics.get('trigger') or {}
             if trigger.get('binding') == binding and any(report.get('status') == 'unknown' for report in diagnostics.get('reports', [])):
                 next_actions = [step('J', None, {}, 'Original diagnostic is unresolved; recover its existing evidence before further device work.', status='blocked')]
+            elif isolation_retry:
+                next_actions = [step('E', None, {},
+                    'The original child exited, but sampled device isolation is nonqualifying. Read its retained evidence and resolve device availability; an explicit new pipeline_evaluate may remeasure the same source. Existing samples remain retained.',
+                    status='waiting', original_measurement=isolation_retry)]
             elif terminal and terminal.get('collected') and terminal.get('job_status') == 'failed':
                 next_actions = [step('C', 'pipeline_plan', {'stage': 'C'},
                                      'The original job is terminal and failed. Read its retained evaluation evidence and revise the hypothesis; do not recollect or relaunch it.',
@@ -840,6 +1146,10 @@ class Pipeline:
                     'binding': collection['binding'] if collection else self.binding(),
                     'driver': recovery['driver'] if recovery else args['driver'],
                     'launch_run': recovery['run'] if recovery else output.name, 'job_status': data.get('job_status')})
+                if source['sha256'] == self.current()['sha256']:
+                    # A verified isolation remeasurement must not reuse F/G from
+                    # the previous terminal execution of these same source bytes.
+                    s['check'] = None; s['pair'] = None
             if stage == 'F':
                 checks = data.get('checks', {})
                 passed = (all(checks.get(k) is True for k in ('build', 'semantics', 'full'))
@@ -870,6 +1180,7 @@ class Pipeline:
             return receipt
         if tool == 'pipeline_pair':
             self.check_passed()
+            isolation_requirement(s['contract']['measurement'], self.config.get('device_isolation'))
             baseline = s['baseline']
             if not baseline: return {'paired': False, 'improvement': None, 'reason': 'No performance baseline. Establish the first correct incumbent.'}
             if self.config['drivers'].get(args['driver'], {}).get('kind') != 'measure':
@@ -889,7 +1200,9 @@ class Pipeline:
             calibration_artifacts = (read_calibration_artifacts(output)
                 if s['contract']['measurement'].get('require_noise') is True else None)
             qualification = qualify(results, s['contract'], self.binding(), source['files'], baseline['files'], ratios,
-                                    calibration_artifacts=calibration_artifacts)
+                                    calibration_artifacts=calibration_artifacts,
+                                    isolation_context={'run_folder': output, 'driver': self.config['drivers'][args['driver']],
+                                                       'configured': self.config.get('device_isolation')})
             overall = math.exp(sum(math.log(r) for r in ratios.values()) / len(ratios))
             families = {}
             for case in s['contract']['suite']:
@@ -903,10 +1216,31 @@ class Pipeline:
             s['stage'] = 'G'; return s['pair']
         if tool == 'pipeline_promote':
             self.check_passed(); pair = s['pair']
+            if isolation_requirement(s['contract']['measurement'], self.config.get('device_isolation')) is not None and s['baseline']:
+                if not pair or len(pair.get('receipts', [])) != 4:
+                    raise ValueError('Promotion requires original isolation-bound ABBA receipts')
+                pair_root = self.root / hashlib.sha256(pair['action_id'].encode()).hexdigest()
+                committed = next(row for row in s['receipts'] if row['run'] == pair_root.name)
+                if sha(pair_root / 'manifest.json') != committed['manifest_sha256']:
+                    raise ValueError('Original isolation pair manifest changed')
+                manifest = json.loads((pair_root / 'manifest.json').read_text())
+                arms = []
+                for index, path in enumerate(pair['receipts']):
+                    expected = pair_root / ('arm-' + str(index)) / 'receipt.json'
+                    if Path(path) != expected or sha(expected) != manifest.get(str(expected.relative_to(pair_root))):
+                        raise ValueError('Original isolation pair receipt changed')
+                    arms.append(json.loads(expected.read_text()))
+                if len({arm['driver'] for arm in arms}) != 1:
+                    raise ValueError('Original isolation pair drivers differ')
+                proof = verify_isolation([arm['result'] for arm in arms], s['contract']['measurement'], source['files'],
+                    run_folder=pair_root, driver=self.config['drivers'][arms[0]['driver']],
+                    configured=self.config.get('device_isolation'))
+                if proof != pair.get('qualification', {}).get('device_isolation'):
+                    raise ValueError('Original isolation qualification changed')
             self.required_diagnostics_passed()
             if s['baseline'] and (not pair or pair['binding'] != self.binding() or pair['speedup'] <= 1):
                 raise ValueError('Promotion requires a positive complete paired result against the selected baseline')
-            if s['contract']['measurement'].get('require_noise') is True and (
+            if s['baseline'] and s['contract']['measurement'].get('require_noise') is True and (
                     not pair or pair.get('qualification', {}).get('qualified') is not True):
                 raise ValueError('Promotion requires an independently calibrated complete pair above measured noise')
             s.update(incumbent=source, stage='H')
@@ -948,6 +1282,13 @@ class Pipeline:
         previous = copy.deepcopy(self.state)
         try:
             result = self.execute(action['tool'], action['arguments'], output); status = 'completed'
+        except NativeAdmissionRejected as error:
+            self.state = previous
+            self.state.setdefault('launch_rejections', []).append(error.record)
+            result = {'error': error.feedback['error']['message'], 'failure_phase': 'native_admission',
+                      'dispatch_outcome': 'not_started', 'native_admission_rejection': error.feedback,
+                      'original_launch_run': error.record['run']}
+            status = 'failed'
         except PreflightRejected as error:
             self.state = previous
             self.state.setdefault('launch_rejections', []).append(error.record)
@@ -985,7 +1326,9 @@ class Pipeline:
             self.state['last_attempt'] = {'run': identity, 'stage': action['arguments'].get('stage', 'G'),
                                           'status': status, 'evaluation_outcome': result.get('evaluation_outcome'),
                                           'source': (self.state['candidate'] or {}).get('sha256'),
-                                          **({'dispatch_outcome': 'not_started'} if result.get('dispatch_outcome') == 'not_started' else {})}
+                                          **({'dispatch_outcome': 'not_started', 'failure_phase': result.get('failure_phase'),
+                                              'original_launch_run': result.get('original_launch_run', identity)}
+                                             if result.get('dispatch_outcome') == 'not_started' else {})}
         return self.finish(action, output, status, result, diagnostics)
 
     def finish(self, action, output, status, result, diagnostics=None):
@@ -1006,7 +1349,7 @@ class Pipeline:
                         'read': {'tool': 'pipeline_read', 'arguments': {'run': identity, 'path': 'manifest.json'}}}
         selected = sorted(refs, key=lambda name: (name != 'result.json', name != 'driver/receipt.json', name))[:16]
         summary = {key: result[key] for key in ('error', 'evaluation_outcome', 'launch_outcome', 'recover_run', 'original_handle', 'observation_only', 'pending_observation',
-                    'failure_phase', 'dispatch_outcome', 'preflight_rejection') if key in result}
+                    'failure_phase', 'dispatch_outcome', 'preflight_rejection', 'native_admission_rejection', 'original_launch_run') if key in result}
         if isinstance(summary.get('error'), str): summary['error'] = summary['error'][:2048]
         if isinstance(result.get('result'), dict) and isinstance(result['result'].get('evaluation'), dict):
             summary['evaluation'] = result['result']['evaluation']

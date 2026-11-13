@@ -1,5 +1,6 @@
 """Accept H only through the original, source-bound F/G/H execution receipts."""
 import hashlib
+import importlib.util
 import json
 import math
 from pathlib import Path
@@ -110,6 +111,68 @@ def original_check_result(original, path, expected_hash, actions, contexts, chec
     return result.get('check_receipt')
 
 
+def original_isolation(host, declared, original_g, pair, raw, source):
+    """Recompute isolation from pinned code and the original G artifact bytes."""
+    requirement = declared['pipeline_contract']['measurement'].get('device_isolation')
+    if requirement is None:
+        return None
+    action = original_g['action']
+    run = hashlib.sha256(action['id'].encode()).hexdigest()
+    folder = Path(pair['receipts'][0]).parent.parent
+    if folder.name != run:
+        raise ValueError('Isolation evidence is not the original G directory')
+    manifest_raw = read_regular(folder / 'manifest.json', 4 * 1024 * 1024)
+    if hashlib.sha256(manifest_raw).hexdigest() != original_g['outcome']['data'].get('manifest_sha256'):
+        raise ValueError('Original G isolation manifest changed')
+    manifest = json.loads(manifest_raw)
+    # The selected configuration and helper are evaluator inputs, not model
+    # parameters or paths supplied by an isolation result.
+    configurations = []
+    for name, expected in host.evaluator['files'].items():
+        path = Path(name)
+        if path.name != 'config.json':
+            continue
+        content = read_regular(path, 4 * 1024 * 1024)
+        if hashlib.sha256(content).hexdigest() != expected:
+            raise ValueError('Pinned pipeline configuration changed')
+        config = json.loads(content)
+        if isinstance(config, dict) and config.get('state') == str(folder.parent):
+            configurations.append((path, config))
+    if len(configurations) != 1:
+        raise ValueError('Isolation requires the unique original pinned pipeline configuration')
+    config_path, config = configurations[0]
+    if pipeline_hash(config.get('device_isolation')) != pipeline_hash(requirement):
+        raise ValueError('Host isolation policy differs from the frozen pipeline configuration')
+    driver_name = action['arguments'].get('driver')
+    driver = config['drivers'].get(driver_name)
+    if not driver or any(arm.get('driver') != driver_name for arm in raw):
+        raise ValueError('Isolation validator differs from the original G driver')
+    # Driver paths/hashes are transitively fixed by the evaluator-pinned config;
+    # the shared consumer rehashes the full closure before loading its validator.
+    for index, arm in enumerate(raw):
+        names = ['receipt.json', *(arm['result'].get('device_isolation') or {}).get('artifacts', {})]
+        for name in names:
+            relative = 'arm-' + str(index) + '/' + name
+            path = folder / relative
+            if path.resolve() != path or not path.is_relative_to(folder):
+                raise ValueError('Isolation artifact escaped the original G directory')
+            if hashlib.sha256(read_regular(path)).hexdigest() != manifest.get(relative):
+                raise ValueError('Original G isolation bytes changed')
+    helper = config_path.with_name('isolation.py')
+    expected = host.evaluator['files'].get(str(helper))
+    helper_raw = read_regular(helper)
+    if not expected or hashlib.sha256(helper_raw).hexdigest() != expected:
+        raise ValueError('Isolation consumer is not a pinned host evaluator input')
+    spec = importlib.util.spec_from_file_location('kernelbridge_original_isolation_' + expected, helper)
+    module = importlib.util.module_from_spec(spec)
+    exec(compile(helper_raw, str(helper), 'exec'), module.__dict__)
+    proof = module.verify([arm['result'] for arm in raw], declared['pipeline_contract']['measurement'], source,
+                          run_folder=folder, driver=driver, configured=config['device_isolation'])
+    if pipeline_hash(proof) != pipeline_hash(pair.get('qualification', {}).get('device_isolation')):
+        raise ValueError('Original isolation qualification changed')
+    return proof
+
+
 def promoted_receipt(host, state, declared, identity, action, actions, contexts):
     evidence = action.get('outcome', {}).get('data', {}).get('promotion_evidence')
     if not isinstance(evidence, dict) or evidence.get('promotion_action_id') != identity:
@@ -168,6 +231,7 @@ def promoted_receipt(host, state, declared, identity, action, actions, contexts)
                 or arm.get('result', {}).get('measurement') != declared['pipeline_contract']['measurement']
                 or arm.get('result', {}).get('environment') != pair.get('environment')):
             return None
+    isolation = original_isolation(host, declared, originals[1], pair, raw[1:], source)
     qualification = pair.get('qualification', {})
     delta, noise = qualification.get('paired_delta'), qualification.get('noise_threshold')
     if (qualification.get('qualified') is not True or type(delta) not in (int, float) or type(noise) not in (int, float)
@@ -181,6 +245,7 @@ def promoted_receipt(host, state, declared, identity, action, actions, contexts)
         'paired_delta': delta, 'noise_threshold': noise, 'pair_method': 'ABBA',
         'parent_source_sha256': pipeline_hash(declared['baseline_files']), 'raw_data_ref': paths,
         'calibration': qualification, 'scope': declared['scope'], 'cases': pair['cases'], 'families': pair['families'],
+        **({'device_isolation': isolation} if isolation is not None else {}),
         'regressions': pair['regressions'], 'original_f': check['action_id'], 'original_g': pair['action_id'],
         'receipt_hashes': evidence['receipts']}
 

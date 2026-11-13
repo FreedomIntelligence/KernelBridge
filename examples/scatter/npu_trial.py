@@ -292,7 +292,8 @@ def observation_request(config, folder, intent):
     """Carry the original identity into a read-only observer, including lost ACKs."""
     request = {key: intent[key] for key in ('action_id', 'source_sha256', 'remote_attempt')}
     request.update(attempt=attempt_number(intent),
-                   supervisor_sha256=hashlib.sha256(Path(__file__).with_name('npu_job_supervisor.py').read_bytes()).hexdigest())
+                   supervisor_sha256=hashlib.sha256(Path(__file__).with_name('npu_job_supervisor.py').read_bytes()).hexdigest(),
+                   **isolation_request_fields(config))
     for key in ('mode', 'device'):
         if key in config: request[key] = config[key]
         elif key in intent: request[key] = intent[key]
@@ -435,6 +436,142 @@ def execution_failure(config, folder, intent, observation, run):
     return {'status': 'completed', 'data': wire_summary(summary)}
 
 
+ISOLATION_FILES = {
+    'isolation-samples.jsonl': 'isolation_samples',
+    'isolation-receipt.json': 'isolation_receipt',
+    'admission.json': 'admission',
+    'execution-request.json': 'execution_request',
+    'execution-exit.json': 'execution_exit',
+}
+
+
+def isolation_requirement(config):
+    value = config.get('contract', {}).get('measurement', {}).get('device_isolation')
+    if value is None:
+        return None
+    from npu_isolation import normalize_policy, policy_digest
+    if not isinstance(value, dict) or set(value) != {'policy', 'policy_sha256'}:
+        raise ValueError('Invalid configured isolation policy binding')
+    policy = normalize_policy(value['policy'])
+    if value['policy'] != policy or value.get('policy_sha256') != policy_digest(policy):
+        raise ValueError('Configured isolation policy hash differs')
+    return value
+
+
+def isolation_request_fields(config):
+    requirement = isolation_requirement(config)
+    if requirement is None:
+        return {}
+    return {'isolation_policy': requirement['policy'],
+            'npu_enter_code_sha256': hashlib.sha256(Path(__file__).with_name('npu_enter.py').read_bytes()).hexdigest(),
+            'isolation_code_sha256': hashlib.sha256(Path(__file__).with_name('npu_isolation.py').read_bytes()).hexdigest(),
+            'process_isolation_code_sha256': hashlib.sha256((Path(__file__).resolve().parents[1] / 'operator_pipeline/process_isolation.py').read_bytes()).hexdigest()}
+
+
+def retain_isolation_bytes(folder, observation):
+    """Retain independently hashed originals; no clean/status projection is proof."""
+    for name, field in ISOLATION_FILES.items():
+        if observation.get(field + '_bytes') is None:
+            continue
+        raw = base64.b64decode(observation[field + '_bytes'], validate=True)
+        if len(raw) > 64 * 1024 * 1024 or hashlib.sha256(raw).hexdigest() != observation.get(field + '_sha256'):
+            raise ValueError('Original isolation evidence bytes differ: ' + name)
+        retain_original_bytes(folder / name, raw)
+
+
+def isolation_documents(folder):
+    documents = {}
+    for name in ISOLATION_FILES:
+        path = folder / name
+        if path.exists() or path.is_symlink():
+            if path.resolve() != path or not path.is_file() or path.stat().st_size > 64 * 1024 * 1024:
+                raise ValueError('Original isolation evidence is missing or linked: ' + name)
+            documents[name] = path.read_bytes()
+    return documents
+
+
+def verify_isolation_request(config, intent, raw):
+    request = json.loads(raw)
+    expected = {**intent, 'attempt': attempt_number(intent),
+                **{key: config[key] for key in ('mode', 'device') if key in config}}
+    for key in ('action_id', 'attempt', 'source_sha256', 'mode', 'device'):
+        if key in expected and request.get('intent', {}).get(key) != expected[key]:
+            raise ValueError('Original isolation request identity differs: ' + key)
+    for key, value in {**isolation_request_fields(config),
+                       'remote_root': config['remote_root'], 'remote_attempt': intent['remote_attempt'],
+                       'supervisor_sha256': hashlib.sha256(Path(__file__).with_name('npu_job_supervisor.py').read_bytes()).hexdigest()}.items():
+        if request.get(key) != value:
+            raise ValueError('Original isolation request binding differs: ' + key)
+    return expected
+
+
+def verified_admission(config, folder, intent):
+    requirement = isolation_requirement(config)
+    if requirement is None:
+        raise ValueError('No isolation admission policy was configured')
+    from npu_isolation import validate_admission
+    documents = isolation_documents(folder)
+    expected = verify_isolation_request(config, intent, documents['execution-request.json'])
+    if (folder / 'launch.json').is_file() and json.loads((folder / 'launch.json').read_bytes()).get('handle') is not None:
+        raise ValueError('Not-started admission conflicts with an acknowledged process')
+    if (folder / 'observed-launch.json').exists() or (folder / 'execution-exit.json').exists():
+        raise ValueError('Not-started admission conflicts with an original process receipt')
+    receipt = validate_admission(documents['admission.json'], documents['isolation-samples.jsonl'],
+                                 documents['execution-request.json'], intent=expected, policy=requirement['policy'])
+    return receipt, documents
+
+
+def admission_outcome(config, folder, intent):
+    receipt, documents = verified_admission(config, folder, intent)
+    return {'status': 'not_started', 'data': {
+        'attempt': attempt_number(intent), 'action_id': intent['action_id'],
+        'source_sha256': intent['source_sha256'], 'remote_attempt': intent['remote_attempt'],
+        'original_handle': None, 'dispatch_outcome': 'not_started', 'admission': receipt,
+        'artifacts': {name: hashlib.sha256(raw).hexdigest() for name, raw in documents.items()},
+        'record': str(folder / 'admission.json')}}
+
+
+def isolation_projection(config, folder, intent, handle):
+    requirement = isolation_requirement(config)
+    if requirement is None:
+        return None
+    from npu_isolation import validate_evidence
+    descriptor = {'schema_version': 'kernelbridge.device-isolation-evidence/v1',
+                  'policy_sha256': requirement['policy_sha256'], 'artifacts': {}}
+    try:
+        documents = isolation_documents(folder)
+        descriptor['artifacts'] = {name: hashlib.sha256(raw).hexdigest() for name, raw in documents.items()
+                                   if name != 'admission.json'}
+        expected = verify_isolation_request(config, intent, documents['execution-request.json'])
+        derived = validate_evidence(documents['isolation-samples.jsonl'], documents['isolation-receipt.json'],
+            documents['execution-request.json'], documents['execution-exit.json'],
+            handle=handle, intent=expected, policy=requirement['policy'])
+        observation = json.loads((folder / 'observation.json').read_bytes())
+        receipt = json.loads(documents['isolation-receipt.json'])
+        if receipt.get('result_sha256') != observation.get('result_sha256'):
+            raise ValueError('Isolation receipt differs from the original benchmark result')
+    except (KeyError, ValueError, TypeError, OSError) as error:
+        derived = {'verdict': 'unknown', 'reason': str(error)}
+    return {**descriptor, 'verdict': derived['verdict'],
+            **({'reason': str(derived['reason'])[:2000]} if derived.get('reason') else {})}
+
+
+def repeatable_attempt(config, folder, intent):
+    """Only proven no-effect or settled nonqualifying observation admits retest."""
+    if (folder / 'admission.json').is_file():
+        verified_admission(config, folder, intent)
+        return True
+    if isolation_requirement(config) is None or not (folder / 'result.json').is_file():
+        return False
+    observation = json.loads((folder / 'observation.json').read_bytes())
+    retain_observed_launch(config, folder, intent, observation)
+    raw, _ = execution_exit(observation, intent)
+    if (folder / 'execution-exit.json').read_bytes() != raw:
+        raise ValueError('Retained original exit changed before retest')
+    proof = isolation_projection(config, folder, intent, observation['handle'])
+    return proof['verdict'] in {'foreign', 'unknown'}
+
+
 def collect(config, folder, run):
     intent = json.loads((folder / 'intent.json').read_text())
     deadline = time.monotonic() + config.get('wait_seconds', 900)
@@ -447,6 +584,13 @@ def collect(config, folder, run):
             return unknown_observation(folder, intent, 'Could not observe the original job; recover this same attempt',
                                        record=folder / 'collection-uncertain.json')
         save(folder / 'observation.json', observation)
+        if observation.get('lifecycle_state') == 'not_started' or observation.get('status') == 'not_started':
+            try:
+                retain_isolation_bytes(folder, observation)
+                return admission_outcome(config, folder, intent)
+            except (KeyError, ValueError, TypeError, OSError) as error:
+                return unknown_observation(folder, intent, 'Original admission evidence is invalid: ' + str(error),
+                                           observation=observation, identity_conflict=True)
         launch = folder / 'launch.json'
         acknowledged = json.loads(launch.read_text()).get('handle') if launch.is_file() else None
         if acknowledged is not None and not same_handle(acknowledged, observation.get('handle')):
@@ -469,6 +613,16 @@ def collect(config, folder, run):
                 except (KeyError, ValueError, TypeError) as error:
                     return unknown_observation(folder, intent, 'Original supervisor exit is invalid: ' + str(error),
                                                observation=observation, identity_conflict=True)
+                if (isolation_requirement(config) is not None
+                        and observation.get('isolation_receipt_bytes') is None
+                        and observation.get('supervisor_alive') is True and time.monotonic() < deadline):
+                    time.sleep(config.get('poll_seconds', 5))
+                    continue
+                if isolation_requirement(config) is not None:
+                    try:
+                        retain_isolation_bytes(folder, observation)
+                    except (KeyError, ValueError, TypeError, OSError) as error:
+                        save(folder / 'isolation-collection-error.json', {'error': str(error)})
                 if observation['result'] is None:
                     return execution_failure(config, folder, intent, observation, run)
                 try:
@@ -500,12 +654,16 @@ def collect(config, folder, run):
                        'original_handle': observation['handle'], 'remote_result_sha256': observation['result_sha256'],
                        'record': str(folder / 'device-result.json'), 'diagnostic': observation['log_tail'] if result['status'] != 'completed' else None,
                        'diagnostics': result.get('diagnostics'),
-                       'promotion': 'none; compare rounds as best-observed only'}
+                       'promotion': 'none; compare rounds as best-observed only',
+                       **({'measurement_retry_of': intent['measurement_retry_of']} if 'measurement_retry_of' in intent else {})}
             if log_record is not None:
                 summary['run_log'] = {**log_record, 'original_handle': wire_handle(log_record['original_handle'])}
             if observation.get('execution_exit_sha256') is not None:
                 summary.update(result_origin='benchmark', execution_exit_sha256=observation['execution_exit_sha256'],
                                execution_exit_path=str(folder / 'execution-exit.json'))
+            proof = isolation_projection(config, folder, intent, observation['handle'])
+            if proof is not None:
+                summary['device_isolation'] = proof
             save(folder / 'result.json', summary)
             save(Path(config['candidate']).parent / 'feedback.json', summary)
             return {'status': 'completed', 'data': wire_summary(summary)}
@@ -532,25 +690,37 @@ def trial(config, action=None, recover=None):
         if recover is not None:
             matches = [path.parent for path, intent in prior_records if attempt_number(intent) == recover]
             if len(matches) != 1: raise ValueError('Recovery requires one original attempt number')
-            return collect(config, matches[0], transport(config))
+            folder = matches[0]
+            if (folder / 'admission.json').is_file():
+                return admission_outcome(config, folder, json.loads((folder / 'intent.json').read_bytes()))
+            return collect(config, folder, transport(config))
         if not isinstance(action.get('id'), str) or not action['id']:
             raise ValueError('Original tool action ID is required')
         matches = [path.parent for path, intent in prior_records if intent['action_id'] == action['id']]
         if len(matches) > 1: raise ValueError('Ambiguous original action identity')
         if matches:
             folder = matches[0]
+            if (folder / 'admission.json').is_file():
+                return admission_outcome(config, folder, json.loads((folder / 'intent.json').read_bytes()))
             if (folder / 'result.json').exists(): return {'status': 'completed', 'data': wire_summary(json.loads((folder / 'result.json').read_text()))}
             return collect(config, folder, transport(config))
-        for path, _ in prior_records:
-            if not (path.parent / 'result.json').is_file():
+        for path, prior_intent in prior_records:
+            if not (path.parent / 'result.json').is_file() and not repeatable_attempt(config, path.parent, prior_intent):
                 return {'status': 'unknown', 'data': {'error': 'An earlier original attempt has no final receipt; recover it before starting another attempt', 'record': str(path)}}
         candidate = Path(config['candidate']).resolve(); parsed = sources(candidate)
         data = candidate.read_bytes(); source_sha = hashlib.sha256(data).hexdigest()
         implementation_sha = implementation_digest(parsed)
+        retry_of = []
         for path, intent in prior_records:
             previous = path.parent / 'candidate.py'
             if previous.exists() and implementation_digest(sources(previous)) == implementation_sha:
-                raise ValueError('Native implementation already evaluated; recover its original receipt instead of relaunching')
+                if not repeatable_attempt(config, path.parent, intent):
+                    raise ValueError('Native implementation already evaluated; recover its original receipt instead of relaunching')
+                retry_of.append({'attempt': attempt_number(intent), 'action_id': intent['action_id'],
+                    'source_sha256': intent['source_sha256'], 'same_implementation': True,
+                    'reason': 'not_started' if (path.parent / 'admission.json').is_file() else 'nonqualifying_device_isolation',
+                    'original_evidence': {name: hashlib.sha256(raw).hexdigest()
+                        for name, raw in isolation_documents(path.parent).items()}})
         namespace = config['attempt_namespace']
         if not re.fullmatch(r'[A-Za-z0-9_-]+', namespace): raise ValueError('attempt_namespace must be one path component')
         benchmark = config.get('benchmark_script', 'npu_benchmark.py')
@@ -561,16 +731,21 @@ def trial(config, action=None, recover=None):
         intent = {'attempt': number, 'action_id': action['id'], 'input_id': action.get('input_id'),
                   'source_sha256': source_sha, 'implementation_sha256': implementation_sha,
                   'hypothesis': action.get('arguments', {}).get('hypothesis', ''), 'started_ns': time.time_ns(),
+                  **({'measurement_retry_of': retry_of} if retry_of else {}),
                   'remote_attempt': config['remote_root'].rstrip('/') + '/' + namespace + '/' + config['mode'] + f'/{number:04d}-' + source_sha[:16]}
         save(folder / 'intent.json', intent); (folder / 'candidate.py').write_bytes(data)
         request = {**intent, 'source': base64.b64encode(data).decode(), 'mode': config['mode'], 'device': config.get('device', 0),
                    'remote_root': config['remote_root'], 'benchmark_script': benchmark,
                    'supervisor_sha256': hashlib.sha256(Path(__file__).with_name('npu_job_supervisor.py').read_bytes()).hexdigest(),
                    'warmup': config.get('warmup', 3), 'repeats': config.get('repeats', 10), 'pairs': config.get('pairs', 3),
-                   'profile': config.get('profile', False) or number in config.get('profile_attempts', [1])}
+                   'profile': config.get('profile', False) or number in config.get('profile_attempts', [1]),
+                   **isolation_request_fields(config)}
         try:
             acknowledgement = invoke_remote(run, LAUNCH, body=request)
             save(folder / 'launch.json', acknowledgement)
+            if acknowledgement.get('status') == 'not_started':
+                retain_isolation_bytes(folder, acknowledgement)
+                return admission_outcome(config, folder, intent)
         except Exception as error:
             save(folder / 'launch-uncertain.json', {'error': str(error), 'remote_attempt': intent['remote_attempt']})
         return collect(config, folder, run)

@@ -539,3 +539,136 @@ new NPU run or a proof against arbitrary native interference. The six-case
 5.250296× result remains a single qualified same-device eager comparison,
 without independent stable reproduction/E4 or successful-candidate profiler/IR
 evidence. This entry records no new successful min or Cube result.
+
+### Native device isolation: local and CPU qualification
+
+Newly prepared native profiles declare a frozen device-isolation policy. The
+claim is sampled process observation and cooperative same-UID namespace leases,
+not absolute exclusivity. Native admission, process namespace/PID interpretation,
+SDK-activated visibility, original exit persistence and the G/H/host evidence
+checks are separately exercised. The eager baseline, measurement-function AST,
+suite, oracle, timing/aggregation and noise threshold remain unchanged. This
+feature does not install any implicit model, token, credit or Trial budget.
+
+A verified remote `not_started` receipt can settle its original launch fence
+without an invented handle. The original dispatch boundary stays retained;
+lost ACK recovery uses the original action and three exact byte artifacts.
+Missing, invalid or uncommitted evidence stays unknown/fenced. A completed
+original execution may be explicitly remeasured at the same source only after
+its actual exit and nonqualifying isolation are independently validated. Old
+measurements remain retained; new E and F keep the new original handle. A valid
+existing completion is reused. These resource-admission outcomes are not
+compiler failures and do not trigger an automatic dispatch loop.
+
+Required G/H/host isolation checks bind four original artifacts, the source,
+result, handle, action, policy and code pins, independently of model or adapter
+claims. A no-baseline F-only correctness bootstrap remains available and cannot
+produce a speedup or E3 receipt.
+
+| Focused invocation | Observed result | Retained log |
+| --- | --- | --- |
+| Native supervisor, SDK entry, raw isolation and supervised-trial regression | 60 passed | `.validation/device-isolation/supervisor-entry-r3.log` |
+| Adapter, preparation and original-handle recovery regression | 65 passed | `.validation/device-isolation/adapter-tests-04.log` |
+| Core native admission and explicit same-source remeasurement | 11 passed | `.validation/native-admission/core-r2.log` |
+| Isolation qualification/H/host plus existing noise qualification | 25 passed | `.validation/pipeline-isolation-r2.log` |
+| Darwin process/lease module | 31 passed, one Linux-only skip | `.validation/device-isolation/process-helper-tests-r1.log` |
+| Independent Linux CPU process/lease module | 31 passed, one Darwin-only skip | `.validation/device-isolation/linux-helper/cpu-helper-c113a24370124307a5bab935013a3a2b/qualification.json` |
+
+The focused groups overlap; this table is not a unique-test sum. The Linux
+qualification returned zero after one dispatch, with one read-only recovery,
+original receipts retained and source hashes unchanged. It used only CPU
+processes and standard-library process/lease primitives in a separate namespace;
+it does not qualify real NPU occupancy or physical PID-view correspondence.
+The latter remains a separate device probe.
+
+The first three adapter logs and the initial metadata failure note preserve the
+producer-identity fixture correction, new-policy assertion changes, fourth-pin
+schema update and legacy rounded-handle compatibility failure. The original
+six-module core invocation (`.validation/native-admission/core-regression-r1.log`)
+has 90 passed, one null-ACK recovery error and one optional historical-fixture
+skip out of 92 tests. The null-ACK error was fixed in the adapter and passed in
+the subsequent complete pending-observation module within the 65-test run.
+Neither failed run is retroactively labeled passing.
+
+The first full Python run (`.validation/device-isolation/python-full-r1.log`)
+ran **585 tests** in **209.115 seconds**, with **one failure and one skip**.
+The failure is the original e19 compile-receipt replay's historical supervisor
+pin compatibility; the unchanged assertion received unknown instead of the
+known completed native failure. The skip is the actual Linux fdinfo check on
+Darwin, separately passed in the Linux CPU qualification above. After the
+compatibility correction, the second full Python invocation passed **585**
+tests with **one Linux-only skip** (**586 total**) in **248.895 seconds**, exit
+zero (`.validation/device-isolation/python-full-r2.log`). The complementary
+Linux CPU run passed 31 tests and skipped its one Darwin-specific boundary.
+
+The first full TUI run passed **15** groups; **12** could not run because the
+root command omitted the existing `ui-test-deps` path from `PYTHONPATH` and
+therefore could not import `pyte`. The failure is retained in
+`.validation/device-isolation/tui-full-r1/`. The command's dependency path was
+corrected without changing the product. The second full TUI invocation passed
+**27/27**, with **zero failed, flaky or environmental groups**, timeout scale
+**1.0** and exit zero. Root independently verified lengths and SHA256 digests
+for all **145** referenced evidence files. The receipt is
+`.validation/device-isolation/tui-full-r2/acceptance.json`, SHA256
+`86dd5ce66ccdb1e03511b9041d7452dc52d24b4d259ac983c928e60c0cf743ec`.
+This is a complete full-suite pass; the earlier failures remain recorded.
+
+The complete passing invocations cover the main isolation version. They do
+**not** cover the subsequent public PID-view initialization follow-up. That
+feature is now implemented as `examples/scatter/prepare_npu_isolation.py` with
+`initialize`, `prepare`, `dispatch` and `recover`, an explicitly selected
+profile/transport/root/device, source-pinned receiver, one original dispatch
+and original-identity recovery. Successful original proof produces
+`initialized-profile.json`; unknown or invalid proof cannot produce a profile.
+Campaign preparation rejects missing/invalid view proof before creating a
+trial and provides the explicit initialization command. No host/device/operator
+is hardcoded. README describes this flow and removes the obsolete fixed 20-call
+wording without adding an implicit budget.
+
+The initializer connected suite passed **65/65**, no skips
+(`.validation/device-isolation/initializer-connected-summary.json`). Its
+focused receiver and client runs passed **19/19** and **11/11**, respectively
+(`product-receiver-acceptance.json` and `initializer-product-acceptance.md` in
+that directory). These overlapping counts must not be summed. The client r1
+fixture assertion failure remains retained; the corrected assertion binds the
+returned view artifact and does not relax production checks. Preparation's
+focused 51-test invocation passed 50 with one unavailable optional private
+historical-receipt fixture (`preparation-product-summary.json`). The actual
+suites use local CPU/CLI subprocesses and synthetic source-bound proof bytes;
+they do not establish a physical NPU PID view or run an optimization candidate.
+
+The final complete Python invocation ran **621 tests** in **256.055 seconds**:
+**619 passed, one error and one skip**
+(`.validation/device-isolation/python-final.log`). The sole error was the
+`PreparedImportClosureTests` preparation fixture missing the newly required
+synthetic PID-view proof. Production correctly rejected preparation before
+creating a trial. The test fixture was corrected to supply that synthetic
+proof (four lines added, one removed), with all original assertions and
+production requirements retained. The complete pending-observation module then
+passed **24/24** (`.validation/device-isolation/pending-observation-final.log`).
+There is no remaining known failure in this tested scope. This is the original
+621-test invocation followed by a targeted module pass, **not** a new full
+621/621 invocation. The failed complete result remains retained, and its
+Linux-only skip is separately covered on Linux.
+
+The final focused TUI invocation passed **7/7**, with zero failed, flaky or
+environmental groups at timeout scale **1.0**. It covers deployment, authority,
+full JavaScript, interaction, advanced, Goal review and Goal plan. Full npm
+passed **225** tests with one genuine case-sensitive-filesystem skip and zero
+failures (**226 total**); authority passed **167/167**. The receipt is
+`.validation/device-isolation/tui-final-focused/acceptance.json`, SHA256
+`9ee81e547bfda62f3761f0f2e60b0dd70245208ed8f212b965f2456807c05c59`.
+All **30** referenced artifacts matched their recorded lengths and SHA256
+digests. This is a focused follow-up after the preceding main-isolation full
+27/27 invocation, not another full 27/27 invocation for the initializer
+follow-up. The complete-run failures and their subsequent focused corrections
+remain separately recorded.
+
+The next clean batch is planned as **min → max → matmul**, with both scatter
+operators primary and Cube/matmul auxiliary. All candidates start blank, with
+no total model-turn/token caps; usage remains recorded. Complete sessions and
+all failed attempts, source versions, raw receipts and diagnostic reads will
+be retained, alongside the existing full-session archives and unresolved
+original handles. No new model or NPU optimization run is reported. These checks concern harness behavior and
+establish no new successful optimization session, stable repetition, min/Cube
+result or performance gain.

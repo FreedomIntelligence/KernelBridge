@@ -30,6 +30,30 @@ def prepare(profile, output, python):
             if not driver.get('observed_receipt_protocol') or validator not in driver['files']:
                 raise ValueError('Observation validator requires the explicit protocol and a pinned file')
             driver['observation_validator'] = validator
+        admission_fields = {'native_admission_protocol', 'native_admission_validator',
+                            'native_admission_source_file', 'native_admission_pins'}
+        if admission_fields & set(driver):
+            if (not admission_fields.issubset(driver) or driver['kind'] not in {'launch', 'collect'}
+                    or driver['native_admission_protocol'] != 'kernelbridge.native-admission/v1'):
+                raise ValueError('Native admission requires the explicit launch/collect protocol and verifier metadata')
+            validator = str(Path(driver['native_admission_validator']).resolve(strict=True))
+            source_file = driver['native_admission_source_file']
+            pins = driver['native_admission_pins']
+            if (not isinstance(source_file, str) or not source_file or Path(source_file).is_absolute()
+                    or '..' in Path(source_file).parts or not isinstance(pins, dict)
+                    or set(pins) != {'supervisor_sha256', 'isolation_code_sha256', 'process_isolation_code_sha256', 'npu_enter_code_sha256'}):
+                raise ValueError('Native admission requires an explicit source file and complete code pins')
+            pins = {key: str(Path(path).resolve(strict=True)) for key, path in pins.items()}
+            if (validator not in driver['files'] or pins['isolation_code_sha256'] != validator
+                    or any(path not in driver['files'] for path in pins.values())):
+                raise ValueError('Native admission verifier and all remote code pins must be frozen driver files')
+            driver['native_admission_validator'] = validator
+            driver['native_admission_pins'] = pins
+        if 'isolation_validator' in driver:
+            validator = str(Path(driver['isolation_validator']).resolve(strict=True))
+            if driver['kind'] != 'measure' or validator not in driver['files']:
+                raise ValueError('Isolation validator requires a measurement driver and a pinned file')
+            driver['isolation_validator'] = validator
         timeout = driver.get('timeout', 600)
         if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0:
             raise ValueError('Driver timeout must be positive and finite')
@@ -55,6 +79,7 @@ def prepare(profile, output, python):
     shutil.copyfile(Path(__file__).with_name('evaluation.py'), output / 'evaluation.py')
     shutil.copyfile(Path(__file__).with_name('diagnostic_policy.py'), output / 'diagnostic_policy.py')
     shutil.copyfile(Path(__file__).with_name('qualification.py'), output / 'qualification.py')
+    shutil.copyfile(Path(__file__).with_name('isolation.py'), output / 'isolation.py')
     shutil.copyfile(Path(__file__).with_name('job_identity.py'), output / 'job_identity.py')
     shutil.copyfile(Path(__file__).with_name('preflight.py'), output / 'preflight.py')
     shutil.copyfile(Path(__file__).with_name('observation.py'), output / 'observation.py')

@@ -19,6 +19,7 @@ import npu_pipeline_driver as adapter
 import preflight
 from pipeline import Pipeline, main
 from prepare_npu_campaign import prepare
+from validation.npu_isolation_fixture import preparation_profile
 
 
 class NativePreflightRejectionTests(unittest.TestCase):
@@ -318,13 +319,16 @@ class NativePreflightRejectionTests(unittest.TestCase):
             runtime = self.root / ('runtime-' + mode + '.json')
             runtime.write_text(json.dumps({'config': {'providers': {'fixture': {'model': 'unchanged'}}},
                                            'application': {'max_model_turns': 123}}))
-            task = profile = None
+            task = None
+            profile = self.root / ('synthetic-pid-view-' + mode + '.json')
+            values = preparation_profile(device=1)
             if mode == 'matmul':
                 task = self.root / 'cube-task.json'; task.write_text(json.dumps({
                     'goal': 'implement declared Cube fixture', 'contract': self.config['contract']}))
-                profile = self.root / 'cube-profile.json'; profile.write_text(json.dumps({'mode': mode, 'device': 1,
+                values.update({'mode': mode, 'device': 1,
                     'transport_module': self.config['transport_module'], 'remote_root': '/no-dispatch',
-                    'oracle_files': {'oracle.py': str(self.oracle)}, 'baseline_files': {'oracle.py': str(self.oracle)}}))
+                    'oracle_files': {'oracle.py': str(self.oracle)}, 'baseline_files': {'oracle.py': str(self.oracle)}})
+            profile.write_text(json.dumps(values))
             source_inputs = {path: path.read_bytes() for path in (runtime, task, profile) if path is not None}
             prepare(SimpleNamespace(output=output, task=task, profile=profile, runtime_profile=runtime,
                 mode=mode, device=1, transport=Path(self.config['transport_module']), remote_root='/no-dispatch',

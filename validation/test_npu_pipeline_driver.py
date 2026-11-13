@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / 'examples/scatter'))
 import npu_pipeline_driver as adapter
 import npu_trial as native_trial
 from prepare_npu_campaign import prepare
+from validation.npu_isolation_fixture import preparation_profile
 
 
 class NpuPipelineDriverTest(unittest.TestCase):
@@ -255,7 +256,9 @@ class NpuPipelineDriverTest(unittest.TestCase):
     def test_prepare_is_clean_and_does_not_expose_source_directory_as_read_root(self):
         transport = self.root / 'transport.py'; transport.write_text('def run(*a, **kw): raise AssertionError("never dispatch")\n')
         output = self.root / 'clean'
-        args = SimpleNamespace(output=output, task=None, profile=None, runtime_profile=None, mode='max', device=0,
+        profile = self.root / 'synthetic-pid-view.json'
+        profile.write_text(json.dumps(preparation_profile()))
+        args = SimpleNamespace(output=output, task=None, profile=profile, runtime_profile=None, mode='max', device=0,
                                transport=transport, remote_root='/remote/task', python=Path(sys.executable))
         prepared = prepare(args)
         task = json.loads((output / 'task.json').read_text()); specs = json.loads((output / 'business-tools.json').read_text())

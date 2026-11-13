@@ -13,6 +13,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'examples/scatter'))
 from prepare_npu_campaign import NATIVE_INTERFACE, NATIVE_INTERFACE_VERSION, OPERATOR_GUIDANCE, prepare, scatter_contract
+from validation.npu_isolation_fixture import preparation_profile
 
 
 class NativeInterfaceTest(unittest.TestCase):
@@ -46,11 +47,13 @@ class NativeInterfaceTest(unittest.TestCase):
             cube_task = folder / 'cube-task.json'
             cube_task.write_text(json.dumps({'goal': 'Implement the declared native operator.',
                                              'contract': cube_contract, 'candidate_abi': cube_abi}))
+            npu_profile = folder / 'synthetic-pid-view.json'
+            npu_profile.write_text(json.dumps(preparation_profile()))
             for mode in ('max', 'min', 'matmul'):
                 with self.subTest(mode=mode):
                     output = folder / mode
                     args = SimpleNamespace(output=output, task=cube_task if mode == 'matmul' else None,
-                                           profile=None, runtime_profile=None, mode=mode, device=0,
+                                           profile=npu_profile, runtime_profile=None, mode=mode, device=0,
                                            transport=transport, remote_root='/unused/test-only', python=Path(sys.executable))
                     with patch('subprocess.Popen', side_effect=AssertionError('preparation must not dispatch')):
                         prepare(args)
@@ -88,6 +91,15 @@ class NativeInterfaceTest(unittest.TestCase):
                     expected_contract = copy.deepcopy(cube_contract if mode == 'matmul' else scatter_contract(mode, 0))
                     actual_contract = copy.deepcopy(task['contract'])
                     del actual_contract['oracle']['files']
+                    isolation = actual_contract['measurement'].pop('device_isolation')
+                    from npu_isolation import policy_digest
+                    self.assertTrue(isolation['policy']['required'])
+                    self.assertEqual(isolation['policy']['claim'], 'sampled_observed_clear')
+                    self.assertEqual(isolation['policy']['scope'], 'cooperative_same_uid_namespace')
+                    self.assertEqual(isolation['policy']['logical_device'], actual_contract['measurement']['device'])
+                    self.assertEqual(isolation['policy_sha256'], policy_digest(isolation['policy']))
+                    frozen_profile = json.loads((output / 'pipeline-tools/config.json').read_text())
+                    self.assertEqual(frozen_profile['device_isolation'], isolation)
                     self.assertEqual(actual_contract, expected_contract)
                     tools = json.loads((output / 'business-tools.json').read_text())
                     self.assertEqual(len(tools), 11)

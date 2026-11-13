@@ -18,6 +18,7 @@ import test_npu_pipeline_driver as fixture
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'examples/operator_pipeline'))
 from pipeline import Pipeline, main
+from validation.npu_isolation_fixture import preparation_profile
 
 adapter = fixture.adapter
 
@@ -84,10 +85,11 @@ def run(argv, *, stdin, timeout):
 
 
     def prepared_policy(self, switches=None):
-        profile = None
+        profile = self.root / ('synthetic-pid-view-' + uuid.uuid4().hex + '.json')
+        values = preparation_profile()
         if switches is not None:
-            profile = self.root / ('profile-' + uuid.uuid4().hex + '.json')
-            profile.write_text(json.dumps({'diagnostics': switches}))
+            values['diagnostics'] = switches
+        profile.write_text(json.dumps(values))
         output = self.root / ('prepared-' + uuid.uuid4().hex)
         fixture.prepare(SimpleNamespace(output=output, task=None, profile=profile, runtime_profile=None,
             mode='max', device=0, transport=self.transport, remote_root='/never/dispatched', python=Path(sys.executable)))

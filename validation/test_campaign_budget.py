@@ -9,6 +9,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'examples/scatter'))
 from prepare_npu_campaign import prepare
+from validation.npu_isolation_fixture import preparation_profile
 
 
 class CampaignBudgetTests(unittest.TestCase):
@@ -18,6 +19,8 @@ class CampaignBudgetTests(unittest.TestCase):
         self.root = Path(temporary.name).resolve()
         self.transport = self.root / 'transport.py'
         self.transport.write_text('raise AssertionError("Preparation must not contact a device")\n')
+        self.npu_profile = self.root / 'synthetic-pid-view.json'
+        self.npu_profile.write_text(json.dumps(preparation_profile()))
 
     def prepare(self, runtime=None, max_model_turns=None):
         runtime_path = None
@@ -25,7 +28,7 @@ class CampaignBudgetTests(unittest.TestCase):
             runtime_path = self.root / 'runtime.json'
             runtime_path.write_text(json.dumps(runtime))
         output = self.root / ('prepared-' + str(len(list(self.root.iterdir()))))
-        prepare(SimpleNamespace(output=output, task=None, profile=None, runtime_profile=runtime_path,
+        prepare(SimpleNamespace(output=output, task=None, profile=self.npu_profile, runtime_profile=runtime_path,
             mode='max', device=0, transport=self.transport, remote_root='/uncontacted/task',
             python=Path(sys.executable), max_model_turns=max_model_turns))
         return output

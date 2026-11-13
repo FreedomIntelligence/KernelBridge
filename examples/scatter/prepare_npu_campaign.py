@@ -89,10 +89,46 @@ def prepare(args):
     contract['oracle'] = dict(contract['oracle'], files=oracle_files)
     measurement = contract['measurement']
     if measurement['device'] != device: raise ValueError('Task/profile device differs')
-    if mode in ('max', 'min') and measurement != scatter_contract(mode, device)['measurement']:
+    if mode in ('max', 'min') and {key: value for key, value in measurement.items() if key != 'device_isolation'} != scatter_contract(mode, device)['measurement']:
         raise ValueError('Scatter six-case measurement contract is fixed')
     if mode in ('max', 'min') and contract['suite'] != scatter_contract(mode, device)['suite']:
         raise ValueError('Scatter six-case suite is fixed')
+    # New preparations require observation evidence. Existing prepared profiles
+    # keep their original contract; no missing legacy proof is upgraded.
+    isolation_spec = importlib.util.spec_from_file_location('npu_prepare_isolation', HERE / 'npu_isolation.py')
+    isolation_module = importlib.util.module_from_spec(isolation_spec)
+    sys.modules[isolation_spec.name] = isolation_module
+    # Validate the exact pinned source, including same-timestamp edits; do not
+    # reuse an import cache for the preparation admission boundary.
+    exec(compile((HERE / 'npu_isolation.py').read_bytes(), str(HERE / 'npu_isolation.py'), 'exec'),
+         isolation_module.__dict__)
+    normalize_policy, policy_digest = isolation_module.normalize_policy, isolation_module.policy_digest
+    declared_isolation = supplied.get('device_isolation', measurement.get('device_isolation', {}))
+    if not isinstance(declared_isolation, dict):
+        raise ValueError('device_isolation must declare a policy object')
+    policy = normalize_policy(declared_isolation.get('policy', declared_isolation) or {
+        'schema_version': 'kernelbridge.npu-isolation-policy/v1', 'required': True,
+        'claim': 'sampled_observed_clear', 'scope': 'cooperative_same_uid_namespace',
+        'logical_device': device, 'lease_root': '/tmp/kernelbridge-npu-leases',
+        'sample_interval_ms': 1000, 'sample_timeout_ms': 2000, 'max_gap_ms': 5000})
+    if policy.get('required') is not True or policy.get('logical_device') != device:
+        raise ValueError('A new NPU profile requires isolation observation for its exact logical device')
+    isolation = {'policy': policy, 'policy_sha256': policy_digest(policy)}
+    if declared_isolation.get('policy_sha256', isolation['policy_sha256']) != isolation['policy_sha256']:
+        raise ValueError('Device isolation policy hash differs')
+    try:
+        isolation_module.validate_policy_view(policy)
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(
+            'NPU PID-view initialization is required before preparing an executable trial: '
+            + str(error)[:500] + '. Run python3 -B examples/scatter/prepare_npu_isolation.py '
+            'initialize --profile /path/to/npu-profile.json --transport /path/to/authorized_transport.py '
+            '--remote-root /path/to/authorized/deployment --device ' + str(device)
+            + ' --output /path/to/new-isolation-profile; then pass its initialized-profile.json to '
+            'prepare_npu_campaign.py --profile. No trial or model call was created. '
+            'Initialization proves the recorded PID view; every dispatch still checks current isolation.'
+        ) from error
+    measurement['device_isolation'] = isolation
     root = args.output.resolve(); root.mkdir(parents=True, exist_ok=False)
     project = root / 'project'; project.mkdir()
     state = root / 'attempts'; state.mkdir()
@@ -159,12 +195,22 @@ def prepare(args):
     save(root / 'task.json', authored)
     pins = sorted(HERE.glob('npu_*.py')) + [HERE.parent / 'operator_pipeline/diagnostic_policy.py',
             HERE.parent / 'operator_pipeline/job_identity.py', HERE.parent / 'operator_pipeline/preflight.py',
-            HERE.parent / 'operator_pipeline/observation.py', config_path,
+            HERE.parent / 'operator_pipeline/observation.py', HERE.parent / 'operator_pipeline/process_isolation.py', config_path,
             root / 'task.json', project / 'contract.json', transport]
-    profile = {'candidate_source': 'workspace', 'read_roots': [str(root), *sorted(set([*oracle_files.values(), *baseline_files.values()]))],
+    profile = {'device_isolation': isolation, 'candidate_source': 'workspace', 'read_roots': [str(root), *sorted(set([*oracle_files.values(), *baseline_files.values()]))],
         'drivers': {name: {'kind': 'diagnostic' if operation in ('ir', 'profiler') else operation,
                     'argv': [str(args.python.absolute()), '-B', str(HERE / 'npu_pipeline_driver.py'), str(config_path), operation],
                     'files': [str(path) for path in pins], 'timeout': 1800 if operation in ('launch', 'collect') else 180,
+                    **({'native_admission_protocol': 'kernelbridge.native-admission/v1',
+                        'native_admission_validator': str(HERE / 'npu_isolation.py'),
+                        'native_admission_source_file': 'candidate.py',
+                        'native_admission_pins': {
+                            'supervisor_sha256': str(HERE / 'npu_job_supervisor.py'),
+                            'npu_enter_code_sha256': str(HERE / 'npu_enter.py'),
+                            'isolation_code_sha256': str(HERE / 'npu_isolation.py'),
+                            'process_isolation_code_sha256': str(HERE.parent / 'operator_pipeline/process_isolation.py')}}
+                        if operation in ('launch', 'collect') else {}),
+                    **({'isolation_validator': str(HERE / 'npu_isolation.py')} if operation == 'measure' else {}),
                     **({'preflight_rejection_protocol': 'kernelbridge.driver-preflight/v1'} if operation == 'launch' else {}),
                     **({'observed_receipt_protocol': 'kernelbridge.driver-observation/v1',
                         'observation_validator': str(HERE / 'npu_job_supervisor.py')} if operation in ('launch', 'collect') else {})}

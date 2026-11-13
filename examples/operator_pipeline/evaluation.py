@@ -114,6 +114,16 @@ def evaluate(pipeline, action):
                 if len(collectors) == 1 and (handles or retained) else None)
         result['recovery_scope'] = 'Resume this settled bounded call only. A crashed outer Journal action must first be reconciled by its original owner; this tool cannot bypass that fence.'
 
+    def refused(original, state, launch_run):
+        if original['data'].get('dispatch_outcome') != 'not_started': return False
+        refusal = state.committed_launch_rejection(launch_run)
+        if refusal is None:
+            raise ValueError('Launch refusal lacks its committed original receipt')
+        result.update(evaluation_status='failed', failure_phase=refusal['failure_phase'], dispatch_outcome='not_started',
+            feedback=refusal, error=refusal['error']['message'], original_handle=None, continuation=None,
+            qualification='No native child started; no F/G/H or device acceptance was produced.')
+        return True
+
     try:
         allowed = {'files', 'origin', 'launch_driver', 'collect_driver', 'check_driver', 'wait_seconds', 'resume_run'}
         if not isinstance(args, dict) or set(args) - allowed: raise ValueError('Unknown evaluate arguments')
@@ -178,21 +188,13 @@ def evaluate(pipeline, action):
             result.update(evaluation_status='pending', error='Original evaluation is unresolved; inspect its original receipt/logs before any replacement execution',
                           unresolved_run=last['run'], continuation=None)
         else:
-            retained = pipeline.matching_handle()
+            retained = pipeline.matching_handle(for_retry=True)
             unknown = pipeline.pending_launches()
             if unknown and any(row['binding']['source'] != source['sha256'] or row['binding']['contract'] != pipeline.binding()['contract'] for row in unknown):
                 raise ValueError('An unresolved launch for a different source/contract must be recovered separately')
             if not unknown and not retained and drivers['launch'] and time.monotonic() < deadline:
                 pipeline, launched = phase('E', 'pipeline_run', {'stage': 'E', 'driver': drivers['launch']})
-                if launched['data'].get('dispatch_outcome') == 'not_started':
-                    # Only the committed/reverified terminal refusal can stop this
-                    # composite without collecting or inventing a remote failure.
-                    refusal = pipeline.committed_launch_rejection(result['stages'][-1]['run'])
-                    if refusal is None:
-                        raise ValueError('Preflight refusal lacks its committed original receipt')
-                    result.update(evaluation_status='failed', failure_phase='preflight', dispatch_outcome='not_started',
-                        feedback=refusal, error=refusal['error']['message'], original_handle=None, continuation=None,
-                        qualification='Remote job never started; no F/G/H or device acceptance was produced.')
+                if refused(launched, pipeline, result['stages'][-1]['run']):
                     return pipeline.finish(action, output, 'completed', result)
                 retained = pipeline.matching_handle(); unknown = pipeline.pending_launches()
             polls = 0
@@ -200,6 +202,11 @@ def evaluate(pipeline, action):
                 if not drivers['collect']: break
                 collection = {'recover_run': unknown[0]['run']} if unknown else {'handle': retained['handle']}
                 pipeline, collected = phase('E', 'pipeline_run', {'stage': 'E', 'driver': drivers['collect'], **collection})
+                if collected['data'].get('dispatch_outcome') == 'not_started':
+                    original_run = collection.get('recover_run')
+                    if original_run is None or not refused(collected, pipeline, original_run):
+                        raise ValueError('Native admission collection must identify its original launch')
+                    return pipeline.finish(action, output, 'completed', result)
                 polls += 1; retained = pipeline.matching_handle(); unknown = pipeline.pending_launches()
                 if collected['status'] != 'completed': break
                 if unknown or retained and not retained.get('collected'):

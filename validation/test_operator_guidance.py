@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 for path in [*ROOT.glob('source/packages/*/src'), ROOT / 'source/apps/worker/src']:
     sys.path.insert(0, str(path))
 from kernelcat_worker.configuration import BusinessToolConfig
+from validation.npu_isolation_fixture import preparation_profile
 
 spec = importlib.util.spec_from_file_location('clean_guidance_prepare', ROOT / 'examples/scatter/prepare_npu_campaign.py')
 prepare = importlib.util.module_from_spec(spec)
@@ -24,12 +25,14 @@ class OperatorGuidanceTests(unittest.TestCase):
         self.root = Path(self.temporary.name).resolve()
         self.transport = self.root / 'transport.py'
         self.transport.write_text('# Preparation fixture only; never executes transport.\n')
+        self.npu_profile = self.root / 'synthetic-pid-view.json'
+        self.npu_profile.write_text(json.dumps(preparation_profile(device=1)))
 
     def tearDown(self):
         self.temporary.cleanup()
 
     def args(self, name='campaign', **overrides):
-        return SimpleNamespace(**dict(dict(profile=None, runtime_profile=None, task=None,
+        return SimpleNamespace(**dict(dict(profile=self.npu_profile, runtime_profile=None, task=None,
             output=self.root / name, mode='max', device=1, transport=self.transport,
             remote_root='/preparation-fixture', python=Path(sys.executable),
             max_model_turns=None, online_research=False), **overrides))
@@ -51,7 +54,17 @@ class OperatorGuidanceTests(unittest.TestCase):
                                  hashlib.sha256(authored['files']['AGENTS.md'].encode()).hexdigest())
                 self.assertIsNone(manifest['application']['max_model_turns'])
                 self.assertEqual(authored['contract']['suite'], prepare.scatter_contract(mode, 1)['suite'])
-                self.assertEqual(authored['contract']['measurement'], prepare.scatter_contract(mode, 1)['measurement'])
+                measurement = dict(authored['contract']['measurement'])
+                isolation = measurement.pop('device_isolation')
+                from npu_isolation import policy_digest
+                self.assertTrue(isolation['policy']['required'])
+                self.assertEqual(isolation['policy']['claim'], 'sampled_observed_clear')
+                self.assertEqual(isolation['policy']['scope'], 'cooperative_same_uid_namespace')
+                self.assertEqual(isolation['policy']['logical_device'], measurement['device'])
+                self.assertEqual(isolation['policy_sha256'], policy_digest(isolation['policy']))
+                frozen_profile = json.loads((args.output / 'pipeline-tools/config.json').read_text())
+                self.assertEqual(frozen_profile['device_isolation'], isolation)
+                self.assertEqual(measurement, prepare.scatter_contract(mode, 1)['measurement'])
                 tools = json.loads((args.output / 'business-tools.json').read_text())
                 self.assertFalse(any(tool['name'].startswith('online_') for tool in tools))
                 for tool in tools:

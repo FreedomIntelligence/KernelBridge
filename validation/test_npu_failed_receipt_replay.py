@@ -6,12 +6,38 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'examples/scatter'))
+def frozen_runtime(root):
+    """Verify an explicitly supplied replay closure against its retained manifest."""
+    root = Path(root).resolve(strict=True)
+    record = json.loads((root / 'replay-runtime.json').read_bytes())
+    manifest_raw = Path(record['source_manifest']).read_bytes()
+    if hashlib.sha256(manifest_raw).hexdigest() != record['source_manifest_sha256']:
+        raise ValueError('Original replay runtime manifest changed')
+    pins = json.loads(manifest_raw)['drivers']['npu-collect']['files']
+    for name, entry in record['files'].items():
+        path = root / name
+        if (Path(name).is_absolute() or '..' in Path(name).parts or path.resolve(strict=True) != path
+                or pins.get(entry['original_path']) != entry['sha256']
+                or hashlib.sha256(path.read_bytes()).hexdigest() != entry['sha256']):
+            raise ValueError('Original replay runtime closure changed: ' + name)
+    required = {'npu_trial.py', 'npu_job_supervisor.py', 'npu_pipeline_driver.py', 'npu_benchmark.py',
+                'npu_eager.py', 'npu_diagnostics.py', 'npu_candidate_audit.py', 'job_identity.py',
+                'observation.py', 'preflight.py', 'diagnostic_policy.py'}
+    if not required.issubset({Path(name).name for name in record['files']}):
+        raise ValueError('Original replay runtime closure is incomplete')
+    return root
+
+
+IS_FROZEN_REPLAY = os.environ.get('_KERNELBRIDGE_FAILED_REPLAY_CHILD') == '1'
+RUNTIME = (frozen_runtime(os.environ['KERNELBRIDGE_FAILED_REPLAY_RUNTIME_ROOT']) if IS_FROZEN_REPLAY
+           else Path(__file__).resolve().parents[1])
+sys.path[:0] = [str(RUNTIME / 'examples/scatter'), str(RUNTIME / 'examples/operator_pipeline')]
 import npu_trial
 import npu_pipeline_driver as adapter
 
@@ -19,10 +45,56 @@ import npu_pipeline_driver as adapter
 class OriginalFailedBenchmarkReplayTests(unittest.TestCase):
     @unittest.skipUnless(os.environ.get('KERNELBRIDGE_FAILED_BENCHMARK_ATTEMPT'),
                          'Supply an original failed benchmark attempt for read-only replay')
+    def test_current_runtime_rejects_original_with_different_supervisor_pin(self):
+        original = Path(os.environ['KERNELBRIDGE_FAILED_BENCHMARK_ATTEMPT']).resolve(strict=True)
+        raw = (original / 'observation.json').read_bytes(); observation = json.loads(raw)
+        self.assertNotEqual(observation['handle']['supervisor']['code_sha256'],
+                            adapter.sha(Path(npu_trial.__file__).with_name('npu_job_supervisor.py')),
+                            'This negative replay requires an original from a different frozen runtime')
+        pinned = {p: adapter.sha(p) for p in original.iterdir() if p.is_file()}
+        with tempfile.TemporaryDirectory(prefix='native-failed-pin-rejection-') as temporary:
+            folder = Path(temporary).resolve()
+            for name in ('candidate.py', 'intent.json', 'launch.json', 'observed-launch.json',
+                         'observed-execution-request.json'):
+                if (original / name).exists(): shutil.copyfile(original / name, folder / name)
+            config = json.loads((original.parents[1] / 'trial-config.json').read_bytes())
+            config.update(state=str(folder.parent), candidate=str(folder / 'candidate.py'), wait_seconds=0)
+            calls = []
+            def offline(argv, stdin=b'', timeout=45):
+                calls.append(argv[3])
+                self.assertEqual(argv[3], npu_trial.COLLECT, 'A mismatched runtime must not launch or collect report artifacts')
+                return {'returncode': 0, 'stdout': raw, 'stderr': b''}
+            outcome = npu_trial.collect(config, folder, offline)
+            self.assertEqual(outcome['status'], 'unknown')
+            self.assertIs(outcome['data']['identity_verified'], False)
+            self.assertIsNone(outcome['data']['original_handle'])
+            self.assertIn('pinned supervisor', outcome['data']['error'])
+            self.assertEqual(calls, [npu_trial.COLLECT])
+            self.assertFalse((folder / 'device-result.json').exists())
+            self.assertFalse((folder / 'execution-failure.json').exists())
+        self.assertEqual({p: adapter.sha(p) for p in pinned}, pinned)
+
+    @unittest.skipUnless(os.environ.get('KERNELBRIDGE_FAILED_BENCHMARK_ATTEMPT'),
+                         'Supply an original failed benchmark attempt for read-only replay')
     def test_original_compile_failure_preserves_report_log_and_readable_first_error(self):
         original = Path(os.environ['KERNELBRIDGE_FAILED_BENCHMARK_ATTEMPT']).resolve(strict=True)
         observation_raw = (original / 'observation.json').read_bytes()
         observation = json.loads(observation_raw)
+        if not IS_FROZEN_REPLAY:
+            runtime_path = os.environ.get('KERNELBRIDGE_FAILED_REPLAY_RUNTIME_ROOT')
+            self.assertTrue(runtime_path, 'Supply KERNELBRIDGE_FAILED_REPLAY_RUNTIME_ROOT with the matching manifest-verified runtime; never rewrite an original pin')
+            runtime = frozen_runtime(runtime_path)
+            self.assertEqual(adapter.sha(runtime / 'examples/scatter/npu_job_supervisor.py'),
+                             observation['handle']['supervisor']['code_sha256'])
+            env = dict(os.environ, _KERNELBRIDGE_FAILED_REPLAY_CHILD='1', PYTHONDONTWRITEBYTECODE='1')
+            reply = subprocess.run([sys.executable, '-B', str(Path(__file__).resolve()),
+                'OriginalFailedBenchmarkReplayTests.test_original_compile_failure_preserves_report_log_and_readable_first_error', '-v'],
+                env=env, cwd=runtime, capture_output=True, text=True, timeout=60)
+            self.assertEqual(reply.returncode, 0, reply.stdout + reply.stderr)
+            if os.environ.get('KERNELBRIDGE_FAILED_REPLAY_OUTPUT'):
+                target = Path(os.environ['KERNELBRIDGE_FAILED_REPLAY_OUTPUT']); target.mkdir(parents=True, exist_ok=True)
+                (target / 'frozen-runtime-replay.log').write_text(reply.stdout + reply.stderr)
+            return
         raw_result = (json.dumps(observation['result'], indent=2, allow_nan=False) + '\n').encode()
         digest = hashlib.sha256(raw_result).hexdigest()
         self.assertEqual(digest, observation['result_sha256'])
@@ -39,6 +111,8 @@ class OriginalFailedBenchmarkReplayTests(unittest.TestCase):
                 if (original / name).exists(): shutil.copyfile(original / name, folder / name)
             config = json.loads((original.parents[1] / 'trial-config.json').read_bytes())
             config.update(state=str(folder.parent), candidate=str(folder / 'candidate.py'), wait_seconds=0)
+            config['contract']['oracle']['files'] = {name: str(RUNTIME / 'examples/scatter' / name)
+                                                     for name in config['contract']['oracle']['files']}
             calls = []
             def offline(argv, stdin=b'', timeout=45):
                 calls.append(argv[3])

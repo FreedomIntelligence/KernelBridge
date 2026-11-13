@@ -8,6 +8,7 @@ import json
 import math
 import statistics
 from pathlib import Path
+from isolation import verify as verify_isolation
 
 
 def digest(value):
@@ -139,11 +140,17 @@ def verify_calibration_artifacts(payload, receipt, artifacts):
             raise ValueError('Independent calibration original bytes differ from raw payload')
 
 
-def qualify(results, contract, binding, source_files, baseline_files, ratios, *, calibration_artifacts=None):
+def qualify(results, contract, binding, source_files, baseline_files, ratios, *, calibration_artifacts=None,
+            isolation_context=None):
     """Return E3 qualification only for an explicitly noise-qualified protocol."""
     measurement = contract['measurement']
+    isolation = None
+    if measurement.get('device_isolation') is not None or (isolation_context or {}).get('configured') is not None:
+        if isolation_context is None:
+            raise ValueError('Required isolation needs its original artifacts and pinned validator')
+        isolation = verify_isolation(results, measurement, source_files, **isolation_context)
     if measurement.get('require_noise') is not True:
-        return None
+        return {'device_isolation': isolation} if isolation is not None else None
     if measurement.get('aggregation') not in {'pooled_arm_median', 'paired_block_log_mean'}:
         raise ValueError('Noise qualification requires a predeclared aggregation')
     protocol = measurement.get('protocol_id')
@@ -205,6 +212,7 @@ def qualify(results, contract, binding, source_files, baseline_files, ratios, *,
     if summary is not None and not math.isclose(positive(summary.get('geomean_speedup')), overall, rel_tol=1e-10):
         raise ValueError('Declared aggregation changes the original reported geomean')
     return {'qualified': overall > 1 and delta > theta, 'paired_delta': delta, 'noise_threshold': theta,
+            **({'device_isolation': isolation} if isolation is not None else {}),
             'reported_geomean': overall, 'method': 'independent-aaaa-mean-log-3se-v1', 'pair_method': 'ABBA',
             'scope': measurement.get('scope'), 'protocol_id': protocol, 'aggregation': measurement['aggregation'],
             'binding': declared, 'paired_block_deltas': delta_blocks, 'null_block_deltas': null_blocks,

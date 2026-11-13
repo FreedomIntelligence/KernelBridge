@@ -8,6 +8,7 @@ import re
 import sys
 
 from npu_trial import LOG_PAGE_BYTES, MAX_LOG_BYTES, attempt_records, attempt_number, execution_exit, invoke_remote, recover_run_log, save, transport, trial, same_handle, validate_benchmark_result, wire_handle, wire_summary
+from npu_trial import admission_outcome, isolation_documents, isolation_projection, isolation_requirement, original_acknowledgement, repeatable_attempt
 from npu_benchmark import FIELDS, sources
 from npu_diagnostics import MAX_ARTIFACT
 try:
@@ -103,6 +104,25 @@ def round_for(config, request):
         if (manifest_sha({'candidate.py': intent['source_sha256']}) == expected
                 and (original_action is None or intent.get('action_id') == original_action)):
             matches.append((path.parent, intent))
+    if request.get('handle') is not None:
+        matched_handles = []
+        for folder, intent in matches:
+            summary = folder / 'result.json'
+            handle = (json.loads(summary.read_bytes()).get('original_handle') if summary.is_file()
+                      else original_acknowledgement(folder, intent)[0])
+            if same_handle(handle, request['handle']):
+                matched_handles.append((folder, intent))
+        if matches and not matched_handles:
+            raise ValueError('Requested handle differs from the original job')
+        matches = matched_handles
+    elif original_action is None:
+        exact_action = [(folder, intent) for folder, intent in matches if intent['action_id'] == request.get('action_id')]
+        if exact_action:
+            matches = exact_action
+        elif len(matches) > 1 and all(repeatable_attempt(config, folder, intent) for folder, intent in matches[:-1]):
+            # A declared remeasurement follows settled, nonqualifying evidence;
+            # never select by speedup or discard earlier observations.
+            matches = matches[-1:]
     if len(matches) != 1: raise ValueError('No unique original NPU attempt for this frozen candidate')
     return matches[0]
 
@@ -150,6 +170,54 @@ def pending_projection(config, operation, request, outcome):
     for name, raw in raw_files.items():
         write_preflight_artifact(Path(request['output']) / 'observation' / name, raw)
     return projected
+
+
+def admission_projection(config, request, outcome, *, folder=None):
+    """Project original no-effect admission, independent of trial summary hints."""
+    if folder is None:
+        folder = original_launch_action(config, request)
+    if folder is None:
+        raise ValueError('Native admission has no original launch action')
+    intent = json.loads((folder / 'intent.json').read_bytes())
+    verified = admission_outcome(config, folder, intent)
+    if outcome != verified:
+        raise ValueError('Native admission summary differs from original evidence')
+    artifacts = {}
+    for name, raw in isolation_documents(folder).items():
+        if name not in {'admission.json', 'isolation-samples.jsonl', 'execution-request.json'}:
+            raise ValueError('Not-started admission contains dispatched execution evidence')
+        relative = 'admission/' + name
+        write_preflight_artifact(Path(request['output']) / relative, raw)
+        artifacts[relative] = hashlib.sha256(raw).hexdigest()
+    reason = verified['data']['admission'].get('reason', 'Device admission did not start the native child')
+    return {'protocol': 'kernelbridge.native-admission/v1', 'status': 'not_started',
+            'dispatch_outcome': 'not_started', 'dispatched': False,
+            'action_id': intent['action_id'], 'source_sha256': request['source']['sha256'],
+            'request_sha256': preflight_digest(request),
+            'policy_sha256': config['contract']['measurement']['device_isolation']['policy_sha256'],
+            'artifacts': artifacts, 'error': {'code': 'native_admission_not_started', 'message': str(reason)[:2000]}}
+
+
+def project_isolation(config, folder, request, handle):
+    intent = json.loads((folder / 'intent.json').read_bytes())
+    proof = isolation_projection(config, folder, intent, handle)
+    if proof is None:
+        return None
+    output = Path(request['output'])
+    for name, expected in proof['artifacts'].items():
+        original = folder / name
+        if original.resolve() != original or not original.is_file():
+            raise ValueError('Projected isolation original changed: ' + name)
+        raw = original.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != expected:
+            raise ValueError('Projected isolation original hash changed: ' + name)
+        path = output / name
+        if path.exists():
+            if path.resolve() != path or path.read_bytes() != raw:
+                raise ValueError('Projected original isolation evidence changed: ' + name)
+        else:
+            write_preflight_artifact(path, raw)
+    return proof
 
 
 def original(config, request):
@@ -660,14 +728,23 @@ def execute(config, operation, request):
         write_preflight_artifact(Path(request['output']) / 'dispatch-boundary.json',
                                  (json.dumps(boundary, sort_keys=True, ensure_ascii=False, allow_nan=False) + '\n').encode())
         outcome = trial(dict(config, candidate=str(candidate)), {'id': action_id, 'arguments': {'hypothesis': json.dumps(hypothesis, ensure_ascii=False)}})
+        if outcome['status'] == 'not_started': return admission_projection(config, request, outcome)
         if outcome['status'] != 'completed': return pending_projection(config, operation, request, outcome)
         save(Path(config['candidate']).parent / 'feedback.json', outcome['data'])
     elif operation == 'collect':
         folder, intent = round_for(config, request)
-        if not (folder / 'result.json').exists():
+        if (not (folder / 'result.json').exists() or isolation_requirement(config) is not None
+                and not (folder / 'isolation-receipt.json').is_file()):
             outcome = trial(config, recover=attempt_number(intent))
+            if outcome['status'] == 'not_started':
+                return admission_projection(config, request, outcome, folder=folder)
             if outcome['status'] != 'completed': return pending_projection(config, operation, request, outcome)
     folder, result, summary, evidence = original(config, request)
+    proof = project_isolation(config, folder, request, summary['original_handle'])
+    if proof is not None:
+        evidence['device_isolation'] = proof
+    if summary.get('measurement_retry_of'):
+        evidence['measurement_retry_of'] = summary['measurement_retry_of']
     if operation == 'collect' and request.get('handle') and (folder / 'run-log.json').is_file():
         log = json.loads((folder / 'run-log.json').read_text())
         verify_log_binding(log, evidence)

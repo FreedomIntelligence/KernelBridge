@@ -569,11 +569,14 @@ class ReadyBoundaryTests(unittest.TestCase):
 class PreparedImportClosureTests(unittest.TestCase):
     def test_fresh_process_loads_prepared_tools_and_native_preflight_with_minimal_environment(self):
         import test_npu_pipeline_driver as fixture
+        from validation.npu_isolation_fixture import preparation_profile
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve(); transport = root / 'transport.py'
             transport.write_text('raise AssertionError("No transport import is allowed for local preflight")\n')
             output = root / 'prepared'
-            args = SimpleNamespace(output=output, task=None, profile=None, runtime_profile=None, mode='max', device=0,
+            profile = root / 'synthetic-pid-view.json'
+            profile.write_text(json.dumps(preparation_profile(device=0)))
+            args = SimpleNamespace(output=output, task=None, profile=profile, runtime_profile=None, mode='max', device=0,
                 transport=transport, remote_root='/remote/task', python=Path(sys.executable))
             fixture.prepare(args)
             tool = json.loads((output / 'business-tools.json').read_text())[0]

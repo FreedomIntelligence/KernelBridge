@@ -7,6 +7,7 @@ import base64
 import ctypes
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -158,7 +159,8 @@ def validate_launch_receipt(launch_raw, request_raw, *, intent):
             or not _hash(bound['source_sha256']) or not isinstance(bound['mode'], str) or not bound['mode']
             or type(bound['device']) is not int or bound['device'] < 0):
         raise ValueError('Invalid original launch intent')
-    for key in ('remote_root', 'remote_attempt', 'supervisor_sha256'):
+    for key in ('remote_root', 'remote_attempt', 'supervisor_sha256', 'isolation_policy',
+                'isolation_code_sha256', 'process_isolation_code_sha256', 'npu_enter_code_sha256'):
         if key in intent and request.get(key) != intent[key]:
             raise ValueError('Original launch binding differs: ' + key)
     roots = [Path(request[key]) for key in ('remote_root', 'remote_attempt', 'canonical_root')]
@@ -166,6 +168,11 @@ def validate_launch_receipt(launch_raw, request_raw, *, intent):
         raise ValueError('Invalid original deployment path')
     if not roots[1].relative_to(roots[0]).parts:
         raise ValueError('Original attempt must be below deployment root')
+    if request.get('isolation_policy') is not None:
+        expected_claim = {'kind': 'original_attempt', 'path': str(roots[2] /
+            ('.npu-claim-' + _sha(request['remote_attempt'].encode()) + '.lock'))}
+        if request.get('claim_lock') != expected_claim:
+            raise ValueError('Original claim lock binding differs')
     argv = request.get('argv')
     if not isinstance(argv, list) or not argv or any(not isinstance(v, str) or '\0' in v for v in argv):
         raise ValueError('Invalid original child argv')
@@ -232,6 +239,41 @@ def validate_exit_receipt(raw, *, handle, intent):
     return record
 
 
+def _isolation_module(request):
+    """Load only request-pinned observer code; old jobs remain the old protocol."""
+    if request.get('isolation_policy') is None:
+        return None
+    here = Path(__file__).resolve().parent
+    helper = here / 'process_isolation.py'
+    if not helper.exists():
+        helper = here.parent / 'operator_pipeline/process_isolation.py'
+    paths = {'isolation_code_sha256': here / 'npu_isolation.py',
+             'process_isolation_code_sha256': helper,
+             'npu_enter_code_sha256': here / 'npu_enter.py'}
+    originals = {}
+    for key, path in paths.items():
+        originals[key] = _read(path)
+        if path.resolve() != path or _sha(originals[key]) != request.get(key):
+            raise ValueError('Original isolation observer code changed: ' + key)
+    path = paths['isolation_code_sha256']
+    spec = importlib.util.spec_from_file_location('native_bound_isolation_' + request['isolation_code_sha256'], path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    exec(compile(originals['isolation_code_sha256'], str(path), 'exec'), module.__dict__)
+    return module
+
+
+def _isolation_fields(request):
+    if request.get('isolation_policy') is None:
+        return {}
+    module = _isolation_module(request)
+    policy = module.normalize_policy(request['isolation_policy'])
+    if policy['logical_device'] != request['device']:
+        raise ValueError('Isolation policy does not match original logical device')
+    return {'isolation_policy': policy,
+            **{key: request[key] for key in ('isolation_code_sha256', 'process_isolation_code_sha256', 'npu_enter_code_sha256')}}
+
+
 def _load(folder):
     # This first read discovers the declared root; all evidence is then reread
     # under its validated canonical path before it can grant any lifecycle state.
@@ -244,8 +286,12 @@ def _load(folder):
         raise ValueError('Original execution request changed')
     if request['canonical_root'] != str(root):
         raise ValueError('Original deployment root changed')
+    if request.get('isolation_policy') is not None and request.get('claim_lock') != {
+            'kind': 'original_attempt', 'path': str(_claim_lock(root, request))}:
+        raise ValueError('Original attempt claim lock binding changed')
     if request['supervisor_sha256'] != _sha(Path(__file__).read_bytes()):
         raise ValueError('Original supervisor code changed')
+    _isolation_module(request)
     if json.loads(_read(canonical / 'intent.json')) != request['intent']:
         raise ValueError('Original execution intent changed')
     if _sha(_read(canonical / 'candidate.py')) != request['intent']['source_sha256']:
@@ -259,14 +305,34 @@ def observe(folder, expected=None):
         for key in ('action_id', 'attempt', 'source_sha256', 'mode', 'device'):
             if key in expected and request['intent'][key] != expected[key]:
                 raise ValueError('Requested original execution identity differs')
-        for key in ('remote_root', 'remote_attempt', 'supervisor_sha256'):
-            if key in expected and request[key] != expected[key]:
+        for key in ('remote_root', 'remote_attempt', 'supervisor_sha256', 'isolation_policy',
+                    'isolation_code_sha256', 'process_isolation_code_sha256', 'npu_enter_code_sha256'):
+            if key in expected and request.get(key) != expected[key]:
                 raise ValueError('Requested original execution binding differs: ' + key)
     launch_raw = _read(folder / 'launch.json') if _present(folder / 'launch.json') else None
     request_raw = _read(folder / 'execution-request.json')
+    isolation = _isolation_module(request)
+    try:
+        isolation_evidence = isolation.read_evidence(folder) if isolation else {}
+    except (OSError, ValueError) as error:
+        # This proof gates performance qualification, not an independently
+        # retained native exit or benchmark correctness receipt.
+        isolation_evidence = {'isolation_evidence_error': str(error)[:2048]}
+    if launch_raw is None and isolation and _present(folder / 'admission.json'):
+        if isolation_evidence.get('isolation_evidence_error'):
+            raise ValueError('Original no-start admission lacks readable isolation proof')
+        if _present(folder / 'execution-exit.json'):
+            raise ValueError('Non-dispatched admission cannot have a native exit')
+        admission = isolation.validate_admission(_read(folder / 'admission.json'),
+            _read(folder / 'isolation-samples.jsonl'), request_raw,
+            intent=request['intent'], policy=request['isolation_policy'])
+        return {'status': 'not_started', 'lifecycle_state': 'not_started', 'handle': None,
+                'alive': False, 'identity_verified': True, 'admission': admission,
+                'execution_request_bytes': base64.b64encode(request_raw).decode(),
+                'execution_request_sha256': request_sha, **isolation_evidence}
     handle = validate_launch_receipt(launch_raw, request_raw, intent={**request['intent'], **(expected or {})}) if launch_raw is not None else None
     if handle is None:
-        return {'handle': None, 'alive': False, 'lifecycle_state': 'unknown', 'identity_verified': False}
+        return {'handle': None, 'alive': False, 'lifecycle_state': 'unknown', 'identity_verified': False, **isolation_evidence}
     if (handle.get('schema_version') != HANDLE_SCHEMA
             or handle.get('execution_request_sha256') != request_sha or handle.get('argv') != request['argv']
             or handle.get('attempt') != request['remote_attempt']
@@ -286,12 +352,18 @@ def observe(folder, expected=None):
         if not _present(folder / 'execution-exit.json'):
             return None
         raw = _read(folder / 'execution-exit.json')
+        settled_context = {}
+        if isolation:
+            try:
+                settled_context['supervisor_alive'] = process_birth(supervisor['pid'], require_live=True) == supervisor['birth']
+            except (OSError, ValueError) as error:
+                settled_context = {'supervisor_alive': None, 'supervisor_observation_error': str(error)[:2048]}
         record = validate_exit_receipt(raw, handle=handle, intent=request['intent'])
         return {'handle': handle, 'alive': False, 'lifecycle_state': 'exited', 'identity_verified': True,
                 'original_launch_bytes': base64.b64encode(launch_raw).decode(), 'original_launch_sha256': _sha(launch_raw),
                 'execution_request_bytes': base64.b64encode(request_raw).decode(), 'execution_request_sha256': request_sha,
                 'execution_exit': record, 'execution_exit_sha256': _sha(raw),
-                'execution_exit_bytes': base64.b64encode(raw).decode()}
+                'execution_exit_bytes': base64.b64encode(raw).decode(), **isolation_evidence, **settled_context}
     terminal = terminal_receipt()
     if terminal is not None:
         return terminal
@@ -311,13 +383,28 @@ def observe(folder, expected=None):
     return {'handle': handle, 'alive': child_alive, 'supervisor_alive': supervisor_alive, 'identity_verified': True,
             'original_launch_bytes': base64.b64encode(launch_raw).decode(), 'original_launch_sha256': _sha(launch_raw),
             'execution_request_bytes': base64.b64encode(request_raw).decode(), 'execution_request_sha256': request_sha,
-            'lifecycle_state': lifecycle}
+            'lifecycle_state': lifecycle, **isolation_evidence}
+
+
+def _claim_lock(root, request):
+    if request.get('isolation_policy') is None:
+        return root / '.npu-job.lock'
+    # Shared physical-device locks now supply cooperation across deployments.
+    # This local lock only prevents competing creation of the same attempt.
+    return root / ('.npu-claim-' + _sha(request['remote_attempt'].encode()) + '.lock')
+
+
+def _launch_reply(observation, *, existing):
+    if observation.get('lifecycle_state') == 'not_started':
+        return {'existing': existing, **observation}
+    return {'existing': existing, 'handle': observation['handle']}
 
 
 def launch(request, argv):
     """Create once; a repeated original identity only returns its original handle."""
     root, folder = _paths(request['remote_root'], request['remote_attempt'])
     original = {key: request[key] for key in INTENT_KEYS}
+    isolation_fields = _isolation_fields(request)
     data = base64.b64decode(request['source'], validate=True)
     if _sha(data) != original['source_sha256']:
         raise ValueError('Original candidate hash differs')
@@ -334,14 +421,14 @@ def launch(request, argv):
             if (prior['argv'] != argv or prior['remote_root'] != request['remote_root']
                     or prior['remote_attempt'] != request['remote_attempt']):
                 raise ValueError('Original child argv or declared deployment binding changed')
-            return {'existing': True, 'handle': observe(folder, expected=request)['handle']}
+            return _launch_reply(observe(folder, expected=request), existing=True)
         # A pre-supervisor or damaged attempt is still an irrevocable claim.
         # Do not turn its unbound file into a fresh trusted acknowledgement.
         return {'existing': True, 'handle': None}
 
     if folder.exists():
         return existing()
-    lease = os.open(root / '.npu-job.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    lease = os.open(_claim_lock(root, request), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     try:
         fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if folder.exists():
@@ -353,7 +440,10 @@ def launch(request, argv):
             stream.write(data); stream.flush(); os.fsync(stream.fileno())
         durable = {'schema_version': REQUEST_SCHEMA, 'intent': original, 'argv': argv,
                    'remote_root': request['remote_root'], 'canonical_root': str(root),
-                   'remote_attempt': request['remote_attempt'], 'supervisor_sha256': request['supervisor_sha256']}
+                   'remote_attempt': request['remote_attempt'], 'supervisor_sha256': request['supervisor_sha256'],
+                   **isolation_fields}
+        if isolation_fields:
+            durable['claim_lock'] = {'kind': 'original_attempt', 'path': str(_claim_lock(root, request))}
         raw = _save(folder / 'execution-request.json', durable)
         with (folder / 'supervisor.log').open('xb') as log:
             process = subprocess.Popen([sys.executable, '-B', str(Path(__file__).resolve()), '--supervise', str(folder), str(lease), _sha(raw)],
@@ -366,8 +456,8 @@ def launch(request, argv):
         os.close(lease)
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
-        if (folder / 'launch.json').exists():
-            return {'existing': False, 'handle': observe(folder)['handle']}
+        if (folder / 'launch.json').exists() or (folder / 'admission.json').exists():
+            return _launch_reply(observe(folder), existing=False)
         time.sleep(.02)
     return {'existing': False, 'handle': None}
 
@@ -379,7 +469,7 @@ def _supervise(folder, lease, expected_sha):
     # The inherited open-file description keeps the lock across launcher exit;
     # the child also holds it if the supervisor is lost before waiting.
     lock_stat = os.fstat(lease)
-    lock_path = Path(request['canonical_root']) / '.npu-job.lock'
+    lock_path = _claim_lock(Path(request['canonical_root']), request)
     path_stat = lock_path.lstat()
     if (not stat.S_ISREG(path_stat.st_mode) or not stat.S_ISREG(lock_stat.st_mode)
             or (lock_stat.st_dev, lock_stat.st_ino) != (path_stat.st_dev, path_stat.st_ino)):
@@ -387,9 +477,22 @@ def _supervise(folder, lease, expected_sha):
     fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
     supervisor = {'pid': os.getpid(), 'birth': process_birth(os.getpid()), 'code_sha256': request['supervisor_sha256']}
     _save(folder / 'supervisor.json', supervisor)
+    isolation = _isolation_module(request)
+    guard = isolation.Guard(folder, request, request_sha) if isolation else None
+    if guard is not None and not guard.admit()['allowed']:
+        guard.close()
+        os.close(lease)
+        return  # Durable admission says the original native child never started.
+    shared_fds = guard.inherited_fds if guard is not None else ()
+    child_env = dict(os.environ)
+    for key in ('KERNELBRIDGE_ISOLATION_REQUEST_PATH', 'KERNELBRIDGE_ISOLATION_REQUEST_SHA256'):
+        child_env.pop(key, None)
+    if guard is not None:
+        child_env.update(KERNELBRIDGE_ISOLATION_REQUEST_PATH=str(folder / 'execution-request.json'),
+                         KERNELBRIDGE_ISOLATION_REQUEST_SHA256=request_sha)
     with (folder / 'run.log').open('xb') as log:
         child = subprocess.Popen(request['argv'], cwd=request['remote_root'], stdin=subprocess.DEVNULL,
-                                 stdout=log, stderr=log, start_new_session=True, pass_fds=(lease,))
+                                 stdout=log, stderr=log, start_new_session=True, pass_fds=(lease, *shared_fds), env=child_env)
     handle = {'schema_version': HANDLE_SCHEMA, 'pid': child.pid, 'argv': request['argv'], 'started_ns': str(time.time_ns()),
               'attempt': request['remote_attempt'], 'process_birth': process_birth(child.pid),
               'supervisor': supervisor, 'execution_request_sha256': request_sha,
@@ -400,6 +503,8 @@ def _supervise(folder, lease, expected_sha):
         child.wait()
         raise ValueError('Original child birth unavailable')
     _save(folder / 'launch.json', handle)
+    if guard is not None:
+        guard.start(handle)
     rc = child.wait()
     record = {'schema_version': EXIT_SCHEMA, 'intent': request['intent'], 'handle': handle,
               'supervisor': supervisor, 'process_birth': handle['process_birth'],
@@ -410,8 +515,14 @@ def _supervise(folder, lease, expected_sha):
     # Revalidate original evidence after the child exits; tampering never gains
     # a trusted terminal receipt.
     _load(folder)
-    _save(folder / 'execution-exit.json', record)
-    os.close(lease)
+    try:
+        _save(folder / 'execution-exit.json', record)
+        if guard is not None:
+            guard.finish(_read(folder / 'execution-exit.json'))
+    finally:
+        if guard is not None:
+            guard.close()
+        os.close(lease)
 
 
 if __name__ == '__main__':
