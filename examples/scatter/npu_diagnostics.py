@@ -25,17 +25,54 @@ def _sha(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def _regular(path, root):
+class IRFileValidationError(ValueError):
+    """A file rejection with bounded, original metadata; no compiler was implied."""
+    def __init__(self, details, message):
+        self.details = details
+        observed = details.get('observed', {})
+        size = f" (bytes={observed['bytes']})" if 'bytes' in observed else ''
+        super().__init__(f"{message}: {details['role']} {details['path']}{size}")
+
+
+def _regular(path, root, *, allow_empty=False, role='artifact'):
     path, root = Path(path), Path(root)
-    if path.resolve(strict=True) != path or not path.is_relative_to(root) or not path.is_file():
-        raise ValueError('IR input/output must be a regular non-linked file within its bound root')
-    if not 0 < path.stat().st_size <= MAX_ARTIFACT:
-        raise ValueError('IR input/output exceeds its size bound or is empty')
+    within = path.is_absolute() and path.is_relative_to(root)
+    details = {'schema_version': 'kernelbridge.ir-file-validation/v1',
+               'phase': 'input_validation' if role in {'source', 'forced_include', 'source_input', 'candidate_wrapper', 'build_recipe'} else 'artifact_validation',
+               'role': role, 'path': str(path.relative_to(root)) if within else str(path),
+               'path_scope': 'bound_root_relative' if within else 'outside_bound_root',
+               'expected': {'regular': True, 'no_links': True, 'within_root': True,
+                            'min_bytes': 0 if allow_empty else 1, 'max_bytes': MAX_ARTIFACT}}
+    def reject(code, message):
+        details['code'] = code
+        raise IRFileValidationError(details, message)
+    if not within:
+        reject('outside_root', 'IR file is outside its bound root')
+    try:
+        resolved = path.resolve(strict=True)
+        if resolved != path:
+            reject('linked_path', 'IR file must be non-linked; path contains a link or traversal')
+        if not path.is_file():
+            reject('not_regular', 'IR file is not a regular file')
+        size = path.stat().st_size
+    except RuntimeError as error:
+        details['os_error'] = {'type': type(error).__name__}
+        reject('linked_path', 'IR file must be non-linked; path contains a link loop')
+    except OSError as error:
+        details['os_error'] = {'type': type(error).__name__, 'errno': error.errno}
+        reject('unreadable', 'IR file could not be inspected')
+    details['observed'] = {'bytes': size}
+    if size > MAX_ARTIFACT:
+        reject('size_limit', 'IR file exceeds its size bound')
+    if not allow_empty and size == 0:
+        # Hash only after root, no-link, regular-file and size validation.
+        details['observed']['sha256'] = _sha(path)
+        reject('empty_file', 'IR file is empty')
     return path
 
 
-def _identity(path, job):
-    path = _regular(path, job)
+def _identity(path, job, *, allow_empty=False, role='artifact'):
+    path = _regular(path, job, allow_empty=allow_empty, role=role)
     return {'path': str(path.relative_to(job)), 'sha256': _sha(path), 'bytes': path.stat().st_size}
 
 
@@ -74,7 +111,7 @@ def _execute(argv, log, folder, records, record, operation):
     return len(record['steps']) - 1
 
 
-def _recipe(original, job, sdk):
+def _recipe(original, job, sdk, record=None):
     compiler = Path(original[0]).resolve(strict=True)
     if not compiler.is_relative_to(sdk): raise ValueError('Compiler is outside the pinned SDK')
     language = None
@@ -91,15 +128,24 @@ def _recipe(original, job, sdk):
         raise ValueError('Unexpanded response-file recipe is not qualified for IR replay')
     sources = [Path(arg) for arg in original if arg.endswith(('.cpp', '.cce')) and not arg.startswith('-')]
     if not sources: raise ValueError('IR recipe has no original source file')
-    for path in sources: _regular(path, job)
-    inputs = list(sources)
+    if record is not None:
+        record.update(compiler=str(compiler), compiler_sha256=_sha(compiler), language=language,
+                      target=targets[0], inputs=[], input_checks=[])
+    inputs = []
+    def retain_input(path, role):
+        identity = _identity(path, job, allow_empty=True, role=role)
+        if path not in inputs:
+            inputs.append(path)
+            if record is not None: record['inputs'].append(identity)
+        if record is not None: record['input_checks'].append({'role': role, **identity})
+    for path in sources: retain_input(path, 'source')
     for index, arg in enumerate(original):
         included = (original[index + 1] if arg == '-include' and index + 1 < len(original)
                     else arg[len('-include'):] if arg.startswith('-include') else None)
         if included:
             path = Path(included)
             if path.is_absolute() and path.is_relative_to(job):
-                _regular(path, job); inputs.append(path)
+                retain_input(path, 'forced_include')
     output = Path(original[original.index('-o') + 1])
     if not output.is_absolute() or not output.resolve().is_relative_to(job):
         raise ValueError('Original compiler output is outside the frozen job')
@@ -168,6 +214,7 @@ def _decode(bitcode, directory, folder, records, record, compiler, sources, comp
         metadata = _llvm_metadata(destination, sources, record['target'])
     except (OSError, UnicodeError, ValueError) as error:
         record['steps'][step]['validation_error'] = str(error)
+        if isinstance(error, IRFileValidationError): record['steps'][step]['validation_failure'] = error.details
         destination.unlink(missing_ok=True)
         return False
     accepted = {'bitcode': _identity(bitcode, job), 'llvm': {**_identity(destination, job), **metadata},
@@ -184,9 +231,7 @@ def _collect_recipe(original, recipe, index, job, sdk, folder, records):
     records.append(record); _save(folder, records)
     directory = folder / f'kernel-{index:03d}'; directory.mkdir()
     try:
-        compiler, sources, inputs, output, language, target = _recipe(original, job, sdk)
-        record.update(compiler=str(compiler), compiler_sha256=_sha(compiler), language=language,
-                      target=target, inputs=[_identity(path, job) for path in inputs])
+        compiler, sources, inputs, output, language, target = _recipe(original, job, sdk, record)
         # Only this recipe's local output/source trees and matching source stems.
         # A .bc elsewhere in the job is not evidence for this compilation unit.
         stems = {path.stem for path in sources} | {output.stem}
@@ -225,17 +270,21 @@ def _collect_recipe(original, recipe, index, job, sdk, folder, records):
             record['reason'] = 'Pinned compiler produced no source- and target-validated IR in the original language mode'
     except (OSError, UnicodeError, ValueError) as error:
         record['reason'] = str(error)
+        record['failure'] = {'phase': 'recipe_validation' if not record['steps'] else 'artifact_validation',
+                             'exception_type': type(error).__name__,
+                             **(error.details if isinstance(error, IRFileValidationError) else {})}
+    record['compiler_process_started'] = any(step.get('pid') is not None for step in record['steps'])
     record['ended_ns'] = time.time_ns(); _save(folder, records)
 
 
 def collect_ir(job):
     job = Path(job).resolve(strict=True)
-    _regular(job / 'candidate.py', job)
+    _regular(job / 'candidate.py', job, role='candidate_wrapper')
     folder = job / 'ir'; folder.mkdir(exist_ok=False)
     sdk = Path(os.environ['ASCEND_HOME_PATH']).resolve(strict=True)
     records, seen = [], set()
     for recipe in sorted((job / 'build').rglob('*.mk')):
-        _regular(recipe, job)
+        _regular(recipe, job, role='build_recipe')
         for line in recipe.read_text().splitlines():
             if not line.startswith('\t'): continue
             try: original = shlex.split(line.strip())
@@ -247,6 +296,28 @@ def collect_ir(job):
             _collect_recipe(original, recipe, len(records), job, sdk, folder, records)
     _save(folder, records)
     return records
+
+
+def ir_failure_reason(records):
+    """Summarize the first failed recipe, linking only recorded log artifacts."""
+    failed = next((record for record in records if record.get('status') != 'completed'), None)
+    if failed is None: return None
+    phase = failed.get('failure', {}).get('phase')
+    if phase is None:
+        phase = 'compiler_or_artifact_validation' if failed.get('steps') else 'recipe_validation'
+    reason = failed.get('reason', 'No source- and target-validated IR was produced')
+    first_step_failure = next((step for step in failed.get('steps', [])
+                               if step.get('status') == 'failed' or step.get('validation_error')), None)
+    if first_step_failure is not None:
+        detail = first_step_failure.get('validation_error') or first_step_failure.get('error')
+        reason += '; ' + first_step_failure.get('operation', 'compiler step') + ': ' + (
+            str(detail) if detail else 'returncode=' + str(first_step_failure.get('returncode')))
+    message = f"IR recipe {failed.get('recipe', '<unknown>')} failed during {phase}: {reason}"
+    message = message[:1536] + '; receipt: ir/receipt.json'
+    logs = [str(step['log']) for step in failed.get('steps', [])
+            if step.get('log') and step.get('log_sha256')]
+    if logs: message += '; recorded compiler logs: ' + ', '.join(logs[:3])
+    return message[:2048]
 
 
 def validated_ir_artifacts(job, records):
@@ -263,7 +334,8 @@ def validated_ir_artifacts(job, records):
             recipe = _regular(job / record['recipe'], job)
             if _sha(recipe) != record['recipe_sha256']: raise ValueError('IR recipe changed')
             for item in record['inputs']:
-                if _identity(job / item['path'], job) != item: raise ValueError('IR source input changed')
+                if _identity(job / item['path'], job, allow_empty=True, role='source_input') != item:
+                    raise ValueError('IR source input changed')
             sources = [job / item['path'] for item in record['inputs'] if item['path'].endswith(('.cpp', '.cce'))]
             for accepted in record['accepted']:
                 indices = [accepted['decode_step']]

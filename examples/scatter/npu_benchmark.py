@@ -15,7 +15,7 @@ import time
 import traceback
 
 from npu_eager import scatter_eager
-from npu_diagnostics import collect_ir, validated_ir_artifacts
+from npu_diagnostics import IRFileValidationError, collect_ir, ir_failure_reason, validated_ir_artifacts
 from npu_candidate_audit import audit_wrapper, audit_native_binding
 try:
     from diagnostic_policy import assess_diagnostics, diagnostic_reason
@@ -88,6 +88,18 @@ def run(args):
     runtime = None
     compiler = None
     phase = 'setup'
+    def record_check_failure(actual, case, role):
+        binding = {'case_id': case['id'], 'input_sha256': case['input_sha256'],
+                   'candidate_sha256': source_sha, 'role': role}
+        try:
+            binding['inputs'] = {name: {'shape': list(case[name].shape), 'dtype': str(case[name].dtype)}
+                                 for name in ('src', 'index')}
+            from kernelcat_executor.evaluation.failure_summary import summarize_tensor_failure
+            result['correctness_failure'] = summarize_tensor_failure(
+                actual, case['expected'], comparison='equal', binding=binding)
+        except Exception as error:
+            result['correctness_failure'] = {'binding': binding, 'diagnostic_status': 'unavailable',
+                                             'diagnostic_error': {'type': type(error).__name__, 'message': str(error)[:512]}}
     (job / 'status.json').write_text(json.dumps(result))
     try:
         import torch
@@ -128,8 +140,11 @@ def run(args):
             for case in cases:
                 phase = 'baseline_correctness'
                 baseline_call = lambda: scatter_eager(case['src'], case['index'], 33, args.mode)
-                if not torch.equal(baseline_call().cpu(), case['expected']):
+                baseline_cpu = baseline_call().cpu()
+                if not torch.equal(baseline_cpu, case['expected']):
+                    record_check_failure(baseline_cpu, case, 'eager')
                     raise ValueError('Eager correctness failed before calibration: ' + case['id'])
+                del baseline_cpu
                 phase = 'noise_measurement'
                 arms = [{'pair': pair, 'position': position, 'arm': 'eager', 'input_sha256': case['input_sha256'],
                          'us': measure(baseline_call, torch, args.warmup, args.repeats)}
@@ -143,10 +158,16 @@ def run(args):
                 got = candidate_call(); eager = baseline_call(); torch.npu.synchronize()
                 if got.device != runtime.device or eager.device != runtime.device:
                     raise ValueError('Result left the measured NPU')
-                if not torch.equal(got.cpu(), case['expected']):
+                got_cpu = got.cpu()
+                if not torch.equal(got_cpu, case['expected']):
+                    record_check_failure(got_cpu, case, 'candidate')
                     raise ValueError('Candidate correctness failed: ' + case['id'])
-                if not torch.equal(eager.cpu(), case['expected']):
+                del got_cpu
+                eager_cpu = eager.cpu()
+                if not torch.equal(eager_cpu, case['expected']):
+                    record_check_failure(eager_cpu, case, 'eager')
                     raise ValueError('Eager correctness failed: ' + case['id'])
+                del eager_cpu
                 phase = 'paired_measurement'
                 arms = []
                 for pair in range(args.pairs):
@@ -198,6 +219,7 @@ def run(args):
         result['noise_calibration'] = noise
         result['noise_calibration_sha256'] = digest(job / 'noise.json')
     ir_error = None
+    ir_collection_failure = None
     ir_attempts = []
     triggered = diagnostic_reason(policy, failed=result['status'] != 'completed',
                                   regression=any(row['speedup'] <= 1 for row in result.get('cases', [])))
@@ -205,10 +227,10 @@ def run(args):
         try:
             ir_attempts = collect_ir(job)
             if not ir_attempts: ir_error = 'Original build produced no CANN compiler recipe from which to derive IR'
-            elif any(record.get('status') != 'completed' for record in ir_attempts):
-                ir_error = 'Some CANN IR recipes did not complete; inspect ir/receipt.json and compiler logs'
+            else: ir_error = ir_failure_reason(ir_attempts)
         except Exception as error:
             ir_error = str(error)
+            if isinstance(error, IRFileValidationError): ir_collection_failure = error.details
             try:
                 retained = json.loads((job / 'ir/receipt.json').read_text())
                 if isinstance(retained, list): ir_attempts = retained
@@ -233,6 +255,7 @@ def run(args):
             record['reason'] = reason or (
                 'Original attempt produced no diagnostic artifact; compile or correctness failure does not authorize executing a broken candidate.')
         if kind == 'ir':
+            if ir_collection_failure is not None: record['collection_failure'] = ir_collection_failure
             record['attempt_evidence'] = {str(p.relative_to(job)): digest(p) for p in (job / 'ir').rglob('*')
                                           if p.suffix in {'.json', '.log'} and p.is_file() and p.stat().st_size}
         records.append(record)

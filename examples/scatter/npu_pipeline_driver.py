@@ -398,6 +398,22 @@ def diagnostic_excerpt(raw, starts, index, match_offset, artifact):
     return excerpt
 
 
+def correctness_feedback(result):
+    """Carry a small original comparison report; never recompute its verdict."""
+    report = result.get('correctness_failure')
+    if not isinstance(report, dict):
+        return {}
+    try:
+        data = json.dumps(report, ensure_ascii=True, allow_nan=False).encode()
+        if len(data) > 8192:
+            raise ValueError('Original comparison report exceeds the 8192-byte feedback bound; read the original result artifact')
+        if report.get('binding', {}).get('candidate_sha256') != result.get('source_sha256'):
+            raise ValueError('Original comparison report source binding differs from the benchmark result')
+        return {'correctness_failure': json.loads(data)}
+    except (TypeError, ValueError, AttributeError) as error:
+        return {'correctness_failure': {'diagnostic_status': 'unavailable', 'reason': str(error)[:512]}}
+
+
 def terminal_feedback(folder, request, result, evidence, config=None):
     """Project already verified terminal evidence; never execute or repair work."""
     if result.get('status') not in {'completed', 'failed'}:
@@ -605,6 +621,7 @@ def terminal_feedback(folder, request, result, evidence, config=None):
         'first_runtime_error': runtime_error, 'first_sdk_diagnostic': sdk_error,
         'run_log': log, 'build_diagnostics': build_feedback,
         'build_completed': result.get('build_completed'), 'failure_stage': result.get('failure_stage'),
+        **correctness_feedback(result),
         'error_excerpt': None if first else (sdk_error['text'] if sdk_error else runtime_error['text'] if runtime_error else str(result.get('message') or result.get('error') or '')[:2048]),
         'diagnostics': {'required': diagnostics.get('required'), 'satisfied': diagnostics.get('satisfied'), 'reports': reports},
         'artifacts': artifacts, 'native_candidate_sha256': evidence['native_candidate_sha256'],
@@ -837,7 +854,8 @@ def execute(config, operation, request):
     if operation == 'check':
         return {'checks': {'build': result.get('build_completed', result['status'] == 'completed') is True, 'semantics': correct, 'full': correct},
                 'case_count': len(cases), 'case_ids': [case['id'] for case in cases],
-                'oracle_sha256': request['contract']['oracle']['files']['sha256'], 'error': result.get('message'), **evidence}
+                'oracle_sha256': request['contract']['oracle']['files']['sha256'], 'error': result.get('message'),
+                **correctness_feedback(result), **evidence}
     if operation == 'measure':
         arm = int(Path(request['output']).name.removeprefix('arm-'))
         if arm not in range(4) or request['role'] != 'ABBA'[arm]: raise ValueError('Expected one original ABBA arm index')

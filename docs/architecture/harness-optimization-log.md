@@ -1614,3 +1614,87 @@ their recorded hashes and sizes. Acceptance SHA256 is
 `eb4bf00944dfc7cbd2e1c513a0742271c49bce98d08c51a6a05e859223d56deb`.
 This resolves the observed issues within the tested scope; it is not a new
 complete Python/TUI run, nor evidence of optimization gains from these changes.
+
+### Stable context, failure details and terminal progress after 9777abb
+
+The independent Min session at 9777abb ended awaiting_user after 137 actual
+model calls: 122 parent calls and 15 calls across two read-only children, with
+17,153,232 recorded tokens. Twelve original native children exited; six builds
+completed, but no candidate passed even the first correctness case. There was
+no accepted F/E1, G/E3 or H result. Five automatic IR collections completed and
+four payload pages were actually delivered to subsequent model requests. No
+profiler payload was read. Tool delivery therefore did not establish successful
+optimization reasoning. Neither the candidate nor the original session was
+edited by the supervising agent.
+
+The observed baseline is the same-device torch_npu eager broadcast/mask/reduce
+composition, not CPU performance and not an optimized torch_scatter extension.
+CPU reference comparisons happen outside the timed region. Scatter timing uses
+synchronized host elapsed time, including invocation overhead; Cube has a
+separate NPU-event protocol. Neither protocol changed in this revision.
+
+The original Journal ends at sequence 3348, with 162,655,969 bytes and SHA256
+8195b996b5310553cc6c85eb33055146cc97ee1e7c0c6c4ce70c5a895b99ed52. Complete
+per-call, tool, source, diagnostic-read and original-receipt indexes remain in
+the source worktree under
+`.validation/isolation-clean-preparation/trajectory/observations/min-d43897f5c71a41c6/`.
+The failed session does not replace an earlier qualified best session.
+
+Three observed information gaps and one continuation defect prompted generic
+changes:
+
+* New requests carry an explicit system-suffix/v2 discriminator. Stable Pi
+  instructions precede a strictly framed terminal block containing the complete
+  current owner context. Full authorization/budget/source equality remains
+  mandatory. Missing layout retains V1 validation, and admitted V1 body bytes
+  and fingerprints are replayed unchanged. Messages, reasoning, tools and their
+  order are unchanged; retries rebuild fresh context from the original input.
+  The old parent system prefix changed near byte 277 despite 37,098 identical
+  later instruction bytes. The repair offers a stable prefix; it does not
+  establish actual cache hits or savings and does not make all history cacheable.
+* IR inputs may legitimately be empty, including forced includes. Input hashes
+  are retained and revalidated; accepted BC/LL artifacts still must be nonempty.
+  Root, no-link, regular-file, size, source, compiler and target checks remain.
+  Rejections retain the failed role/path/size and distinguish validation from an
+  actually started compiler. Existing receipts are not rewritten or upgraded.
+* A generic CPU-only diagnostic helper summarizes already observed comparison
+  failures: original shape/dtype, full mismatch count, up to four examples and
+  source/input binding. It does not execute the candidate or transfer tensors.
+  Original comparators, tolerances, suite, eager, candidate invocation counts
+  and timing remain unchanged. Diagnostic failure cannot replace the original
+  correctness failure. A bounded report reaches both the direct pipeline result
+  and composite evaluation feedback, with the original artifact still readable.
+* A proven terminal child with nonqualifying isolation is no longer classified
+  as waiting for its execution receipt. The original proof and qualification
+  remain unchanged; the workflow offers analysis or explicit remeasurement,
+  without dispatching it. Actual unknown effects and pending diagnostics still
+  wait. The consumer still requires the same original identity and new evidence
+  before clearing a wait. This addresses the observed old-attempt wait that
+  survived a later completed attempt; it does not retroactively alter that
+  original session's awaiting_user result.
+
+Source alignment used pinned Codex c0cc9fc820f62e4dbdde68214dd6d792d6c8a7ee
+and the public Claude Python SDK 3cf3446b0fa6c97042e85b245bba07459f22f946.
+Codex separates base instructions from input; the SDK exposes system options
+and streamed input. The public SDK does not reveal Claude Code's private CLI
+cache implementation. No provider or model was changed.
+
+Validation so far: the complete Python invocation ran 720 test methods, with
+708 passing, two failed methods (three subtest failures), and ten Linux-only
+skips. The failures were a mock callback signature and two stale documented
+source hashes. Their corrected complete modules passed 12/12 and 2/2. The
+original failed invocation remains retained; no replacement all-pass 720-run
+is claimed. The added continuation fix then passed 38/38 focused tests,
+including real producer-to-consumer progress and unknown-effect negative controls.
+
+The complete npm invocation passed 230 tests, failed none and skipped three:
+two optional original-session replays and one genuinely case-sensitive filesystem
+case. Both original-session fixtures were subsequently supplied to the targeted
+replay tests; 2/2 passed with original file hashes unchanged. The real Python
+pipeline replies also passed 2/2 checks through the actual locked Pi SDK tool
+lifecycle into the next projected model request. That is not an external
+provider acceptance or model-understanding claim. Final affected TUI acceptance passed 12/12 serially at timeout scale 1.0,
+with zero flaky, failed or environmental groups. Receipt SHA256 is
+`7988b90f435367fffdd1e3e745b4e83f9c5414f2926ef71a244c2afc6a74e2af`; all 57
+indexed artifacts matched their original lengths and hashes. This is focused
+local qualification, not a new NPU result or a full 27-group invocation.

@@ -48,7 +48,10 @@ async function modelTurn(rpc: EffectRpc, request: ModelTurnRequest, native: bool
     if (context !== undefined) params.context = context;
     if (request.harness !== undefined) {
       const composed = validatedSnapshot({ ...request.harness,
-        system_prompt: `KERNELCAT_CONTEXT_V1\n${canonicalKey(context)}\nEND_KERNELCAT_CONTEXT_V1\n${request.harness.system_prompt}`,
+        context_layout: "system-suffix/v2",
+        // Keep Pi's reusable instructions first. Each attempt is composed from
+        // the original input and the owner's complete, freshly charged context.
+        system_prompt: `${request.harness.system_prompt}\n\nKERNELCAT_CONTEXT_V2\n${canonicalKey(context)}\nEND_KERNELCAT_CONTEXT_V2`,
       }, validateHarness, "Owner-composed Pi input");
       params.harness = project && context ? project(composed, context) : composed;
     }

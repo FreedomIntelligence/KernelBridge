@@ -253,6 +253,6 @@ if one of these interfaces changes.
 | `source/packages/executor/src/kernelcat_executor/backends/ascend/templates/CppExtension/setup.py` | `318695abf92971c6adfe8aa64941afc4e1899a855df5e5328408452607f87355` |
 | `source/packages/executor/src/kernelcat_executor/backends/ascend/templates/CppExtension/csrc/pytorch_npu_helper.hpp` | `b092bd7c36b6aa38f4abc817d7fe939fa98c45ba71b51dcfb26989830b468968` |
 | `examples/scatter/npu_candidate_audit.py` | `d2820c66ca61bac88bbb83d87e8961bc8dc0b69262744df33419da33a8c63ed1` |
-| `examples/scatter/npu_benchmark.py` | `059b5534feaf431ac7528f11585442c9a67223098aba047d823ce25d75259c18` |
-| `examples/scatter/npu_matmul_benchmark.py` | `4e83711f0f9315efdfa70f3514862559f071ed735663489055d8cfce674007c5` |
+| `examples/scatter/npu_benchmark.py` | `621289f3f13c24fe561c22f534a19519c15a8cdd68c8ddf81662f4eb04c8fb5a` |
+| `examples/scatter/npu_matmul_benchmark.py` | `237bd06ca98ffffb6d292ca8a6643fb5bf8cff0d53a85bef8b4e540a0bf90f23` |
 | `examples/operator_pipeline/preflight.py` | `e26255219c08851c3dffb6b91fe57dfe4c82e21fb6cfe4d8421932c61616b564` |

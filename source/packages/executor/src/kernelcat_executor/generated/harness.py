@@ -7,7 +7,7 @@ from .context import ContextSource, JsonObject
 from .rsi import ReplayPluginConfiguration, RsiSourceCommit
 from .runtime import ContextCommit
 
-SCHEMA_SHA256 = "0cd2de2dffdebd9d32c49f88b59f2ec3a47f752850cc7d548058f1f8e10c0ce3"
+SCHEMA_SHA256 = "c5bd4c623f7c6cc4258dfefb5ad4c87f1fdc3c83a1b83e7c893bcd7134e2e69b"
 SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/draft/2020-12/schema',
  '$id': 'https://kernelcat.local/contracts/execution/v1/harness.schema.json',
  'title': 'Effective Pi input and Host sealed native tool dispatch',
@@ -25,6 +25,7 @@ SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/draft/2020-12/sche
            'HarnessInput': {'type': 'object',
                             'properties': {'schema_version': {'const': 'kernelcat.pi-harness/v1'},
                                            'adapter': {'const': 'pi@1.5.0'},
+                                           'context_layout': {'const': 'system-suffix/v2'},
                                            'system_prompt': {'type': 'string',
                                                              'minLength': 1,
                                                              'maxLength': 2097152},
@@ -71,10 +72,7 @@ SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/draft/2020-12/sche
                                                          'minLength': 1,
                                                          'maxLength': 256},
                                                 'arguments': {'$ref': 'https://kernelcat.local/contracts/execution/v1/context.schema.json#/$defs/JsonObject'}},
-                                 'required': ['permit',
-                                              'sequence',
-                                              'name',
-                                              'arguments'],
+                                 'required': ['permit', 'sequence', 'name', 'arguments'],
                                  'additionalProperties': False},
            'NativeSettleRequest': {'type': 'object',
                                    'properties': {'permit': {'type': 'string',
@@ -116,10 +114,7 @@ SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/draft/2020-12/sche
                                            'checkpoint': {'oneOf': [{'$ref': '#/$defs/NativeCheckpoint'},
                                                                     {'type': 'null'}]},
                                            'plugin': {'$ref': 'https://kernelcat.local/contracts/execution/v1/rsi.schema.json#/$defs/ReplayPluginConfiguration'}},
-                            'required': ['schema_version',
-                                         'directory',
-                                         'workspace',
-                                         'checkpoint'],
+                            'required': ['schema_version', 'directory', 'workspace', 'checkpoint'],
                             'additionalProperties': False},
            'EndTurnRequest': {'type': 'object',
                               'properties': {'proposal_id': {'type': 'string',
@@ -233,9 +228,7 @@ SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/draft/2020-12/sche
                                                                     'maximum': 2147483647},
                                                        'digest': {'type': 'string',
                                                                   'pattern': '^sha256:[a-f0-9]{64}$'}},
-                                        'required': ['path',
-                                                     'revision',
-                                                     'digest'],
+                                        'required': ['path', 'revision', 'digest'],
                                         'additionalProperties': False},
            'ModelTurnRequest': {'type': 'object',
                                 'properties': {'harness': {'$ref': '#/$defs/HarnessInput'}},
@@ -283,8 +276,7 @@ SCHEMA: dict[str, Any] = {'$schema': 'https://json-schema.org/draft/2020-12/sche
                                         'decision_id': {'type': 'string',
                                                         'minLength': 1,
                                                         'maxLength': 512},
-                                        'mode': {'enum': ['reset_context',
-                                                          'replay']},
+                                        'mode': {'enum': ['reset_context', 'replay']},
                                         'target_node_id': {'oneOf': [{'type': 'string',
                                                                       'minLength': 1,
                                                                       'maxLength': 512},
@@ -328,6 +320,7 @@ class HarnessTool(TypedDict):
 class HarnessInput(TypedDict):
     schema_version: Literal['kernelcat.pi-harness/v1']
     adapter: Literal['pi@1.5.0']
+    context_layout: NotRequired[Literal['system-suffix/v2']]
     system_prompt: str
     messages: list[JsonObject]
     tools: list[HarnessTool]

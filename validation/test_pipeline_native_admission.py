@@ -219,7 +219,7 @@ class NativeAdmissionPipelineTests(unittest.TestCase):
                 case = Case(self, mode); first = case.evaluate(); original = Pipeline(case.config).state['handles'][0]
                 proof = Pipeline(case.config).terminal_isolation_retry(original)
                 self.assertIn(proof['verdict'], ('foreign', 'unknown'))
-                self.assertEqual(first['data']['continuation_progress']['state'], 'waiting')
+                self.assertEqual(first['data']['continuation_progress']['state'], 'progress')
                 first_check = Pipeline(case.config).state['check']['receipt']; original_bytes = Path(first_check).read_bytes()
                 case.control.write_text('clear'); second = case.body(case.evaluate())
                 self.assertEqual(second['evaluation_status'], 'completed', second)
@@ -231,6 +231,107 @@ class NativeAdmissionPipelineTests(unittest.TestCase):
                 self.assertEqual(Path(first_check).read_bytes(), original_bytes)
                 self.assertIsNone(state.terminal_isolation_retry(handles[1]))
                 self.assertNotEqual(state.state['check']['receipt'], first_check)
+
+    def activity(self, replies):
+        for path in ROOT.glob('source/packages/*/src'):
+            sys.path.insert(0, str(path))
+        from kernelcat_executor.state.continuation_progress import continuation_activity
+        events = []
+        for index, (tool, reply) in enumerate(replies):
+            action_id = 'fixture-action-' + str(index)
+            events.extend([
+                {'seq': 2 + 2 * index, 'kind': 'admitted',
+                 'action': {'id': action_id, 'tool': tool, 'task': 'task', 'arguments': {}},
+                 'application_context': {'input_id': 'input', 'goal_id': 'goal'}},
+                {'seq': 3 + 2 * index, 'kind': 'settled', 'action_id': action_id, 'outcome': reply},
+            ])
+        return continuation_activity(events, {'input_id': 'input', 'accepted_seq': 1,
+            'completed_seq': 2 + 2 * len(replies)}, task_id='task', goal_id='goal', start_seq=0)
+
+    def test_terminal_isolation_then_plan_and_changed_source_leave_no_stale_host_wait(self):
+        for mode in ('foreign', 'coverage'):
+            with self.subTest(mode=mode):
+                case = Case(self, mode); first = case.evaluate(); state = Pipeline(case.config)
+                original = state.state['handles'][0]; proof = state.terminal_isolation_retry(original)
+                root = Path(original['collected']).parent.parent
+                retained = {path: path.read_bytes() for path in root.rglob('*') if path.is_file()}
+                signal = first['data']['continuation_progress']
+                self.assertEqual(signal['state'], 'progress')
+                self.assertEqual(signal['identity'], 'pipeline-launch:' + original['launch_run'])
+                advice = first['data']['workflow']['next_actions'][0]
+                self.assertEqual((advice['tool'], advice['arguments'], advice['status']),
+                                 ('pipeline_plan', {'stage': 'C'}, 'action_required'))
+                self.assertEqual(advice['original_measurement'], proof)
+                self.assertEqual(advice['remeasurement'], {'tool': 'pipeline_evaluate', 'arguments': {}})
+                before = case.calls()
+                planned = case.call('pipeline_plan', stage='C', record={'hypothesis': 'inspect evidence then revise candidate'})
+                plan_signal = planned['data']['continuation_progress']
+                self.assertEqual(plan_signal['state'], 'progress')
+                self.assertEqual(plan_signal['identity'], signal['identity'])
+                self.assertNotEqual(plan_signal['fingerprint'], signal['fingerprint'])
+                polled = case.call('pipeline_status')
+                self.assertEqual(polled['data']['continuation_progress']['fingerprint'], plan_signal['fingerprint'])
+                self.assertEqual(case.calls(), before)  # Advisory progress never dispatches.
+                self.assertIsNone(Pipeline(case.config).state['pair'])
+                self.assertIsNone(Pipeline(case.config).state['incumbent'])
+                case.source.write_text('# explicitly revised candidate after terminal isolation failure\n')
+                case.control.write_text('clear'); next_result = case.evaluate()
+                self.assertEqual(case.body(next_result)['evaluation_status'], 'completed')
+                next_signal = next_result['data']['continuation_progress']
+                self.assertEqual(next_signal['state'], 'progress')
+                self.assertNotEqual(next_signal['identity'], signal['identity'])
+                activity = self.activity([('pipeline_evaluate', first), ('pipeline_plan', planned),
+                                          ('pipeline_evaluate', next_result)])
+                self.assertFalse(activity['waiting']); self.assertTrue(activity['progress'])
+                self.assertFalse(activity['invalid_signal'])
+                state = Pipeline(case.config)
+                self.assertEqual(len(state.state['handles']), 2)
+                self.assertNotEqual(state.state['handles'][0]['source']['sha256'], state.state['handles'][1]['source']['sha256'])
+                self.assertEqual(len(case.calls('child_started')), 2)
+                self.assertEqual(state.terminal_isolation_retry(state.state['handles'][0]), proof)
+                self.assertIsNone(state.terminal_isolation_retry(state.state['handles'][1]))
+                self.assertEqual({path: path.read_bytes() for path in retained}, retained)
+
+    def test_unknown_launch_stays_waiting_despite_plan_and_unrelated_terminal_progress(self):
+        case = Case(self, 'lost_ack'); case.freeze()
+        pending = case.call('pipeline_run', stage='E', driver='launch')
+        self.assertEqual(pending['data']['continuation_progress']['state'], 'waiting')
+        original_run = Pipeline(case.config).pending_launches()[0]['run']
+        before = case.calls()
+        planned = case.call('pipeline_plan', stage='C', record={'hypothesis': 'unrelated plan cannot settle original launch'})
+        self.assertEqual(planned['data']['continuation_progress']['state'], 'waiting')
+        self.assertEqual(planned['data']['continuation_progress']['identity'], pending['data']['continuation_progress']['identity'])
+        unrelated = Case(self, 'clear').evaluate()
+        self.assertEqual(unrelated['data']['continuation_progress']['state'], 'progress')
+        self.assertNotEqual(unrelated['data']['continuation_progress']['identity'], pending['data']['continuation_progress']['identity'])
+        activity = self.activity([('pipeline_run', pending), ('pipeline_plan', planned), ('pipeline_evaluate', unrelated)])
+        self.assertTrue(activity['waiting']); self.assertTrue(activity['progress'])
+        self.assertFalse(activity['invalid_signal'])
+        self.assertEqual(Pipeline(case.config).pending_launches()[0]['run'], original_run)
+        self.assertEqual(case.calls(), before)
+        self.assertFalse(Pipeline(case.config).state['handles'])
+
+    def test_unresolved_diagnostic_dominates_terminal_isolation_progress_and_summary(self):
+        case = Case(self, 'coverage'); first = case.evaluate()
+        self.assertEqual(first['data']['continuation_progress']['state'], 'progress')
+        diagnostic = case.root / 'diagnostic.py'; diagnostic.write_text('raise SystemExit(7)\n')
+        case.config['drivers']['unresolved-diagnostic'] = {'kind': 'diagnostic',
+            'argv': [sys.executable, '-B', str(diagnostic)], 'files': {str(diagnostic): sha(diagnostic)}, 'timeout': 10}
+        failed = case.call('pipeline_run', stage='J', driver='unresolved-diagnostic')
+        self.assertEqual(failed['status'], 'failed')
+        self.assertEqual(case.body(failed)['evaluation_outcome'], 'unknown')
+        state = Pipeline(case.config)
+        self.assertIsNotNone(state.terminal_isolation_retry(state.state['handles'][0]))
+        self.assertTrue(state.pending_effects())
+        signal = failed['data']['continuation_progress']
+        self.assertEqual(signal['state'], 'waiting')
+        self.assertIn('Waiting for the original execution receipt', signal['summary'])
+        self.assertNotIn('explicitly remeasure', signal['summary'])
+        planned = case.call('pipeline_plan', stage='C', record={'hypothesis': 'still must recover original diagnostic'})
+        self.assertEqual(planned['data']['continuation_progress']['state'], 'waiting')
+        activity = self.activity([('pipeline_evaluate', first), ('pipeline_run', failed), ('pipeline_plan', planned)])
+        self.assertTrue(activity['waiting']); self.assertFalse(activity['invalid_signal'])
+        self.assertEqual(len(case.calls('child_started')), 1)
 
     def test_invalid_terminal_proof_never_unlocks_retry_and_valid_clear_reuses(self):
         case = Case(self, 'clear'); first = case.body(case.evaluate())

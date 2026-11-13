@@ -1000,10 +1000,12 @@ class Pipeline:
                 or observed.get('status') == 'settling' and observed.get('alive') is False
                     and observed.get('supervisor_identity_verified') is True and observed.get('supervisor_alive') is True
                 or retained and not retained.get('collected') and retained.get('job_status') == 'running')
-        isolation_wait = self.terminal_isolation_retry(retained) if retained else None
+        terminal_isolation = self.terminal_isolation_retry(retained) if retained else None
         admission_wait = (result.get('failure_phase') == 'native_admission'
                           or last.get('failure_phase') == 'native_admission' and last.get('source') == (state.get('candidate') or {}).get('sha256'))
-        waiting = bool(admission_wait or isolation_wait or unresolved or not live and (pending or retained and not retained.get('collected')
+        # This proof includes the original child's terminal exit. Nonqualifying
+        # measurement evidence calls for a model decision, not receipt recovery.
+        waiting = bool(admission_wait or unresolved or not live and (pending or retained and not retained.get('collected')
                        or result.get('evaluation_status') == 'pending' and result.get('pending_kind') != 'phase_ready'
                        or result.get('evaluation_outcome') == 'unknown'
                        or last.get('evaluation_outcome') == 'unknown'))
@@ -1018,7 +1020,7 @@ class Pipeline:
             'qualification': {key: qualification.get(key) for key in ('qualified', 'paired_delta', 'noise_threshold', 'raw_pairing_sha256')},
             'incumbent': (state.get('incumbent') or {}).get('sha256'),
             'last_attempt': {key: last.get(key) for key in ('stage', 'status', 'evaluation_outcome', 'source', 'dispatch_outcome')},
-            'original_observation': observed, 'terminal_isolation': isolation_wait, 'waiting': waiting}
+            'original_observation': observed, 'terminal_isolation': terminal_isolation, 'waiting': waiting}
         # Hypothesis and workload records are real workflow changes, unlike the
         # new receipt/run ID written by every status or recovery wrapper.
         for key in ('B', 'C'):
@@ -1034,7 +1036,7 @@ class Pipeline:
         return {'version': 1, 'identity': identity, 'fingerprint': digest(semantic),
                 'state': 'waiting' if waiting else 'progress',
                 'summary': 'Device admission refused before execution; resolve device availability before an explicit retry.' if admission_wait
-                    else 'The original child exited but device isolation is nonqualifying; resolve availability before an explicit remeasurement.' if isolation_wait
+                    else 'The original child exited; its measurement isolation is nonqualifying. Read the retained evidence, revise the hypothesis or explicitly remeasure after resolving device availability.' if terminal_isolation and not waiting
                     else 'Waiting for the original execution receipt; no replacement dispatch is authorized.' if waiting
                     else 'Source-bound workflow state is available in the retained receipt.',
                 'receipt_refs': receipt_refs[:4]}
@@ -1116,9 +1118,11 @@ class Pipeline:
             if trigger.get('binding') == binding and any(report.get('status') == 'unknown' for report in diagnostics.get('reports', [])):
                 next_actions = [step('J', None, {}, 'Original diagnostic is unresolved; recover its existing evidence before further device work.', status='blocked')]
             elif isolation_retry:
-                next_actions = [step('E', None, {},
-                    'The original child exited, but sampled device isolation is nonqualifying. Read its retained evidence and resolve device availability; an explicit new pipeline_evaluate may remeasure the same source. Existing samples remain retained.',
-                    status='waiting', original_measurement=isolation_retry)]
+                next_actions = [step('C', 'pipeline_plan', {'stage': 'C'},
+                    'The original execution is terminal; its sampled device isolation is nonqualifying. Read the retained evidence and record the next hypothesis. After resolving device availability, explicitly remeasure the same source or evaluate a revised source; a remeasurement is a new action, not recovery or a new optimization candidate. Existing samples remain retained.',
+                    status='action_required', required_arguments=['record'], original_measurement=isolation_retry,
+                    **({'remeasurement': {'tool': 'pipeline_evaluate', 'arguments': {}}}
+                       if self.config.get('evaluation_enabled') else {}))]
             elif terminal and terminal.get('collected') and terminal.get('job_status') == 'failed':
                 next_actions = [step('C', 'pipeline_plan', {'stage': 'C'},
                                      'The original job is terminal and failed. Read its retained evaluation evidence and revise the hypothesis; do not recollect or relaunch it.',

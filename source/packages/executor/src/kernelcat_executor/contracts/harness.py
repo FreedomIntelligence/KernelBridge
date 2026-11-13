@@ -28,6 +28,8 @@ NATIVE_TOOLS = frozenset({"codemode", "tool_search"})
 MCP_PREFIX = "mcp__kernelcat__"
 CONTEXT_PREFIX = "KERNELCAT_CONTEXT_V1\n"
 CONTEXT_SUFFIX = "\nEND_KERNELCAT_CONTEXT_V1\n"
+CONTEXT_V2_PREFIX = "KERNELCAT_CONTEXT_V2\n"
+CONTEXT_V2_SUFFIX = "\nEND_KERNELCAT_CONTEXT_V2"
 _REGISTRY = SCHEMA_REGISTRY
 
 
@@ -80,12 +82,33 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return result
 
 
-def _protected_context(prompt: str, context: Json) -> None:
-    if not prompt.startswith(CONTEXT_PREFIX):
-        raise Conflict("effective Pi input has no protected ContextSource prefix")
-    encoded, separator, _ = prompt[len(CONTEXT_PREFIX):].partition(CONTEXT_SUFFIX)
-    if not separator:
-        raise Conflict("effective Pi input has an unterminated ContextSource prefix")
+def _context_v2(prompt: str) -> str:
+    # Reserved delimiters must identify one complete terminal block. JSON string
+    # values escape newlines, so they cannot create another delimiter here.
+    if (prompt.count(CONTEXT_V2_PREFIX) != 1
+            or prompt.count(CONTEXT_V2_SUFFIX) != 1
+            or not prompt.endswith(CONTEXT_V2_SUFFIX)):
+        raise Conflict("effective Pi input requires one terminal ContextSource V2 block")
+    instructions, separator, encoded = prompt.partition("\n\n" + CONTEXT_V2_PREFIX)
+    if not instructions or not separator:
+        raise Conflict("effective Pi input has a misplaced ContextSource V2 block")
+    if CONTEXT_PREFIX in instructions or CONTEXT_SUFFIX in instructions:
+        raise Conflict("effective Pi input mixes protected ContextSource layouts")
+    return encoded[:-len(CONTEXT_V2_SUFFIX)]
+
+
+def _protected_context(prompt: str, context: Json, layout: str | None = None) -> None:
+    if layout == "system-suffix/v2":
+        encoded = _context_v2(prompt)
+    elif layout is None:
+        # Missing discriminator retains the original admitted V1 contract.
+        if not prompt.startswith(CONTEXT_PREFIX):
+            raise Conflict("effective Pi input has no protected ContextSource prefix")
+        encoded, separator, _ = prompt[len(CONTEXT_PREFIX):].partition(CONTEXT_SUFFIX)
+        if not separator:
+            raise Conflict("effective Pi input has an unterminated ContextSource prefix")
+    else:
+        raise Conflict("effective Pi input has an unsupported ContextSource layout")
     decoded = json.loads(encoded, object_pairs_hook=_unique_object)
     supplied = validate_context_source(decoded)
     expected = validate_context_source(context)
@@ -188,7 +211,7 @@ def validate_harness(value: object, context: Json, specs: tuple[ToolSpec, ...],
     checked = cast(HarnessInput, _validate(value, "HarnessInput"))
     if len(canonical(checked).encode("utf-8")) > maximum_bytes:
         raise ValueError("effective Pi input exceeds context_bytes")
-    _protected_context(checked["system_prompt"], context)
+    _protected_context(checked["system_prompt"], context, checked.get("context_layout"))
     _messages(cast(list[Json], checked["messages"]))
     known = {spec.name: spec for spec in specs}
     leaves = frozenset(known) - {"delegate", "finish"}

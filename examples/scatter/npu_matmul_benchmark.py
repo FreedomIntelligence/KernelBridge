@@ -18,7 +18,7 @@ import traceback
 
 from npu_matmul_eager import matmul_eager
 from npu_candidate_audit import audit_wrapper, audit_native_binding
-from npu_diagnostics import collect_ir, validated_ir_artifacts
+from npu_diagnostics import IRFileValidationError, collect_ir, ir_failure_reason, validated_ir_artifacts
 try:
     from diagnostic_policy import assess_diagnostics, diagnostic_reason
     from preflight import NATIVE_SOURCE_FIELDS, parse_literal_sources
@@ -85,16 +85,25 @@ def suite(torch, device):
     return cases
 
 
-def check(function, cases, torch, device):
+def check(function, cases, torch, device, *, on_failure=None):
+    def fail(message, case, actual, comparison):
+        if on_failure is not None:
+            try:
+                on_failure(case, actual, comparison)
+            except Exception:
+                # Reporting cannot replace the original correctness failure.
+                pass
+        raise ValueError(message)
+
     checks = []
     for case in cases:
         got = function(case['a'], case['b'])
         torch.npu.synchronize(device=device)
         if not isinstance(got, torch.Tensor) or got.device != device or got.dtype != torch.float16 or tuple(got.shape) != (128, 128) or not got.is_contiguous():
-            raise ValueError(f'Output contract failed for seed {case["seed"]}')
+            fail(f'Output contract failed for seed {case["seed"]}', case, got, 'contract')
         cpu = got.detach().cpu()
         if not torch.isfinite(cpu).all().item() or not torch.allclose(cpu, case['oracle'], atol=0.01, rtol=0.01):
-            raise ValueError(f'FP32 oracle mismatch for seed {case["seed"]}')
+            fail(f'FP32 oracle mismatch for seed {case["seed"]}', case, cpu, 'allclose')
         if not torch.equal(case['a'].cpu(), case['input_a']) or not torch.equal(case['b'].cpu(), case['input_b']):
             raise ValueError(f'Input mutation for seed {case["seed"]}')
         checks.append({'seed': case['seed'], 'input_sha256': case['input_sha256'], 'correct': True,
@@ -124,13 +133,14 @@ def measure(function, torch, device, *, samples, warmup=3):
 
 
 def paired(functions, cases, torch, device, *, pairs=12, repeats=20, warmup=3, checkpoint=None,
-           order=('eager', 'candidate', 'candidate', 'eager'), on_phase=None):
+           order=('eager', 'candidate', 'candidate', 'eager'), on_phase=None, on_failure=None):
     arms = []
     for pair in range(pairs):
         case = cases[pair % len(cases)]
         for position, name in enumerate(order):
             if on_phase is not None: on_phase('correctness')
-            subchecks = check(functions[name], cases, torch, device)
+            failed = None if on_failure is None else lambda case, actual, comparison: on_failure(name, case, actual, comparison)
+            subchecks = check(functions[name], cases, torch, device, on_failure=failed)
             if on_phase is not None: on_phase('measurement')
             sample = measure(lambda: functions[name](case['a'], case['b']), torch, device, samples=repeats, warmup=warmup)
             arms.append({'pair': pair, 'position': position, 'arm': name, 'seed': case['seed'], 'input_sha256': case['input_sha256'],
@@ -172,6 +182,20 @@ def run(args):
     def set_phase(value):
         nonlocal phase
         phase = value
+    def record_check_failure(role, case, actual, comparison):
+        binding = {'case_id': CASE_ID, 'seed': case['seed'], 'input_sha256': case['input_sha256'],
+                   'candidate_sha256': source_sha, 'role': role}
+        try:
+            binding.update(expected_output_device=str(runtime.device), expected_contiguous=True,
+                           inputs={name: {'shape': list(case[name].shape), 'dtype': str(case[name].dtype)}
+                                   for name in ('a', 'b')})
+            from kernelcat_executor.evaluation.failure_summary import summarize_tensor_failure
+            result['correctness_failure'] = summarize_tensor_failure(
+                actual, case['oracle'], comparison=comparison, binding=binding,
+                atol=0.01, rtol=0.01, require_finite=True)
+        except Exception as error:
+            result['correctness_failure'] = {'binding': binding, 'diagnostic_status': 'unavailable',
+                                             'diagnostic_error': {'type': type(error).__name__, 'message': str(error)[:512]}}
     try:
         import torch
         import torch_npu
@@ -204,7 +228,10 @@ def run(args):
                                  'device': torch.npu.get_device_name(args.device), 'timer': 'npu_event'}
         with torch.no_grad():
             phase = 'correctness'
-            subchecks = {'candidate': check(model, cases, torch, runtime.device), 'eager': check(matmul_eager, cases, torch, runtime.device)}
+            subchecks = {'candidate': check(model, cases, torch, runtime.device,
+                                            on_failure=lambda *values: record_check_failure('candidate', *values)),
+                         'eager': check(matmul_eager, cases, torch, runtime.device,
+                                       on_failure=lambda *values: record_check_failure('eager', *values))}
             first = cases[0]
             phase = 'measurement'
             result['F'] = {'correctness': subchecks, 'seed': first['seed'], 'input_sha256': first['input_sha256'],
@@ -214,7 +241,8 @@ def run(args):
             input_sha = canonical_digest([case['input_sha256'] for case in cases])
             noise_arms = paired({'eager': matmul_eager}, cases, torch, runtime.device,
                                 order=('eager',) * 4,
-                                checkpoint=lambda rows: save_json(job / 'noise-arms.json', rows), on_phase=set_phase)
+                                checkpoint=lambda rows: save_json(job / 'noise-arms.json', rows), on_phase=set_phase,
+                                on_failure=record_check_failure)
             noise = {key: request[key] for key in ('pairs', 'warmup', 'repeats', 'device', 'soc',
                                                   'baseline_sha256', 'driver_sha256', 'source_sha256', 'contract_sha256')}
             noise.update(schema_version='kernelbridge.noise-calibration/v1', protocol='independent_eager_aaaa',
@@ -222,7 +250,8 @@ def run(args):
             save_json(job / 'noise.json', noise)
             result.update(noise_calibration=noise, noise_calibration_sha256=digest(job / 'noise.json'))
             arms = paired({'eager': matmul_eager, 'candidate': model}, cases, torch, runtime.device,
-                          checkpoint=lambda rows: save_json(job / 'arms.json', rows), on_phase=set_phase)
+                          checkpoint=lambda rows: save_json(job / 'arms.json', rows), on_phase=set_phase,
+                          on_failure=record_check_failure)
             speeds = []
             for pair in range(args.pairs):
                 block = arms[4 * pair:4 * pair + 4]
@@ -274,16 +303,18 @@ def run(args):
     triggered = diagnostic_reason(policy, failed=result['status'] != 'completed',
                                   regression=any(row['speedup'] <= 1 for row in result['cases']))
     ir_error = None
+    ir_collection_failure = None
     ir_attempts = []
     if triggered:
         try:
             ir_attempts = collect_ir(job)
             if not ir_attempts:
                 ir_error = 'Original build produced no CANN compiler recipe'
-            elif any(record.get('status') != 'completed' for record in ir_attempts):
-                ir_error = 'Some CANN IR recipes did not complete; inspect original ir receipts'
+            else:
+                ir_error = ir_failure_reason(ir_attempts)
         except Exception as error:
             ir_error = str(error)
+            if isinstance(error, IRFileValidationError): ir_collection_failure = error.details
             try:
                 retained = json.loads((job / 'ir/receipt.json').read_text())
                 if isinstance(retained, list): ir_attempts = retained
@@ -307,6 +338,7 @@ def run(args):
             record['partial'] = partial
             record['reason'] = reason or 'No original artifact; failed candidates are not executed for diagnostics'
         if kind == 'ir':
+            if ir_collection_failure is not None: record['collection_failure'] = ir_collection_failure
             record['attempt_evidence'] = {str(p.relative_to(job)): digest(p) for p in (job / 'ir').rglob('*')
                                           if p.suffix in {'.json', '.log'} and p.is_file() and p.stat().st_size}
         records.append(record)

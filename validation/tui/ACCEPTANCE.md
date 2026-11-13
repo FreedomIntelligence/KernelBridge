@@ -760,3 +760,37 @@ environmental result remains preserved; this is an affected-scope follow-up,
 not a replacement claim of a new complete TUI or Python invocation. No known
 failure remains in the exercised scope. No operator algorithm, baseline,
 suite, tolerance, timer or acceptance threshold changed.
+
+### Stable context and terminal diagnostic feedback qualification
+
+The complete Python invocation ran **720 methods: 708 passed, two failed
+methods (three subtest entries), and ten Linux-only skips**. Original command,
+fixtures, hashes and failures remain in
+`.validation/acceptance/python-full-r1.{log,json}`. The failures were a mock
+callback signature and two stale source hashes in the native-interface document.
+The corrected complete modules passed **12/12** and **2/2**, respectively; this
+is not a replacement all-pass 720-test invocation. The subsequent terminal
+isolation continuation fix passed **38/38** focused tests, including actual
+producer-to-consumer transitions and genuine-unknown negative controls. It
+leaves the original failed session and unknown-effect protection unchanged.
+
+Full npm passed **230**, failed zero and skipped three. Two skips required
+optional original-session artifacts; supplied afterward, both targeted replay
+tests passed **2/2**, with original file hashes unchanged. The remaining skip
+requires an actually case-sensitive filesystem. Source delivery verification
+passed. The V1/V2 context tests preserve full owner authorization, original V1
+request bytes/fingerprints, and unchanged messages/reasoning/tools. New tensor
+feedback was checked through real Python Pipeline calls and **2/2 actual locked
+Pi SDK tool lifecycles into the next model request**. This was local mocked
+model transport, not external provider or NPU acceptance.
+
+The serial affected TUI run passed **12/12**, zero failed/flaky/environmental
+groups, at timeout scale **1.0**. It covers deployment, authority, SDK, recovery,
+transport, admission, fork, interaction, codegen edges, parallel subagents, Goal
+review and Goal plan. Receipt
+`.validation/acceptance/tui-final-r1/acceptance.json`, SHA256
+`7988b90f435367fffdd1e3e745b4e83f9c5414f2926ef71a244c2afc6a74e2af`, and all
+**57** indexed evidence lengths/hashes were verified. No production file was
+changed during the PTY run. This is affected-scope qualification, not a new
+complete 27-group run. No operator implementation, eager function, comparison,
+tolerance, suite, measurement or acceptance threshold changed.

@@ -275,7 +275,7 @@ name = Path(sys.argv[sys.argv.index('-i') + 1]).stem
                 stack.enter_context(patch.object(compiler, 'collect_build_diagnostics', side_effect=OSError('receipt unreadable')))
             if is_cube:
                 stack.enter_context(patch.object(driver, 'audit_sources', return_value={}))
-                stack.enter_context(patch.object(driver, 'check', side_effect=lambda model, *unused: model(None, None)))
+                stack.enter_context(patch.object(driver, 'check', side_effect=lambda model, *unused, on_failure=None: model(None, None)))
             else:
                 stack.enter_context(patch.object(driver, 'audit_wrapper', return_value={}))
                 stack.enter_context(patch.object(driver, 'audit_native_binding', return_value={}))

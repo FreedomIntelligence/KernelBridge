@@ -119,7 +119,7 @@ class NpuBuildPhaseTests(unittest.TestCase):
 
         check_calls = 0
 
-        def check_fixture(*args):
+        def check_fixture(*args, on_failure=None):
             nonlocal check_calls
             check_calls += 1
             if stage == 'recheck' and check_calls == 3:
