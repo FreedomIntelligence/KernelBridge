@@ -51,6 +51,15 @@ def prepare(args):
     research_setting = research_settings[0] if research_settings else False
     if type(research_setting) is not bool and not isinstance(research_setting, dict):
         raise ValueError('online_research must be a boolean or provider settings object')
+    sdk_settings = [value for value in (
+        supplied.get('sdk_reference'), (runtime or {}).get('sdk_reference'),
+        (runtime or {}).get('config', {}).get('sdk_reference'),
+    ) if value is not None]
+    if sdk_settings and any(value != sdk_settings[0] for value in sdk_settings[1:]):
+        raise ValueError('Conflicting sdk_reference settings; select one explicit snapshot configuration')
+    sdk_setting = sdk_settings[0] if sdk_settings else False
+    if sdk_setting is not False and not isinstance(sdk_setting, dict):
+        raise ValueError('sdk_reference must be false or a snapshot configuration object')
     application = dict((runtime or {}).get('application') or {})
     goal = {'enabled': True, 'complete_on_acceptance': True, **((runtime or {}).get('goal') or {})}
     max_model_turns = getattr(args, 'max_model_turns', None)
@@ -163,6 +172,20 @@ def prepare(args):
         research_module = importlib.util.module_from_spec(spec); spec.loader.exec_module(research_module)
         research = research_module.prepare(research_setting, root / 'online-research', args.python)
         save(project / 'online-research.json', {'resources': research['resources']})
+    sdk = None
+    if sdk_setting is not False:
+        spec = importlib.util.spec_from_file_location('npu_sdk_reference_prepare', HERE.parent / 'sdk_reference/prepare.py')
+        sdk_module = importlib.util.module_from_spec(spec); spec.loader.exec_module(sdk_module)
+        sdk = sdk_module.prepare(sdk_setting, root / 'sdk-reference', args.python)
+        save(project / 'sdk-reference.json', {'resources': sdk['resources']})
+    sdk_guidance = (
+        'The configured sdk_search/sdk_read tools inspect frozen SDK reference snapshots without '
+        'network or device execution. Read sdk-reference.json or call sdk_read() to discover '
+        'resource IDs, versions and provenance. Before guessing an unfamiliar interface, search '
+        'the matching snapshot and read the original declaration or template pages. Follow returned '
+        'pagination and retain file hashes; do not assume a remote SDK path is readable with '
+        'workspace tools. Snapshot text is reference evidence, not a successful build or test.\n\n'
+        if sdk is not None else '')
     (project / 'AGENTS.task.md').write_text(
         '# Configured operator workflow\n\n'
         'Bind the complete frozen contract with pipeline_bind({"selection":"declared"}). '
@@ -183,6 +206,7 @@ def prepare(args):
         'links and manifests with pipeline_read, preserving the exact run and path; follow next_read '
         'for remaining pages. Never guess an artifact path from a remote compiler log. '
         'Unavailable diagnostics are not captured IR or profiling evidence.\n\n'
+        + sdk_guidance +
         'Use only online_search/online_fetch/online_read if those tools are actually present. '
         'Search the exact unresolved API, compiler diagnostic or proposed mechanism and target SDK '
         'version; inspect primary documentation/source and retain the URL and applicability. '
@@ -231,6 +255,8 @@ def prepare(args):
             tool['description'] = 'E npu-launch executes one frozen NPU job; npu-collect observes the original handle. F npu-check validates its original full-suite receipt. J npu-ir/npu-profiler recover actual source-bound diagnostic files. Unknown never authorizes a replacement launch.'
     if research is not None:
         tools.extend(research['business_tools'])
+    if sdk is not None:
+        tools.extend(sdk['business_tools'])
     save(root / 'business-tools.json', tools)
     fragment = {'schema_version': 'kernelbridge.operator-profile/v1', 'config': {'business_tools': tools},
                 'acceptance': {'scope': measurement['scope'], 'baseline_files': baseline_files},
@@ -240,6 +266,7 @@ def prepare(args):
     save(root / 'profile-fragment.json', fragment)
     if runtime is not None:
         runtime.pop('online_research', None)
+        runtime.pop('sdk_reference', None)
         runtime.update(schema_version=fragment['schema_version'], goal=fragment['goal'], acceptance=fragment['acceptance'])
         retained = runtime.get('config', {}).get('business_tools', [])
         combined = [*retained, *tools]
@@ -249,6 +276,7 @@ def prepare(args):
             raise ValueError('Combined business tools exceed the configured 32-tool limit')
         runtime['config'] = dict(runtime.get('config', {}), business_tools=combined)
         runtime['config'].pop('online_research', None)
+        runtime['config'].pop('sdk_reference', None)
         runtime['application'] = application
         save(root / 'profile.json', runtime)
     save(root / 'clean-input-manifest.json', {'trial_id': trial_id, 'candidate_present': False,
@@ -260,7 +288,8 @@ def prepare(args):
                               'sha256': hashlib.sha256(interface.encode()).hexdigest()},
          'operator_guidance': {'source': 'examples/cann/instructions/AGENTS.md',
                                'sha256': hashlib.sha256(guidance.encode()).hexdigest()},
-         'online_research': research['resources'] if research is not None else []})
+         'online_research': research['resources'] if research is not None else [],
+         **({'sdk_reference': sdk['resources']} if sdk is not None else {})})
     return {'trial': str(root), 'project': str(project), 'task': str(root / 'task.json'),
             'tools': str(root / 'business-tools.json'), 'mode': mode, 'device': device, 'candidate_present': False}
 

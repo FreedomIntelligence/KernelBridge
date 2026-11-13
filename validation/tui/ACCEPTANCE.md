@@ -794,3 +794,40 @@ review and Goal plan. Receipt
 changed during the PTY run. This is affected-scope qualification, not a new
 complete 27-group run. No operator implementation, eager function, comparison,
 tolerance, suite, measurement or acceptance threshold changed.
+
+
+### SDK reference capability qualification
+
+The initial SDK reference revision passed **14/14** affected TUI groups in one
+serial invocation at timeout scale **1.0**, with zero failed, flaky or
+environmental groups: deployment, authority, SDK, recovery, transport, admission,
+fork, interaction, codegen, codegen edges, resume, parallel subagents, Goal
+review and Goal plan. Original receipt
+`.validation/acceptance/tui-sdk-r1/acceptance.json`, SHA256
+`c65267c9ab87546ed5d484ba7d95f7527f69a3850143e2b74d4e397b3d1df831`, and all **79** indexed evidence files (27,611,870 bytes)
+were verified. No production files changed while that run was active.
+
+The complete Python invocation passed **755/766** methods with zero failures or
+errors and 11 skips; the optional upstream-framework fixture then passed with
+its retained dependency, leaving ten actual Linux-only skips. Full npm passed
+**232/235** with zero failures and three skips; both optional original-session
+replays then passed with unchanged original hashes, leaving one case-sensitive
+filesystem skip. SDK catalog/export tests passed **33/33**, configuration and
+child registration **10/10**, and real locked-Pi/Owner/Gateway/provider-request
+checks **2/2**. These are local qualification, not NPU performance results.
+
+The first real SDK export subsequently failed with an original terminal receipt
+on a non-UTF-8 public header. That failure is retained; support for original
+non-UTF-8 bytes and its focused follow-up qualification are tracked separately.
+
+The original-byte compatibility follow-up passed **38/38** catalog/export
+checks, including the actual captured non-UTF-8 header through retained search
+snippets and real 8192-byte context projection with exact byte reassembly.
+Final npm again passed **232/235**, zero failures and the same three skips.
+The source-page format and core projector did not change; the earlier 14-group
+TUI result is retained with its original source identity, not relabelled as a
+second TUI run. The follow-up does not establish NPU performance.
+
+The follow-up configuration/child and actual locked-Pi regression passed
+**12/12**, zero skips or failures, with all 418 built runtime Python modules
+matching the checkout. Original source and fixture hashes remained unchanged.

@@ -1774,3 +1774,128 @@ the alternate `31486` endpoint was at environment upload when this record was
 written; no trial or operator result is claimed there. Its different device/SDK
 environment still requires qualification. Neither retained trial establishes
 new acceleration, stable reproduction or E4 acceptance.
+
+### Independent Max on the alternate CANN 9.1 device
+
+The alternate `31486` environment was subsequently provisioned and independently
+qualified. Its original public PID-view probe bound logical device 0 to physical
+device 8, with the original holder's exit and an empty after-sample. Deployment
+readback verified all 316 files from `794b2a5`. The new Max began with a blank
+candidate, fixed same-device NPU eager, and no aggregate turn or token limit.
+This changed the device, SDK and environment facts supplied to the model, so it
+is not a controlled comparison against the preceding CANN 9.2 trial.
+
+Application `application-45398c97-c885-4a3b-a4d1-ff03767742b5` naturally stopped
+blocked after **48 parent model calls, no child calls, and 5,957,888 recorded
+tokens**. Eight evaluations comprise six real native jobs and two reuses of
+existing results. All six jobs have original compile-failure exits and clear
+sampled isolation. No build, candidate correctness case, timing, E1/E3/H or
+promotion completed. All automatic IR/profiler envelopes were unavailable;
+there were no actual diagnostic payload reads or explicit J requests.
+
+Full AGENTS instructions reached all 48 requests. The model independently read
+the 1,011-byte SDK environment descriptor in call 2; its exact text entered call
+3's tool history. This proves delivery of environment facts, not access to the
+installed headers. The original Journal ends at sequence 1269, 59,491,363 bytes,
+SHA256 `48c0d51e8c4c09453eceec1a86cff8d2f9a2b1db3b818f3cd2672a364d124861`.
+The final report and original artifact indexes remain under
+`.validation/alternate-npu-preparation-31486/trajectory/observations/max-d5c76c76f0bc9b32/`
+in the `generic-context-ir` worktree.
+
+The model attributed the missing `aic-ascend910_93-ops-info.ini` to the toolchain.
+The original candidates omitted `AddConfig`, while the frozen compiler and
+generated build log agreed on the target. Missing registration is a concrete
+source defect; no single-variable build comparison has established it as the
+only cause. A stopped model's attribution is not a verified environment defect.
+
+The audit also found a separate, generic harness gap: instructions recommended
+consulting the installed SDK, but the admitted tools could only read the local
+workspace, registered pipeline artifacts or public web pages. They could not
+read that remote SDK. Its public include tree alone contains 4,871 files and
+19,357,805 bytes, exceeding workspace snapshot limits. The next revision adds
+explicit read-only SDK reference access outside the workspace; it must expose
+versioned source bytes rather than supplying an operator implementation.
+
+A fresh complete Python regression on unchanged main `25d1a44` subsequently
+passed **713 of 723 methods, with zero failures/errors and ten Linux-only
+skips**. All supplied original-session replays ran. The original log SHA256 is
+`a0a41c98acdbae079b1606282655a6a4f0d034455a6566c7875340c5d17de29b`.
+This closes the earlier failed full-suite invocation for that revision; it does
+not qualify the new SDK-reference feature or establish NPU performance.
+
+### Explicit SDK references without widening shell access
+
+The generic revision adds optional `sdk_reference` resources to ordinary
+codegen, CANN preparation and the shared NPU campaign entry point. Provisioning
+exports complete selected public directories into a versioned, hash-bound
+snapshot outside the workspace. `sdk_search` and `sdk_read` use the existing
+pinned business-tool gateway and Journal. They do not run SDK code, compile,
+contact a host or allocate a device. Read-only children inherit only tools that
+the parent actually registered. Unconfigured sessions retain their existing
+tools. No operator implementation, oracle, eager, case, tolerance or measurement
+protocol changes are part of this revision.
+
+The implementation revalidates accessed files and retained pages, rejects path
+escapes and changed content, and distinguishes path-index inspection from
+verified content. SDK versions and targets are captured provenance; the
+provisioner must bind those declarations to installation receipts. An SDK path
+in a prompt is not permission to read it. The design was checked against
+[Codex's explicit read roots](https://github.com/openai/codex/blob/c0cc9fc820f62e4dbdde68214dd6d792d6c8a7ee/codex-rs/protocol/src/permissions.rs#L1355-L1375)
+and the public
+[Claude Python SDK tool/handler boundary](https://github.com/anthropics/claude-agent-sdk-python/blob/3cf3446b0fa6c97042e85b245bba07459f22f946/src/claude_agent_sdk/__init__.py#L604-L645).
+The public SDK is not the complete Claude Code CLI implementation.
+
+Queries and resource discovery retain their complete JSON artifacts. Returned
+pages use the existing single-text artifact-page protocol, preserving byte
+cursors and `next_read` when child context projection reduces an observation.
+A duplicate base64 body had initially prevented this automatic pagination and
+was corrected before testing. The global observation limit remains unchanged.
+
+Local qualification: catalog/export tests passed 33/33, configuration and child
+tool registration passed 10/10, and real locked-Pi/Owner/Gateway/provider-request
+tests passed 2/2. The latter reconstructed 24,054 original bytes in two parent
+pages and four child pages under an 8192-byte observation envelope; replay did
+not rescan changed corpus bytes, while a new action rejected the change. These
+use scripted local provider invocation, not an external model or device.
+Deployment preparation separately passed 8/8 CPU checks with real synthetic
+Git commits and no bypass of the source-identity guard.
+
+The full Python run passed 755 of 766 methods with zero failures/errors and
+11 skips: ten Linux-only cases and one optional upstream-framework fixture.
+That fixture subsequently passed with the preserved shared dependency supplied.
+The complete npm run, including the new Pi tests, passed 232 of 235 tests with
+zero failures and three skips. Both optional original-session fixtures subsequently passed, with original
+file hashes unchanged; the remaining skip requires a case-sensitive filesystem.
+Original failed test-fixture attempts and their corrections remain retained.
+The affected serial TUI invocation passed 14/14 at timeout scale 1.0, with
+zero failed/flaky/environmental groups; all 79 indexed artifact hashes and
+lengths matched. New clean optimization trials remain a separate qualification
+step; these local checks alone establish no acceleration.
+
+The first actual SDK capture retained a terminal failure: a selected public
+header was not UTF-8. A read-only inventory of the same complete public roles
+found 8,145 logical files (40,339,769 bytes), including 77 non-UTF-8 logical paths
+backed by 15 distinct files; none contained NUL. Strict GB18030 decoding could
+round-trip their bytes, but that does not uniquely identify their original
+encoding. The original failed job and raw files remain retained. The follow-up
+keeps original bytes and hashes and uses explicitly encoded pages, without
+transcoding or filtering any operator-specific source.
+
+
+The original-byte follow-up passed all **38/38** catalog/export checks, including
+the actual captured 39,388-byte failing header through search, retained snippet
+bytes and real 8192-byte context projection without loss. No vendor SDK content
+was added to Git. The final full npm run again passed **232/235**, zero failures,
+with the same three previously characterized skips. Existing UTF-8 snapshots
+remain readable. These checks validate reference access, not whether a model
+will use it correctly or produce a faster kernel.
+
+The SDK wiring and actual locked-Pi tests subsequently passed **12/12** against
+the final original-byte implementation, with all 418 built runtime Python
+modules matching the current source. The remote SDK export completed with all
+8,145 logical files and 40,339,769 original bytes. Local publication correctly
+rejected distinct `es_Log.h` and `es_log.h` on this case-insensitive filesystem;
+the complete original archive and failed staging remain retained. Provisioning
+uses separate persistent case-sensitive storage, without renaming either file
+or dispatching another export. This environment issue does not change the
+snapshot identity or tool permissions.

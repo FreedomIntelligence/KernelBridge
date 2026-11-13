@@ -95,10 +95,12 @@ export async function startCodegen(options, settings, submission) {
   config.goal_review = settings.config.goal_review ?? {};
   config.application = settings.config.application ?? {};
   if (settings.config.business_tools?.length || settings.config.operator_infra || settings.config.operator_pipeline
-      || (settings.config.online_research !== undefined && settings.config.online_research !== false)) {
+      || (settings.config.online_research !== undefined && settings.config.online_research !== false)
+      || (settings.config.sdk_reference != null && settings.config.sdk_reference !== false)) {
     const frozen = join(output, 'operator-tools-input.json');
     await save(frozen, { business_tools: settings.config.business_tools, operator_infra: settings.config.operator_infra,
-      operator_pipeline: settings.config.operator_pipeline, online_research: settings.config.online_research });
+      operator_pipeline: settings.config.operator_pipeline, online_research: settings.config.online_research,
+      sdk_reference: settings.config.sdk_reference });
     const { stdout } = await promisify(execFile)(options.python, ['-B',
       resolve(agentRoot, '../../../examples/operator_tools.py'), '--config', frozen, '--output', join(output, 'inputs'), '--python', options.python],
       { timeout: 30000, maxBuffer: 4 * 1024 * 1024 });

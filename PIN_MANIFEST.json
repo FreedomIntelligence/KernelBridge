@@ -616,8 +616,8 @@
       "sha256": "8b753b3f64fefda655c88dd4fb8605d86174a8ee69db59b093780df1ef766336"
     },
     "docs/architecture/harness-optimization-log.md": {
-      "bytes": 117450,
-      "sha256": "8936def86baaceaf13027df6313fceed2a248022dcd73a9d145277626878120e"
+      "bytes": 125734,
+      "sha256": "8876831c051fa3d0e428896de9a0c1d24339ad00f74073e5095ead925f349677"
     },
     "docs/architecture/harness-trial-results.md": {
       "bytes": 3775,
@@ -752,8 +752,8 @@
       "sha256": "01042f6853f9618d5ff8b26aceac5538e6d835cda890257cc04576b5783f9bb5"
     },
     "examples/cann/instructions/AGENTS.md": {
-      "bytes": 14732,
-      "sha256": "2878c0ab1c60db46b3e04fc33da2fdc4d37e1b2f4cb557977ed3147f71588a7c"
+      "bytes": 15334,
+      "sha256": "a8851780fc9e8a0fceba220092258397d0fc510ccbd9b989f200916713de2f3b"
     },
     "examples/cann/make_tasks.py": {
       "bytes": 7216,
@@ -776,8 +776,8 @@
       "sha256": "b6dd244358405a1fe3dceb8bf511fe23ecbd359c60ce7d49f37a8d556adb53be"
     },
     "examples/cann/prepare.py": {
-      "bytes": 16899,
-      "sha256": "f01613c428bbaf39f532305312bb8706fe894766cea847bc85e462764fa73551"
+      "bytes": 18046,
+      "sha256": "6fbd3224a97ce22382a7a235147f7adb79a733ddd4d28e0546f446a4dd1517e7"
     },
     "examples/cann/prepare_goal.py": {
       "bytes": 2694,
@@ -1164,8 +1164,8 @@
       "sha256": "389ac2f747dcec07864f68d6051a32556d459314add9540be760a7c4bd05cbd5"
     },
     "examples/operator_tools.py": {
-      "bytes": 1596,
-      "sha256": "d3e360f1b98bbafcd497399d908999aa377d492bb6533d18c92e8cd8fa9245ff"
+      "bytes": 1632,
+      "sha256": "8314cb9172e6758c8acb8a02616405b17b4df79498f0df141934eb18e9903d1a"
     },
     "examples/scatter/README.md": {
       "bytes": 5832,
@@ -1244,8 +1244,8 @@
       "sha256": "2d5651f39b6643e582e146caaeef5dc920db87683083391c6379629d2bf0507e"
     },
     "examples/scatter/prepare_npu_campaign.py": {
-      "bytes": 22027,
-      "sha256": "19cf4988cc7bae09a6fd86520d14deaad40d5a788a9179a086f6af2c945a90f1"
+      "bytes": 23994,
+      "sha256": "f3564395df8f9de71a65cc1f0723d41e04e3dce0c42d8d699138dcf96dca40fe"
     },
     "examples/scatter/prepare_npu_isolation.py": {
       "bytes": 18013,
@@ -1262,6 +1262,22 @@
     "examples/scatter/torch_api.py": {
       "bytes": 2352,
       "sha256": "47d32d30512c6e32d0c6e03e90b9bedb1c2b103a4ae46ee7f9a7bcf3f5343be6"
+    },
+    "examples/sdk_reference/README.md": {
+      "bytes": 7603,
+      "sha256": "b0de88bf548eb88f584555dd8ade7b697408e198645eda068185afc5bc3dcc27"
+    },
+    "examples/sdk_reference/driver.py": {
+      "bytes": 22640,
+      "sha256": "77280cf4da4de8730f5533ed5e1cd021318fc215540e7d456bebecc7f15bdcc9"
+    },
+    "examples/sdk_reference/prepare.py": {
+      "bytes": 8069,
+      "sha256": "f3555b0547f94d2b0fef8baf84e42037029ae18dde6609a802be9cd99251f055"
+    },
+    "examples/sdk_reference/snapshot.py": {
+      "bytes": 16430,
+      "sha256": "9c273ff53ee99800b6191003c8523e543cbe74559b59abfc1fe0b4b371a1d9ac"
     },
     "examples/vector-add/adapter.mjs": {
       "bytes": 8160,
@@ -1384,8 +1400,8 @@
       "sha256": "249103d38f569e875c856dadcb396480169772407d36558749796dae12248298"
     },
     "source/apps/agent/src/application/codegen.mjs": {
-      "bytes": 8941,
-      "sha256": "6f3a9ec1307d4cedfcda40987f8be7cb2d7f6d63e90c7a3cdbcfac66c42eb991"
+      "bytes": 9085,
+      "sha256": "3c77dd727709c70d6e8efbaf6e810bfbee8090ab009da9154866d5c82751e66b"
     },
     "source/apps/agent/src/application/credentials.mjs": {
       "bytes": 2976,
@@ -3400,8 +3416,8 @@
       "sha256": "a07f207f2ce5934751159b78c65217d2f07b096d7d6eb7fb6363a2e59f4d0fdd"
     },
     "source/packages/executor/src/kernelcat_executor/operations/delegated.py": {
-      "bytes": 16115,
-      "sha256": "e4403bb655661ff3c2f30ccedfe008bfb4bef5e02edff7001fcfc1da6a8d57f7"
+      "bytes": 16494,
+      "sha256": "4ad508d6aa9f38ddd5cb0a64abaf7b9796fc1eff9a4e183bf4994e1affd7d336"
     },
     "source/packages/executor/src/kernelcat_executor/operations/events.py": {
       "bytes": 2573,
@@ -4548,8 +4564,8 @@
       "sha256": "bd97e3f6a936b9ae25ca1631304067bff13671367985c85823e77a0a4611c0e7"
     },
     "validation/tui/ACCEPTANCE.md": {
-      "bytes": 77147,
-      "sha256": "1ddcbc7652914839e188f4aa0c64a9bbdbcc6048c2fa642c05c836bd8cad7927"
+      "bytes": 79419,
+      "sha256": "0ffb851a9b238a535fdf81c10ace06bd1de6347bdc277e5dc37673c3efda9dfe"
     },
     "validation/tui/README.md": {
       "bytes": 9510,
