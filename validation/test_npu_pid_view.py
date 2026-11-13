@@ -103,6 +103,53 @@ class PidViewEvidenceTests(unittest.TestCase):
             f = self.packet(); mutate(f['records']['holder-ready.json']); seal(f)
             with self.assertRaises(ValueError): self.validate(f)
 
+    def test_external_child_read_retains_proven_namespace_init_scope(self):
+        f = self.packet(); receiver = f['receiver']; processes, _, _ = receiver._helpers(f['request'])
+        observer = f['records']['controller-start.json']['identity']
+        child = f['records']['holder-start.json']['identity']
+        external = copy.deepcopy(child); external.pop('pid_ns_init_birth')
+        with patch.object(receiver.os, 'getpid', return_value=observer['pid']), \
+             patch.object(processes, 'identify_process', side_effect=lambda pid: copy.deepcopy(observer if pid == observer['pid'] else external)):
+            captured = receiver.identify_holder(processes, child['pid'], observer)
+        self.assertEqual(captured, child)
+        self.assertNotIn('pid_ns_init_birth', external)
+        f['records']['holder-spawn.json']['identity'] = captured
+        f['records']['view-evidence-candidate.json']['probe']['active_process'] = copy.deepcopy(captured)
+        seal(f); self.assertEqual(self.validate(f)['logical_device'], 0)
+
+    def test_external_child_cannot_inherit_scope_from_another_parent_or_namespace(self):
+        mutations = (
+            lambda i: i.update(ppid=999), lambda i: i.update(uid=999),
+            lambda i: i.update(pid_ns='pid:[999]'), lambda i: i.update(mnt_ns='mnt:[999]'),
+            lambda i: i['birth'].update(boot_id='11111111-1111-1111-1111-111111111111'),
+            lambda i: i['pid_ns_init_birth'].update(start_ticks='999'),
+        )
+        for mutate in mutations:
+            f = self.packet(); receiver = f['receiver']; processes, _, _ = receiver._helpers(f['request'])
+            observer = f['records']['controller-start.json']['identity']
+            child = copy.deepcopy(f['records']['holder-start.json']['identity']); mutate(child)
+            with patch.object(receiver.os, 'getpid', return_value=observer['pid']), \
+                 patch.object(processes, 'identify_process', side_effect=lambda pid: copy.deepcopy(observer if pid == observer['pid'] else child)):
+                with self.assertRaisesRegex(ValueError, 'scope|namespace init'):
+                    receiver.identify_holder(processes, child['pid'], observer)
+
+    def test_changed_controller_scope_cannot_supply_child_init_identity(self):
+        f = self.packet(); receiver = f['receiver']; processes, _, _ = receiver._helpers(f['request'])
+        observer = f['records']['controller-start.json']['identity']
+        current = copy.deepcopy(observer); current['pid_ns_init_birth']['start_ticks'] = '999'
+        with patch.object(processes, 'identify_process', return_value=current):
+            with self.assertRaisesRegex(ValueError, 'controller process scope'):
+                receiver.identify_holder(processes, 200, observer)
+
+    def test_validator_still_rejects_missing_init_scope_in_old_external_observations(self):
+        for target in ('spawn', 'active'):
+            f = self.packet()
+            identity = (f['records']['holder-spawn.json']['identity'] if target == 'spawn' else
+                        f['records']['view-evidence-candidate.json']['probe']['active_process'])
+            identity.pop('pid_ns_init_birth'); seal(f)
+            with self.assertRaisesRegex(ValueError, 'birth, namespace or parent|projection'):
+                self.validate(f)
+
     def test_scope_changes_are_rejected_even_with_new_artifact_hashes(self):
         for section, key, value in (('driver', 'sha256', 'e' * 64), ('observer', 'mnt_ns', 'mnt:[999]')):
             f = self.packet(); f['records']['after.json'][section][key] = value; seal(f)

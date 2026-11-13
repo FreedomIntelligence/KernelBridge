@@ -672,3 +672,29 @@ be retained, alongside the existing full-session archives and unresolved
 original handles. No new model or NPU optimization run is reported. These checks concern harness behavior and
 establish no new successful optimization session, stable repetition, min/Cube
 result or performance gain.
+
+### Public initializer producer follow-up
+
+Delivery `bd52370` was pushed to main and its deployment verified **313/313**
+files. Device-1 public probe 01 was busy before lease acquisition: verified
+`not_started`, no holder. Probe 02's original holder exited **0**, but the strict
+validator rejected inconsistent process identity: external holder-spawn and
+active-process records lacked `pid_ns_init_birth`, which self-records retained.
+The original packet remains under
+`.validation/isolation-clean-preparation/profile-init-device1-02/recovered-1794537016309389000/`.
+
+The producer-only correction derives that shared field after matching parent,
+boot, UID, PID and mount namespaces. Validation and the rejected original proof
+remain unchanged. Targeted regression passed **34/34**
+(`.validation/device-isolation/pid-view-self-scope-r1.log`). A real Linux CPU
+probe, dispatched once, passed **4/4** checks with child exit **0**, without
+Torch, NPU or lease calls. Its original result is
+`.validation/device-isolation/holder-scope-linux-original/cpu-result.json` and
+its remote namespace remains `/tmp/kernelbridge-holder-scope-4w78zfm3`.
+The verified producer source SHA256 is
+`cd010e3ca86523b8b8398a778bd5b84cbec5194bed0e560bc245e7e55f4377e2`.
+Required npm tests passed **225**, with one genuine filesystem-dependent skip
+and zero failures (`.validation/device-isolation/pid-view-producer-npm.log`).
+This follow-up did not rerun the full Python suite or TUI. Probe 02 remains
+rejected; probe 03 is planned but has not run. These checks establish no new
+model/candidate, operator correctness or eager-performance result.

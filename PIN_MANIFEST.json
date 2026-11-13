@@ -616,8 +616,8 @@
       "sha256": "8b753b3f64fefda655c88dd4fb8605d86174a8ee69db59b093780df1ef766336"
     },
     "docs/architecture/harness-optimization-log.md": {
-      "bytes": 96736,
-      "sha256": "05c305e1bebc4454440978e238345c4ab062d02f558082a1447d265b31416203"
+      "bytes": 98845,
+      "sha256": "fec41bcc404a7821b19e13b7ae818c087d97c3a60ef9861a8621f71d488185cf"
     },
     "docs/architecture/harness-trial-results.md": {
       "bytes": 3775,
@@ -1224,8 +1224,8 @@
       "sha256": "a957fed3f01a1a2910c5a993c7afa3342d48eaf67a32a20acde342168301b033"
     },
     "examples/scatter/npu_pid_view.py": {
-      "bytes": 31777,
-      "sha256": "1e4af2dc81c83cda14e628c6017006c1ba7098e7cfdf10549f2bc164d552f40a"
+      "bytes": 33639,
+      "sha256": "cd010e3ca86523b8b8398a778bd5b84cbec5194bed0e560bc245e7e55f4377e2"
     },
     "examples/scatter/npu_pipeline_driver.py": {
       "bytes": 54174,
@@ -4380,8 +4380,8 @@
       "sha256": "d3e4b602a1ade827472055f849a680b05d3fc5a74eb83ef4d30f65c9c7799d3c"
     },
     "validation/test_npu_pid_view.py": {
-      "bytes": 11267,
-      "sha256": "d3cab181567d2627f354a799db8e5b901280e51dcbeb56f39dee2e0e69aa61ac"
+      "bytes": 14573,
+      "sha256": "e28f11f008abff028b720ca22029b100c9a4d8305cea5cad355d0a29f29c1d98"
     },
     "validation/test_npu_pipeline_driver.py": {
       "bytes": 21407,
@@ -4500,8 +4500,8 @@
       "sha256": "bd97e3f6a936b9ae25ca1631304067bff13671367985c85823e77a0a4611c0e7"
     },
     "validation/tui/ACCEPTANCE.md": {
-      "bytes": 69187,
-      "sha256": "3d3cd58ee4486e240c48418d83e9e2c009afeef4d14f4ead6312f49457f86d71"
+      "bytes": 70808,
+      "sha256": "22daa5fe2c019458737fd53af4cd033d92406a6c5962c5653c658053cf310d89"
     },
     "validation/tui/README.md": {
       "bytes": 9510,

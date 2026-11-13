@@ -200,6 +200,36 @@ def sample(folder, label, request, policy, isolation):
     return value, pids
 
 
+def identify_holder(processes, pid, observer):
+    """Bind an externally read child to its still-live controller's PID view.
+
+    The process reader reports PID-namespace init birth only when reading self.
+    A same-namespace child shares that namespace init; retain the controller's
+    verified scope rather than dropping it from external child observations.
+    """
+    current = processes.identify_process(os.getpid())
+    if (not processes.valid_identity(observer) or not processes.valid_identity(current)
+            or observer['birth']['platform'] != 'linux'
+            or processes.identity_key(current) != processes.identity_key(observer)
+            or current['uid'] != observer['uid']
+            or current.get('pid_ns_init_birth') != observer.get('pid_ns_init_birth')):
+        raise ValueError('Original controller process scope changed')
+    identity = processes.identify_process(pid)
+    if (not processes.valid_identity(identity) or identity['ppid'] != observer['pid']
+            or identity['uid'] != observer['uid'] or identity['birth']['platform'] != 'linux'
+            or identity['birth']['boot_id'] != observer['birth']['boot_id']
+            or identity['pid_ns'] != observer['pid_ns'] or identity['mnt_ns'] != observer['mnt_ns']):
+        raise ValueError('Original holder does not share the verified controller scope')
+    init_birth = observer.get('pid_ns_init_birth')
+    if init_birth is not None:
+        if (not processes.valid_birth(init_birth) or init_birth['platform'] != 'linux'
+                or init_birth['boot_id'] != observer['birth']['boot_id']
+                or identity.get('pid_ns_init_birth', init_birth) != init_birth):
+            raise ValueError('Original holder PID namespace init differs')
+        identity = {**identity, 'pid_ns_init_birth': dict(init_birth)}
+    return identity
+
+
 def validate_probe_evidence(request_raw, artifacts):
     """Validate original bytes and return an admitted-policy candidate, CPU only.
 
@@ -422,7 +452,7 @@ def controller(path):
             ','.join(str(lease.fd) for lease in leases)], stdin=subprocess.DEVNULL,
             stdout=log, stderr=subprocess.STDOUT, pass_fds=tuple(lease.fd for lease in leases))
         log.close()
-        save(folder / 'holder-spawn.json', {'pid': child.pid, 'identity': processes.identify_process(child.pid),
+        save(folder / 'holder-spawn.json', {'pid': child.pid, 'identity': identify_holder(processes, child.pid, observer),
             'controller': observer, 'request_sha256': request_sha, 'spawned_ns': str(time.time_ns())})
         ready_deadline = time.monotonic() + 60
         while not (folder / 'holder-ready.json').exists() and child.poll() is None and time.monotonic() < ready_deadline:
@@ -434,7 +464,7 @@ def controller(path):
                 or processes.identity_key(started['identity']) != processes.identity_key(ready['identity'])
                 or ready['logical_device'] != policy['logical_device'] or ready['allocated_elements'] != 1):
             raise ValueError('Holder runtime or exact process identity changed')
-        active_identity = processes.identify_process(child.pid)
+        active_identity = identify_holder(processes, child.pid, observer)
         if processes.identity_key(active_identity) != processes.identity_key(started['identity']):
             raise ValueError('Original holder birth or namespace changed')
         active, active_pids = sample(folder, 'active', request, policy, isolation)

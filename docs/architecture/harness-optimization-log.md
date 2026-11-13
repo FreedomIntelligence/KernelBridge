@@ -1465,3 +1465,38 @@ archives and unresolved original handles remain preserved. This is a plan,
 not a new NPU/model execution or result. There is no new successful clean optimization
 run, independent stable max reproduction or new min/Cube qualification
 established by these local checks.
+
+### Public device-1 probe: original identity field mismatch
+
+The isolation/initializer delivery was merged and pushed to main as `bd52370`;
+the deployed bundle passed verification of all 313 files. Two subsequent public
+initializer probes on logical device 1 retain distinct outcomes. Probe 01 found
+the device busy before lease acquisition and returned `not_started`; it spawned
+no context holder. Probe 02 started its original holder and recorded return
+code 0 with no signal, but the strict PID-view validator rejected the proof.
+Its original packet is retained at
+`.validation/isolation-clean-preparation/profile-init-device1-02/recovered-1794537016309389000/`.
+
+The discrepancy is in evidence production: the externally read `holder-spawn`
+identity and `active_process` omitted `pid_ns_init_birth`, while the holder's
+self-recorded identity included it. The producer repair supplies the shared
+namespace-init birth only after confirming parentage, boot, UID, PID namespace
+and mount namespace. The validator and original proof remain unchanged. A
+normal holder exit alone does not qualify the rejected packet or initialize a
+usable profile.
+
+The repair passed **34/34** targeted tests
+(`.validation/device-isolation/pid-view-self-scope-r1.log`). A separately
+executed real Linux CPU probe passed **4/4** checks with child exit 0 after one
+dispatch; it invoked no Torch, NPU or lease operation. Its original result is
+`.validation/device-isolation/holder-scope-linux-original/cpu-result.json`,
+retained remotely at `/tmp/kernelbridge-holder-scope-4w78zfm3`. The producer
+source SHA256 is
+`cd010e3ca86523b8b8398a778bd5b84cbec5194bed0e560bc245e7e55f4377e2`.
+Required npm validation passed **225** tests with one genuine
+case-sensitive-filesystem skip and no failure
+(`.validation/device-isolation/pid-view-producer-npm.log`). No new full Python
+suite or TUI invocation is claimed for this follow-up. Original probe 02 remains
+rejected; a new probe 03 is planned, not reported as run. No model call,
+operator candidate, eager baseline, case suite or measurement changed during
+this repair and verification.
