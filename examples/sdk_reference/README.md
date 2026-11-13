@@ -97,18 +97,33 @@ Source pages and retained JSON reports use the existing artifact-page contract:
 for a read-only subagent without losing text or advancing past the visible
 bytes. Follow `next_read` to continue. Search structures are stored in
 `search.json` and resource discovery in `reference.json`; their returned JSON
-pages do not duplicate a large structured result outside `text`.
+pages do not duplicate a large structured result outside `text`. Search responses
+also expose a small `search_progress` beside `text`: `mode`, `complete`,
+`next_cursor`, `scan_start`, `scan_end`, `match_count`, `path_entries_scanned`,
+`path_filtered`, `contents_verified`, `content_scanned_files`, and `verified_bytes`.
+It contains no matches, query, snippets or file list. When the page metadata fits
+the observation budget, the existing context projection retains it while
+shortening the report's visible bytes;
+reading or projecting a report page does not change the original scan progress.
 
 Path searches inspect pinned path metadata without reading every file body;
 only returned matching files are opened and hash-verified. The response reports
 `path_entries_scanned`, `contents_verified` and `content_scanned_files`
 separately. Start with path search to locate relevant headers. Content searches
-inspect at most 128 files and 16 MiB per page. Either mode returns at most 50
-matches and verifies at most 16 MiB of file bodies per page.
-`complete=false` and `next_cursor` mean the remaining scope has not been searched.
-Reuse the same resource/query/mode/glob with that cursor; an empty partial page
-does not establish that a declaration is absent. These are per-call transport
-bounds, not a turn or total-token budget.
+inspect at most 4096 files and 16 MiB per call, within the unchanged 60-second
+tool timeout. The file count is a finite work bound, not a measured optimal
+search size. Either mode returns at most 50 matches and verifies at most 16 MiB
+of file bodies per call.
+
+There are two separate continuation operations. `next_read` reads more bytes
+from the saved report, while `search_progress.next_cursor` continues searching
+with the same resource/query/mode/glob. These controls remain separate even when
+a match list needs several report pages. `search_progress.complete=false` means
+there is still unsearched scope. `complete=true` covers the range starting at
+`scan_start`, not earlier searches or proof that all report pages were read.
+An empty partial result does not establish that a declaration is absent, and
+zero verified files means no file bodies were examined. These are per-call work
+and transport bounds, not a turn or total-token budget.
 
 Every query/page retains `request.json`, `result.json`, and a hash-bound receipt;
 searches retain `scan.json` and `search.json`, resource discovery retains
@@ -118,7 +133,11 @@ context projector shortens text.
 `sdk_read({"run":"RUN_ID"})` returns that receipt's manifest.
 `sdk_read({"run":"RUN_ID","path":"result.json","offset":0,"limit":8192})`
 reads the original response without rescanning the SDK. Do not combine `run`
-with a resource selection. The existing Gateway and Journal remain responsible
+with a resource selection. Pages read from a saved `search.json` also recover
+`search_progress` from that receipt's hash-verified `result.json`, when present.
+Older receipts are not backfilled with new progress; replay returns their saved
+result, and recovery never searches a changed SDK to reconstruct it.
+The existing Gateway and Journal remain responsible
 for effect admission and replay. An incomplete original receipt is reported as
 unknown, not silently executed again.
 

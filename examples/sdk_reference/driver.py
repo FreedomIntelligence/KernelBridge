@@ -17,7 +17,7 @@ import sys
 MAX_FILE_BYTES = 8 * 1024 * 1024
 MAX_MANIFEST_BYTES = 32 * 1024 * 1024
 MAX_SCAN_BYTES = 16 * 1024 * 1024
-MAX_SCAN_FILES = 128
+MAX_SCAN_FILES = 4096
 MAX_PAGE = 16384
 
 
@@ -323,7 +323,14 @@ def search(config, args, output):
                                             'For non-UTF8 sources this cannot establish absence of equivalent characters in another encoding.') +
                      ' complete refers only to scan_start through scan_end, not earlier pages. '
                      'complete=false requires next_cursor before claiming an exhaustive no-match.'}
-    return artifact_page(output, 'search.json', result)
+    # Keep scan control independent of the byte-paged match report. Context
+    # projection may shorten text, but must not redefine what was searched.
+    progress = {key: result[key] for key in (
+        'mode', 'complete', 'next_cursor', 'scan_start', 'scan_end',
+        'path_entries_scanned', 'path_filtered', 'contents_verified',
+        'content_scanned_files', 'verified_bytes')}
+    progress['match_count'] = len(matches)
+    return {**artifact_page(output, 'search.json', result), 'search_progress': progress}
 
 
 def read_source(config, args, output):
@@ -362,6 +369,14 @@ def save(path, data):
         os.fsync(stream.fileno())
 
 
+def receipt_bytes(folder, files, name):
+    raw = safe_bytes(folder / name, MAX_MANIFEST_BYTES)
+    expected = files[name]
+    if len(raw) != expected['bytes'] or sha(raw) != expected['sha256']:
+        raise Rejected('receipt_artifact_changed')
+    return raw
+
+
 def recovered(args, root, config_hash):
     if set(args) - {'run', 'path', 'offset', 'limit'}:
         raise Rejected('receipt_read_cannot_select_resource')
@@ -383,12 +398,16 @@ def recovered(args, root, config_hash):
     name = relative(args['path'])
     if '/' in name or name not in manifest['files']:
         raise Rejected('path_not_in_receipt')
-    raw = safe_bytes(folder / name, MAX_MANIFEST_BYTES)
-    expected = manifest['files'][name]
-    if len(raw) != expected['bytes'] or sha(raw) != expected['sha256']:
-        raise Rejected('receipt_artifact_changed')
-    return {'status': 'completed', 'data': {'run': identity, 'path': name,
-            **page(raw, args.get('offset', 0), args.get('limit', 8192), {'run': identity, 'path': name})}}
+    raw = receipt_bytes(folder, manifest['files'], name)
+    data = {'run': identity, 'path': name,
+            **page(raw, args.get('offset', 0), args.get('limit', 8192), {'run': identity, 'path': name})}
+    if name == 'search.json' and manifest['tool'] == 'sdk_search':
+        # Recover only progress saved with this original result. Do not rescan
+        # the SDK or invent progress for receipts created before this field.
+        saved = decode_json(receipt_bytes(folder, manifest['files'], 'result.json'))
+        if 'search_progress' in saved:
+            data['search_progress'] = saved['search_progress']
+    return {'status': 'completed', 'data': data}
 
 
 def main(config, action):

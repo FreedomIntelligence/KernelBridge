@@ -1899,3 +1899,53 @@ the complete original archive and failed staging remain retained. Provisioning
 uses separate persistent case-sensitive storage, without renaming either file
 or dispatching another export. This environment issue does not change the
 snapshot identity or tool permissions.
+
+### 2026-11-13 — Visible SDK search progress and bounded larger scans
+
+The independent Max trial frozen at `2fc8186` remained untouched. A passive audit
+through model call 67 found 44 SDK searches and 16 reads. All 16 returned pages
+(97,554 bytes) reached the next completed model request. Nine searches stopped
+at the 128-file bound after only 2.30–2.90 MB, using 13.69–17.26% of the existing
+16 MiB allowance. Two long search reports placed their continuation cursor
+beyond the first report page; the original report was recoverable, but the
+model did not read its remaining pages. These observations identify navigation
+and scan-capacity costs, not missing tool output or a proven cause of every
+candidate failure.
+
+The single change class exposes a small `search_progress` alongside the report
+page and raises the content-scan file bound to 4096. The 16 MiB byte bound,
+60-second tool timeout, maximum 50 returned matches, source identity checks,
+permissions and original-receipt replay remain in force. The file count is a
+finite engineering bound, not a claimed optimum. `next_read` advances saved
+report bytes; `search_progress.next_cursor` advances the searched scope. Report
+projection preserves this metadata when it fits the observation budget.
+Recovery verifies the saved result before returning its original progress;
+legacy receipts are not backfilled or rescanned. No kernel implementation,
+baseline, comparator, measurement, model setting or active trial was changed.
+
+Before editing, the control/preview behavior was checked against official
+Codex source at `c0cc9fc820f62e4dbdde68214dd6d792d6c8a7ee` and the public Claude
+Python SDK at `3cf3446b0fa6c97042e85b245bba07459f22f946`. Neither supplies an
+optimal SDK file-scan limit or automatically guarantees arbitrary continuation
+metadata under truncation. Claude Code's complete CLI core was not available
+for that comparison. The retained alignment and passive audit reports are in
+the `sdk-readonly-context` worktree's `.validation/acceptance/` directory.
+
+Production changes were completed before tests were added. Catalog/export
+checks passed **43/43**, with no failures, errors or skips. They exercise actual
+Gateway/context projection at 8192 bytes, two independent continuation paths,
+4096+904 file navigation, the separate 16 MiB limit, empty versus unsearched
+scope, source-byte checks, and legacy/tampered receipts. Actual locked-Pi parent
+and delegated-child checks passed **2/2**: the next serialized provider request
+contains progress despite an incomplete JSON report, follows the search cursor
+to recover 50+1 matches, and preserves exact visible report/source bytes and
+original-action replay after corpus changes. Provider invocation is scripted
+locally; these checks use no external model or NPU.
+
+Full npm qualification passed **232/235**, with zero failures and the same three
+previously characterized conditional skips. Manifest generation and source
+delivery verification passed. Receipts in the `sdk-search-progress` worktree:
+`sdk-search-unit-r1/results.json`, `sdk-search-pi-r1/result.json`, and
+`sdk-search-npm-r1/result.json`, beneath `.validation/acceptance/`. A later clean
+trial must establish any reduction in model calls or improvement in kernel
+qualification; the still-running `2fc8186` trial cannot measure this revision.

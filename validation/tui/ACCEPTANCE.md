@@ -831,3 +831,28 @@ second TUI run. The follow-up does not establish NPU performance.
 The follow-up configuration/child and actual locked-Pi regression passed
 **12/12**, zero skips or failures, with all 418 built runtime Python modules
 matching the checkout. Original source and fixture hashes remained unchanged.
+
+### SDK search progress qualification
+
+The `sdk-search-progress` revision passed **43/43** catalog/export checks and
+**2/2** actual locked-Pi parent/child checks, with no skips in those invocations.
+The Pi checks now search first: an oversized report is delivered through the
+real Owner/Gateway/provider serialization with visible `search_progress`, then
+its search cursor returns the remaining match (50+1 total). The checks compare
+the displayed report bytes to the retained original, reconstruct the SDK
+header, and replay both original searches and reads without rescanning a
+changed corpus. The child uses the actual 8192-byte observation envelope.
+
+Full npm passed **232/235**, zero failed, with three previously characterized
+conditional skips. This is SDK-tool/serialized-request qualification with a
+local scripted provider; it adds no new PTY matrix or NPU performance claim.
+The running Max session remains frozen at `2fc8186` in its own worktree.
+
+Receipts under `.validation/acceptance/` in `sdk-search-progress`:
+
+* `sdk-search-unit-r1/results.json`: SHA256
+  `01ca63f66049b2c71d568747cc6786029c4f08484b3c6311f78731565948ff68`.
+* `sdk-search-pi-r1/test.log`: SHA256
+  `47e7c825d52c6d91a2a855b17e2e3706bff431e08a4257a4c6838dbd6e997111`.
+* `sdk-search-npm-r1/test.log`: SHA256
+  `c7d239f01412a51f048e5926237b1c37385fd0b4bb53f4fbec686f2c2b2582fe`.

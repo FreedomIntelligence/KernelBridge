@@ -24,7 +24,7 @@ async function writableDirectories(directory) {
 }
 
 for (const mode of ['parent', 'child']) {
-  test(`real Pi SDK ${mode} retains SDK pages in the next actual provider request and replays without rescanning`, {
+  test(`real Pi SDK ${mode} retains search progress and SDK pages in the next actual provider request and replays without rescanning`, {
     skip: !python || !pythonpath ? 'Requires installed development Python runtime or KERNELBRIDGE_SDK_PI_PYTHON{,PATH}' : false,
     timeout: 180000,
   }, async t => {
@@ -47,6 +47,10 @@ for (const mode of ['parent', 'child']) {
     assert.equal(report.utf8_exact_reassembly, true);
     assert.equal(report.gateway_replay_without_rescan, true);
     assert.equal(report.complete_session_replay_without_model_or_tool, true);
+    assert.equal(report.sdk_search_actions, 2);
+    assert.equal(report.search_progress_verified_in_actual_wire, true);
+    assert.equal(report.search_report_truncated_with_visible_cursor, true);
+    assert.deepEqual(report.search_cursor_continuation_match_counts, [50, 1]);
     assert.ok(report.wire_requests_verified > report.sdk_read_actions);
     assert.ok(mode === 'parent' ? report.visible_page_bytes[0] > 8192 : report.visible_page_bytes[0] < 8192);
     t.diagnostic(JSON.stringify(report));

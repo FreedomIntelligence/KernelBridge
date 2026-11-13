@@ -59,6 +59,7 @@ class LocalProvider(APIProposer):
                          wire_options=WireOptions(native_turns=False))
         self.scenario, self.role = scenario, role
         self.calls, self.harnesses, self.contexts, self.wires, self.pages = 0, [], [], [], []
+        self.search_pages = []
         self.rebuilt = bytearray()
 
     def prepare_harness(self, harness):
@@ -87,13 +88,15 @@ class LocalProvider(APIProposer):
             assert len(self.scenario.child.rebuilt) == len(self.scenario.source)
             return turn()
         if self.calls == 1:
-            return turn('sdk_read', self.scenario.initial)
-        result = self._parent_result(request, 'sdk_read')
+            return turn('sdk_search', self.scenario.search_initial)
+        result = self._parent_result(request, 'SDK reference')
         # The captured HarnessInput and the actual serialized provider request
         # must carry the same original result; neither is reconstructed by us.
         harness_results = [m for m in self.harnesses[-1]['messages']
-                           if m['role'] == 'toolResult' and m['toolName'] == 'sdk_read']
+                           if m['role'] == 'toolResult' and m['toolName'] in ('sdk_read', 'sdk_search')]
         assert json.loads(harness_results[-1]['content'][0]['text']) == result
+        if harness_results[-1]['toolName'] == 'sdk_search':
+            return self.consume_search(result['outcome']['data'])
         return self.consume(result['outcome']['data'])
 
     def _parent_result(self, request, name):
@@ -113,16 +116,56 @@ class LocalProvider(APIProposer):
         assert context == self.contexts[-1]
         assert context['policy']['observation_bytes'] == 8192
         if self.calls == 1:
-            return turn('sdk_read', self.scenario.initial)
+            return turn('sdk_search', self.scenario.search_initial)
         observation = context['turns'][-1]['results'][-1]
-        assert observation['tool_name'] == 'sdk_read'
+        assert observation['tool_name'] in ('sdk_read', 'sdk_search')
         assert len(canonical(observation).encode()) <= 8192
         page = observation['data']
         original = self.scenario.store.snapshot()['actions'][observation['action_id']]['outcome']['data']
+        if observation['tool_name'] == 'sdk_search':
+            assert page['search_progress'] == original['search_progress']
+            if not self.search_pages:
+                assert page['next_offset'] < original['next_offset'], 'must exercise search report projection'
+            return self.consume_search(page)
         if not self.pages:
             assert len(decode(original)) > 8192
             assert page['next_offset'] < original['next_offset'], 'must exercise actual child projection'
         return self.consume(page)
+
+    def consume_search(self, page):
+        # Read control data from the actual provider wire, even when the JSON
+        # report is incomplete. A search cursor and a report byte offset are
+        # independent continuation operations.
+        progress = page['search_progress']
+        assert progress['mode'] == 'content'
+        assert not {'query', 'matches', 'text', 'files'} & progress.keys()
+        run = page['read']['arguments']['run']
+        raw = (self.scenario.base / 'sdk-tools/receipts' / run / 'search.json').read_bytes()
+        assert sha(raw) == page['sha256']
+        visible = decode(page)
+        assert page['next_offset'] == page['offset'] + len(visible)
+        assert visible == raw[page['offset']:page['next_offset']]
+        report = json.loads(raw)
+        for key in progress.keys() - {'match_count'}:
+            assert progress[key] == report[key]
+        assert progress['match_count'] == len(report['matches'])
+        if self.search_pages:
+            assert progress['scan_start'] == self.search_pages[-1]['search_progress']['scan_end']
+        else:
+            assert progress['scan_start'] == {'file': 0, 'offset': 0}
+            assert progress['match_count'] == 50
+            assert page['truncated'] and page['next_read']['tool'] == 'sdk_read'
+            assert page['next_read']['arguments']['offset'] == page['next_offset']
+            assert page['next_read']['arguments']['run'] == run
+            assert page['next_read']['arguments']['path'] == 'search.json'
+            assert '"next_cursor"' not in page['text'], 'cursor must require the separate visible metadata'
+            assert progress['complete'] is False and progress['next_cursor']
+        self.search_pages.append(page)
+        if progress['complete']:
+            assert progress['next_cursor'] is None
+            assert [item['search_progress']['match_count'] for item in self.search_pages] == [50, 1]
+            return turn('sdk_read', self.scenario.initial)
+        return turn('sdk_search', {**self.scenario.search_initial, 'cursor': progress['next_cursor']})
 
     def consume(self, page):
         assert 'json_preview' not in page and page['text']
@@ -169,7 +212,8 @@ class Scenario:
         self.header.parent.mkdir(parents=True)
         # A generic declaration, not an implementation. The 16384-byte request
         # ends inside a multibyte codepoint, so its real UTF-8 boundary is tested.
-        self.source = ('// ' + '资料😀' * 2400 + '\nint GenericSDKDeclaration();\n// ORIGINAL_SDK_TAIL\n').encode()
+        self.source = ('// ' + '资料😀' * 2400 + '\n'
+                       + 'int GenericSDKDeclaration();\n' * 51 + '// ORIGINAL_SDK_TAIL\n').encode()
         self.header.write_bytes(self.source)
         self.manifest = module('sdk_pi_snapshot', 'snapshot.py').export_snapshot(
             self.header.parent.parent, base / 'snapshot', name='generic-sdk', version='1.2', target='synthetic-no-device', include=['include'])
@@ -186,6 +230,7 @@ class Scenario:
         self.gateway = Gateway(self.store, [*builtin_tools(self.workspace, Skills(())), *tools, SubagentEffect()], self.task.scope)
         self.parent, self.child = LocalProvider(self, 'parent'), LocalProvider(self, 'child')
         self.initial = {'resource': 'vendor', 'path': 'include/reference.h', 'offset': 0, 'limit': 16384}
+        self.search_initial = {'resource': 'vendor', 'query': 'GenericSDKDeclaration', 'limit': 50}
         self.replay = NativeReplayFiles(self.store, base / 'state', self.workspace.root, self.task.id)
         self.session = ExecutionSession(self.gateway, {'primary': self.parent}, [],
             child_proposers={'primary': self.child}, cwd=self.workspace.root,
@@ -203,7 +248,10 @@ class Scenario:
             assert len(decode(reader.pages[0])) > 8192
         state = self.store.snapshot()
         reads = [row for row in state['actions'].values() if row['action']['tool'] == 'sdk_read']
+        searches = [row for row in state['actions'].values() if row['action']['tool'] == 'sdk_search']
         assert len(reads) == len(reader.pages)
+        assert len(searches) == len(reader.search_pages) == 2
+        assert all(row['terminal'] and row['outcome']['status'] == 'completed' for row in searches)
         assert all(row['terminal'] and row['outcome']['status'] == 'completed' for row in reads)
         self.replay._boundary()
         # All real provider calls have durable wire identity, including child.
@@ -224,6 +272,9 @@ class Scenario:
         action = Action.model_validate_json(canonical(reads[0]['action']))
         replayed = self.gateway.execute(action)
         assert replayed.model_dump(mode='json') == reads[0]['outcome']
+        for original_search in searches:
+            action = Action.model_validate_json(canonical(original_search['action']))
+            assert self.gateway.execute(action).model_dump(mode='json') == original_search['outcome']
         assert self.session.run(self.task)['status'] == 'finished'
         assert (self.parent.calls, self.child.calls) == counts
         assert len(self.store.snapshot()['actions']) == len(state['actions'])
@@ -239,6 +290,9 @@ class Scenario:
                   'visible_page_bytes': [len(decode(page)) for page in reader.pages],
                   'parent_model_calls': self.parent.calls, 'child_model_calls': self.child.calls,
                   'sdk_read_actions': len(reads), 'wire_requests_verified': len(recorded),
+                  'sdk_search_actions': len(searches), 'search_progress_verified_in_actual_wire': True,
+                  'search_report_truncated_with_visible_cursor': reader.search_pages[0]['truncated'],
+                  'search_cursor_continuation_match_counts': [p['search_progress']['match_count'] for p in reader.search_pages],
                   'gateway_replay_without_rescan': True, 'complete_session_replay_without_model_or_tool': True,
                   'utf8_exact_reassembly': True, 'child_observation_bytes': 8192,
                   'executor_module': str(sys.modules['kernelcat_executor'].__file__),

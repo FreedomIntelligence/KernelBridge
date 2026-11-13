@@ -616,8 +616,8 @@
       "sha256": "8b753b3f64fefda655c88dd4fb8605d86174a8ee69db59b093780df1ef766336"
     },
     "docs/architecture/harness-optimization-log.md": {
-      "bytes": 125734,
-      "sha256": "8876831c051fa3d0e428896de9a0c1d24339ad00f74073e5095ead925f349677"
+      "bytes": 129066,
+      "sha256": "df5832cc2c45d1954a802f4637a33a281d92ee77a7ec92d49b4adb1a21a13370"
     },
     "docs/architecture/harness-trial-results.md": {
       "bytes": 3775,
@@ -1264,16 +1264,16 @@
       "sha256": "47d32d30512c6e32d0c6e03e90b9bedb1c2b103a4ae46ee7f9a7bcf3f5343be6"
     },
     "examples/sdk_reference/README.md": {
-      "bytes": 7603,
-      "sha256": "b0de88bf548eb88f584555dd8ade7b697408e198645eda068185afc5bc3dcc27"
+      "bytes": 8937,
+      "sha256": "a927dd05aff26f6a372e9c37d413e0961034250fde699b6b4bd6463e8ffa44dc"
     },
     "examples/sdk_reference/driver.py": {
-      "bytes": 22640,
-      "sha256": "77280cf4da4de8730f5533ed5e1cd021318fc215540e7d456bebecc7f15bdcc9"
+      "bytes": 23634,
+      "sha256": "546cb0fb11cf26ef83d3944c7431f2f2437863db5124a23edd5537ded0c05f81"
     },
     "examples/sdk_reference/prepare.py": {
-      "bytes": 8069,
-      "sha256": "f3555b0547f94d2b0fef8baf84e42037029ae18dde6609a802be9cd99251f055"
+      "bytes": 8679,
+      "sha256": "0f328a14f7bae3f113a5e6f5c7a8b6207d20e43f53ca92641f7d72f04e59f5de"
     },
     "examples/sdk_reference/snapshot.py": {
       "bytes": 16430,
@@ -4564,8 +4564,8 @@
       "sha256": "bd97e3f6a936b9ae25ca1631304067bff13671367985c85823e77a0a4611c0e7"
     },
     "validation/tui/ACCEPTANCE.md": {
-      "bytes": 79419,
-      "sha256": "0ffb851a9b238a535fdf81c10ace06bd1de6347bdc277e5dc37673c3efda9dfe"
+      "bytes": 80779,
+      "sha256": "0cfbeec3c1342d35955101f03b4bf86e148cae50001124256eb214f9b2f59b97"
     },
     "validation/tui/README.md": {
       "bytes": 9510,

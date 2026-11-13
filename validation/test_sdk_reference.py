@@ -171,14 +171,53 @@ class SDKReferenceTests(unittest.TestCase):
             self.invoke(arguments={**arguments, 'offset': 1}, identity='same-action')
 
     def test_retained_search_page_recovers_after_corpus_is_unavailable(self):
-        original = self.invoke('sdk_search', {'resource': 'vendor', 'query': 'OriginalSDKDeclaration', 'limit': 2})
+        arguments = {'resource': 'vendor', 'query': 'OriginalSDKDeclaration', 'limit': 2}
+        original = self.invoke('sdk_search', arguments, identity='original-search')
         report = self.json_result(original)
         run = original['data']['run']
         self.changed_file()
         with patch.object(driver, 'load_resource', side_effect=AssertionError('recovery must not inspect corpus')):
-            recovered = self.json_result(self.invoke(arguments={'run': run, 'path': 'search.json'}))
+            self.assertEqual(self.invoke('sdk_search', arguments, identity='original-search'), original)
+            page = self.invoke(arguments={'run': run, 'path': 'search.json'})
+            self.assertEqual(page['data']['search_progress'], original['data']['search_progress'])
+            recovered = self.json_result(page)
         self.assertEqual(recovered, report)
         self.assertEqual(report['matches'][0]['sha256'], hashlib.sha256(self.source).hexdigest())
+
+    def test_legacy_search_receipt_replays_and_recovers_without_backfill(self):
+        arguments = {'resource': 'vendor', 'query': 'OriginalSDKDeclaration', 'limit': 2}
+        original = self.invoke('sdk_search', arguments, identity='legacy-search')
+        run = original['data']['run']
+        page = self.invoke(arguments={'run': run, 'path': 'search.json'})
+        page['data'].pop('search_progress')
+        folder = Path(self.config['state']) / run
+        # A legacy receipt has the same report, but no progress in result.json.
+        # Rebind that test artifact so it is valid, rather than simulating drift.
+        legacy = json.loads((folder / 'result.json').read_bytes())
+        legacy.pop('search_progress')
+        raw = driver.canonical(legacy)
+        (folder / 'result.json').write_bytes(raw)
+        manifest = json.loads((folder / 'manifest.json').read_bytes())
+        manifest['files']['result.json'] = {'bytes': len(raw), 'sha256': driver.sha(raw)}
+        manifest_raw = driver.canonical(manifest)
+        (folder / 'manifest.json').write_bytes(manifest_raw)
+        before = {p.name: p.read_bytes() for p in folder.iterdir()}
+        expected = {'status': 'completed', 'data': {**legacy, 'artifacts': manifest['files'],
+                                                  'receipt_sha256': driver.sha(manifest_raw)}}
+        self.changed_file()
+        with patch.object(driver, 'load_resource', side_effect=AssertionError('legacy replay must not rescan')):
+            self.assertEqual(self.invoke('sdk_search', arguments, identity='legacy-search'), expected)
+            self.assertEqual(self.invoke(arguments={'run': run, 'path': 'search.json'}), page)
+        self.assertEqual({p.name: p.read_bytes() for p in folder.iterdir()}, before)
+
+    def test_search_progress_recovery_rejects_tampered_saved_result(self):
+        outcome = self.invoke('sdk_search', {'resource': 'vendor', 'query': 'OriginalSDKDeclaration', 'limit': 2})
+        folder = Path(self.config['state']) / outcome['data']['run']
+        original_report = (folder / 'search.json').read_bytes()
+        (folder / 'result.json').write_bytes(b'{}')
+        with self.assertRaisesRegex(driver.Rejected, 'receipt_artifact_changed'):
+            self.invoke(arguments={'run': folder.name, 'path': 'search.json'})
+        self.assertEqual((folder / 'search.json').read_bytes(), original_report)
 
     def test_retained_receipt_artifact_tampering_is_rejected(self):
         result = self.invoke(arguments={'resource': 'vendor', 'path': 'include/api.h', 'limit': 100})
@@ -233,7 +272,7 @@ class SDKReferenceTests(unittest.TestCase):
         with self.assertRaisesRegex(driver.Rejected, 'different_query_cursor'):
             driver.search(self.config, {**arguments, 'query': 'different'}, self.base / 'unused')
 
-    def test_5000_path_entries_locate_one_late_header_in_one_call(self):
+    def test_large_corpus_path_lookup_and_bounded_content_navigation(self):
         source = self.base / 'many-sdk'
         (source / 'include').mkdir(parents=True)
         for i in range(5000):
@@ -253,6 +292,145 @@ class SDKReferenceTests(unittest.TestCase):
         self.assertEqual(read.call_count, 1)
         self.assertEqual(report['matches'][0]['path'], 'include/header-4999.h')
         self.assertEqual(len(prepared['business_tools']), 2)
+        self.config = config
+        # A content query can now reach a symbol after the old 128-file boundary
+        # in its first call, while the finite 4096-file bound still applies.
+        middle = self.invoke('sdk_search', {'resource': 'many', 'query': 'declaration_200();'})
+        middle_report = self.json_result(middle)
+        self.assertEqual([m['path'] for m in middle_report['matches']], ['include/header-0200.h'])
+        self.assertEqual(middle['data']['search_progress']['content_scanned_files'], 4096)
+        self.assertFalse(middle['data']['search_progress']['complete'])
+
+        arguments = {'resource': 'many', 'query': 'declaration_4999();'}
+        first = self.invoke('sdk_search', arguments)
+        progress = first['data']['search_progress']
+        self.assertEqual(progress['content_scanned_files'], 4096)
+        self.assertEqual(progress['match_count'], 0)
+        self.assertFalse(progress['complete'], 'a partial zero-hit scan is not exhaustive')
+        self.assertEqual(progress['scan_start'], {'file': 0, 'offset': 0})
+        self.assertEqual(progress['scan_end'], {'file': 4096, 'offset': 0})
+        self.assertLess(progress['verified_bytes'], 16 * 1024 * 1024)
+        second = self.invoke('sdk_search', {**arguments, 'cursor': progress['next_cursor']})
+        following = second['data']['search_progress']
+        self.assertEqual(following['scan_start'], progress['scan_end'])
+        self.assertEqual(following['content_scanned_files'], 904)
+        self.assertEqual(following['scan_end'], {'file': 5000, 'offset': 0})
+        self.assertTrue(following['complete'])
+        self.assertIsNone(following['next_cursor'])
+        self.assertEqual([m['path'] for m in self.json_result(second)['matches']], ['include/header-4999.h'])
+
+    def test_byte_scan_bound_precedes_file_bound_and_continues_without_skipping(self):
+        source = self.base / 'byte-sdk'
+        (source / 'include').mkdir(parents=True)
+        size = 4 * 1024 * 1024
+        for index in range(5):
+            prefix = b'int ByteBudgetDeclaration();\n' if index == 4 else b'// Generic SDK fixture\n'
+            (source / 'include' / ('header-%d.h' % index)).write_bytes(prefix + b' ' * (size - len(prefix)))
+        snapshot.export_snapshot(source, self.base / 'byte-snapshot', name='bytes', version='1',
+                                 target='fixture', include=['include'])
+        prepare({'resources': [{'id': 'bytes', 'manifest': str(self.base / 'byte-snapshot/manifest.json')}]},
+                self.base / 'byte-tools', sys.executable)
+        self.config = json.loads((self.base / 'byte-tools/config.json').read_text())
+        arguments = {'resource': 'bytes', 'query': 'ByteBudgetDeclaration'}
+        first = self.invoke('sdk_search', arguments)
+        progress = first['data']['search_progress']
+        self.assertEqual(progress['content_scanned_files'], 4)
+        self.assertEqual(progress['verified_bytes'], 16 * 1024 * 1024)
+        self.assertEqual(progress['match_count'], 0)
+        self.assertFalse(progress['complete'])
+        self.assertEqual(progress['scan_end'], {'file': 4, 'offset': 0})
+        second = self.invoke('sdk_search', {**arguments, 'cursor': progress['next_cursor']})
+        following = second['data']['search_progress']
+        self.assertEqual(following['scan_start'], progress['scan_end'])
+        self.assertEqual(following['content_scanned_files'], 1)
+        self.assertEqual(following['verified_bytes'], size)
+        self.assertTrue(following['complete'])
+        self.assertIsNone(following['next_cursor'])
+        self.assertEqual([m['path'] for m in self.json_result(second)['matches']], ['include/header-4.h'])
+
+    def test_empty_path_scope_and_complete_body_no_match_remain_distinct(self):
+        missing = self.invoke('sdk_search', {'resource': 'vendor', 'query': 'AbsentSymbol',
+                                            'path_glob': 'missing/*.h'})['data']['search_progress']
+        absent = self.invoke('sdk_search', {'resource': 'vendor', 'query': 'AbsentSymbol'})['data']['search_progress']
+        for progress in (missing, absent):
+            self.assertTrue(progress['complete'])
+            self.assertIsNone(progress['next_cursor'])
+            self.assertEqual(progress['match_count'], 0)
+            self.assertEqual(progress['scan_start'], {'file': 0, 'offset': 0})
+        self.assertEqual(missing['content_scanned_files'], 0)
+        self.assertEqual(missing['contents_verified'], 0)
+        self.assertEqual(missing['path_filtered'], 1)
+        self.assertEqual(absent['content_scanned_files'], 1)
+        self.assertEqual(absent['contents_verified'], 1)
+        self.assertEqual(absent['path_filtered'], 0)
+
+    def test_real_gateway_search_progress_and_both_cursors_survive_8192_projection(self):
+        self.install_raw_fixture(b'// Generic SDK reference\nint GenericSdkSymbol();\n' * 51)
+        gateway, store, task = self.gateway()
+
+        def projected_page(outcome):
+            self.assertEqual(outcome.status, 'completed', outcome)
+            observation = project(task, store.policy(), store.snapshot(), [])['history'][-1]
+            envelope = {key: observation[key] for key in ('outcome', 'receipt')}
+            self.assertLessEqual(len(canonical(envelope).encode()), 8192)
+            value = observation['outcome']['data']
+            self.assertNotIn('json_preview', value)
+            self.assertEqual(value['search_progress'], outcome.data['search_progress'])
+            return value
+
+        def report_from_visible_pages(outcome, prefix):
+            progress = outcome.data['search_progress']
+            source_hash = outcome.data['sha256']
+            raw = b''
+            for index in range(30):
+                value = projected_page(outcome)
+                self.assertEqual(value['offset'], len(raw))
+                self.assertEqual(value['search_progress'], progress)
+                raw += decoded(value)
+                self.assertEqual(value['next_offset'], len(raw))
+                if value['eof']:
+                    self.assertEqual(hashlib.sha256(raw).hexdigest(), source_hash)
+                    return json.loads(raw)
+                continuation = value['next_read']
+                self.assertEqual(continuation['tool'], 'sdk_read')
+                self.assertEqual(continuation['arguments']['offset'], len(raw))
+                outcome = gateway.execute(Action(id=prefix + '-page-' + str(index), task=task.id,
+                                                 tool='sdk_read', arguments=continuation['arguments']))
+            self.fail('projected search report did not reach EOF')
+
+        arguments = {'resource': 'vendor', 'query': 'GenericSdkSymbol', 'limit': 50}
+        action = Action(id='large-search', task=task.id, tool='sdk_search', arguments=arguments)
+        first = gateway.execute(action)
+        visible = projected_page(first)
+        progress = first.data['search_progress']
+        self.assertGreater(first.data['size_bytes'], 8192)
+        self.assertLess(visible['next_offset'], first.data['next_offset'])
+        self.assertNotIn(progress['next_cursor'], visible['text'])
+        self.assertTrue(visible['next_read'])
+        self.assertEqual(progress['match_count'], 50)
+        self.assertFalse(progress['complete'])
+        self.assertNotIn('matches', progress)
+        self.assertNotIn('query', progress)
+        first_report = report_from_visible_pages(first, 'first')
+        self.assertEqual(first_report['next_cursor'], progress['next_cursor'])
+
+        second = gateway.execute(Action(id='continued-search', task=task.id, tool='sdk_search',
+            arguments={**arguments, 'cursor': progress['next_cursor']}))
+        second_progress = second.data['search_progress']
+        self.assertEqual(second_progress['scan_start'], progress['scan_end'])
+        self.assertEqual(second_progress['match_count'], 1)
+        self.assertTrue(second_progress['complete'])
+        self.assertIsNone(second_progress['next_cursor'])
+        second_report = report_from_visible_pages(second, 'second')
+        positions = [m['offset'] for m in first_report['matches'] + second_report['matches']]
+        self.assertEqual(positions, [m.start() for m in re.finditer(b'GenericSdkSymbol', self.source)])
+
+        corpus = Path(self.config['resources'][0]['root']) / 'files/include/api.h'
+        corpus.chmod(0o600)
+        corpus.write_bytes(b'changed source after original report\n')
+        before = len(store.snapshot()['actions'])
+        self.assertEqual(gateway.execute(action), first)
+        self.assertEqual(len(store.snapshot()['actions']), before)
 
     def test_real_gateway_replay_preserves_original_and_new_calls_reject_changed_corpus(self):
         gateway, store, task = self.gateway()

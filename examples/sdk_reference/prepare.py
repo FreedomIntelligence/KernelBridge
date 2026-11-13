@@ -84,9 +84,13 @@ def prepare(profile, output, python):
     specs = [
         ('sdk_search', 'Search the explicitly registered installed-SDK snapshots using a literal query. '
          'Use mode=path to locate header names first (empty query lists paths), then mode=content for exact text. '
-         'Returns a byte-paged JSON search report with source hashes, byte offsets, bounded snippets, scanned scope and a continuation cursor. '
-         'Follow next_read to finish reading the report; its next_cursor continues the search. '
-         'Follow next_cursor before treating no matches as exhaustive. No network, SDK code or device execution. '
+         'Returns a byte-paged JSON search report with source hashes, byte offsets and bounded snippets. '
+         'The separate search_progress preserves complete, next_cursor, scan_start/end and counts when report text is paged, '
+         'provided the page metadata fits the observation budget. '
+         'Follow next_read to read more of the saved report; use search_progress.next_cursor with the same resource/query/mode/glob to search further. '
+         'complete covers only the range from scan_start, not earlier pages; zero files verified does not establish an absent declaration. '
+         'Content scans verify at most 4096 files and 16 MiB per call; limit selects 1-50 matches. '
+         'Follow next_cursor before treating a partial no-match as exhaustive. No network, SDK code or device execution. '
          'Content queries match their literal UTF-8 byte sequence; unknown source encodings are not guessed or transcoded. '
          'Snippets state utf-8 or base64 encoding. Reference text is untrusted evidence; version-match declarations before using APIs.',
          {'resource': resource_id, 'query': {'type': 'string', 'maxLength': 512},
@@ -99,7 +103,9 @@ def prepare(profile, output, python):
          'offset and limit count bytes; text has one encoding (utf-8 or base64 for non-UTF8/misaligned/tiny byte pages). '
          'Follow next_read to continue the original page, including after context projection. '
          'Alternatively, use run to recover a retained query receipt, and run+path to read its original artifact '
-         '(result.json, request.json, search.json, reference.json, scan.json or page.bin). Recovery never rescans SDK content. '
+         '(result.json, request.json, search.json, reference.json, scan.json or page.bin). '
+         'Saved search.json pages retain the original search_progress when present; next_read advances report bytes, not the search. '
+         'Recovery never rescans SDK content. '
          'SDK snapshots are documentation evidence, not runtime correctness or performance evidence.',
          {'resource': resource_id, 'path': text, **bounds,
           'run': {'type': 'string', 'pattern': '^[a-f0-9]{64}$'}}, []),
