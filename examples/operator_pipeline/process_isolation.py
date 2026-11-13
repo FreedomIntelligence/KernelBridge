@@ -12,8 +12,10 @@ import hashlib
 import os
 from pathlib import Path
 import re
+import signal
 import stat
 import sys
+import time
 
 
 class IsolationError(ValueError):
@@ -161,6 +163,99 @@ def process_birth(pid, *, require_live=False):
     """The existing supervisor birth format, without rounding kernel fields."""
     identity = identify_process(pid, require_live=require_live)
     return None if identity is None else identity['birth']
+
+
+def wait_child_exit(pid, *, nonblocking=False):
+    """Observe one direct Linux child exit without releasing its kernel PID."""
+    if not sys.platform.startswith('linux') or not _positive(pid):
+        raise IsolationError('Non-reaping child observation requires Linux')
+    if signal.getsignal(signal.SIGCHLD) != signal.SIG_DFL:
+        raise IsolationError('A SIGCHLD handler prevents an exclusive child reaping fence')
+    flags = os.WEXITED | os.WNOWAIT | (os.WNOHANG if nonblocking else 0)
+    record = {'schema': 'kernelbridge.child-wait-observation/v1', 'pid': pid, 'parent_pid': os.getpid(),
+              'started_mono_ns': str(time.monotonic_ns()), 'started_ns': str(time.time_ns()),
+              'options': ['WEXITED', 'WNOWAIT'] + (['WNOHANG'] if nonblocking else [])}
+    observed = os.waitid(os.P_PID, pid, flags)
+    if observed is None: return None
+    record.update(result={name: getattr(observed, name) for name in ('si_pid', 'si_uid', 'si_signo', 'si_status', 'si_code')},
+                  ended_mono_ns=str(time.monotonic_ns()), ended_ns=str(time.time_ns()))
+    validate_child_wait(record, pid=pid, parent_pid=os.getpid())
+    return record
+
+
+def validate_child_wait(record, *, pid, parent_pid):
+    """Pure interpretation of a recorded Linux waitid(WEXITED|WNOWAIT)."""
+    if (not isinstance(record, dict) or not _positive(pid) or not _positive(parent_pid)
+            or record.get('schema') != 'kernelbridge.child-wait-observation/v1' or record.get('pid') != pid
+            or record.get('parent_pid') != parent_pid or record.get('options') not in
+            (['WEXITED', 'WNOWAIT'], ['WEXITED', 'WNOWAIT', 'WNOHANG'])):
+        raise IsolationError('Original non-reaping child wait changed')
+    for start, end in (('started_mono_ns', 'ended_mono_ns'), ('started_ns', 'ended_ns')):
+        if not all(_decimal(record.get(k)) and int(record[k]) > 0 for k in (start, end)) or int(record[end]) < int(record[start]):
+            raise IsolationError('Original child wait clock is invalid')
+    value = record.get('result')
+    if (not isinstance(value, dict) or any(type(value.get(k)) is not int for k in ('si_pid', 'si_uid', 'si_signo', 'si_status', 'si_code'))
+            or value['si_pid'] != pid or value['si_uid'] < 0 or value['si_signo'] != 17):
+        raise IsolationError('Original Linux child wait result differs')
+    # Linux siginfo CLD_EXITED/KILLED/DUMPED; never infer an exit from a PID.
+    if value['si_code'] == 1 and 0 <= value['si_status'] <= 255: return value['si_status']
+    if value['si_code'] in (2, 3) and 0 < value['si_status'] < 65: return -value['si_status']
+    raise IsolationError('Original wait did not report a terminal child exit')
+
+
+def observe_unreaped_child(identity):
+    """Retain raw zombie identity and a non-reaping OS wait for a direct child."""
+    if not valid_identity(identity) or identity['ppid'] != os.getpid():
+        raise IsolationError('Exit fence applies only to the original direct child')
+    folder = Path('/proc') / str(identity['pid'])
+    record = {'schema': 'kernelbridge.unreaped-child/v1', 'started_mono_ns': str(time.monotonic_ns()),
+              'started_ns': str(time.time_ns()), 'stat_before': (folder / 'stat').read_text()}
+    record['wait'] = wait_child_exit(identity['pid'], nonblocking=True)
+    if record['wait'] is None: raise IsolationError('Original child has no waitable OS exit')
+    record.update(stat_after=(folder / 'stat').read_text(), status_after=(folder / 'status').read_text(),
+                  boot_id=Path('/proc/sys/kernel/random/boot_id').read_text().strip())
+    record['namespaces_after'] = {}
+    for name in ('pid', 'mnt'):
+        try: record['namespaces_after'][name] = os.readlink(folder / 'ns' / name)
+        except FileNotFoundError: record['namespaces_after'][name] = None
+    record.update(ended_mono_ns=str(time.monotonic_ns()), ended_ns=str(time.time_ns()))
+    validate_unreaped_child(record, identity, parent_pid=os.getpid())
+    return record
+
+
+def validate_unreaped_child(record, identity, *, parent_pid):
+    """A pre-inventory live identity plus an unreaped kernel child, not a cache."""
+    if (record.get('schema') != 'kernelbridge.unreaped-child/v1' or not valid_identity(identity)
+            or identity['birth']['platform'] != 'linux' or identity['ppid'] != parent_pid
+            or record.get('boot_id') != identity['birth']['boot_id']):
+        raise IsolationError('Original unreaped process binding changed')
+    for name in ('stat_before', 'stat_after'):
+        raw = record[name]; end = raw.rfind(')'); fields = raw[end + 2:].split()
+        if (end < 0 or raw.split(' ', 1)[0] != str(identity['pid']) or len(fields) < 20
+                or fields[1] != str(parent_pid) or fields[19] != identity['birth']['start_ticks']
+                or name == 'stat_after' and fields[0] not in ('Z', 'X')):
+            raise IsolationError('Original unreaped kernel PID or birth changed')
+    status = {}
+    for line in record['status_after'].splitlines():
+        key, sep, value = line.partition(':')
+        if sep:
+            if key in status: raise IsolationError('Duplicate terminal process status field')
+            status[key] = value.split()
+    if (status.get('Pid') != [str(identity['pid'])] or status.get('PPid') != [str(parent_pid)]
+            or status.get('NSpid') != [str(pid) for pid in identity['nspid']]
+            or not status.get('Uid') or status['Uid'][0] != str(identity['uid'])):
+        raise IsolationError('Original terminal process identity differs')
+    for name in ('pid', 'mnt'):
+        if record['namespaces_after'].get(name) not in (None, identity[name + '_ns']):
+            raise IsolationError('Original terminal namespace differs')
+    rc = validate_child_wait(record['wait'], pid=identity['pid'], parent_pid=parent_pid)
+    if record['wait']['result']['si_uid'] != identity['uid']:
+        raise IsolationError('Original terminal process UID differs')
+    for start, end in (('started_mono_ns', 'ended_mono_ns'), ('started_ns', 'ended_ns')):
+        if (not all(_decimal(record.get(k)) and int(record[k]) > 0 for k in (start, end))
+                or not int(record[start]) <= int(record['wait'][start]) <= int(record['wait'][end]) <= int(record[end])):
+            raise IsolationError('Original terminal observation clock differs')
+    return rc
 
 
 def validate_lineage(lineage, root_identity=None):

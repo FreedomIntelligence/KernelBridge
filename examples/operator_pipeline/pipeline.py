@@ -20,12 +20,20 @@ from diagnostic_policy import diagnostic_reason, verify_record
 from qualification import aggregate, qualify, read_calibration_artifacts
 from isolation import requirement as isolation_requirement, verify as verify_isolation, module as isolation_module, read as isolation_read, ARTIFACTS as ISOLATION_ARTIFACTS
 from job_identity import same_handle, wire_handles
-from preflight import PROTOCOL as PREFLIGHT_PROTOCOL, validate_rejection
+from preflight import PROTOCOL as PREFLIGHT_PROTOCOL, validate_rejection, contract_differences
 from observation import PROTOCOL as OBSERVATION_PROTOCOL, envelope as observation_envelope, read_documents, launch_validator
 
 
 NATIVE_ADMISSION_PROTOCOL = 'kernelbridge.native-admission/v1'
 NATIVE_ADMISSION_FILES = {'admission/admission.json', 'admission/isolation-samples.jsonl', 'admission/execution-request.json'}
+DECLARED_CONTRACT_SCHEMA = 'kernelbridge.declared-pipeline-contract/v1'
+
+
+class ContractBindingRejected(ValueError):
+    """A local contract comparison failed before workflow state was changed."""
+    def __init__(self, feedback):
+        super().__init__(feedback['message'])
+        self.feedback = feedback
 
 
 class NativeAdmissionRejected(Exception):
@@ -78,6 +86,54 @@ def sha(path):
 def save(path, value):
     with Path(path).open('xb') as stream:
         stream.write(encoded(value) + b'\n'); stream.flush(); os.fsync(stream.fileno())
+
+
+def contract_shape(contract):
+    if not isinstance(contract, dict) or not all(contract.get(key) for key in ('task', 'oracle', 'measurement', 'suite')):
+        raise ValueError('task, oracle, measurement and suite are required')
+    if not isinstance(contract['measurement'], dict):
+        raise ValueError('/measurement must be an object')
+    suite = contract['suite']
+    if (not isinstance(suite, list) or not suite
+            or any(not isinstance(case, dict) or not case.get('id') for case in suite)
+            or len({case['id'] for case in suite}) != len(suite)):
+        raise ValueError('Suite needs unique nonempty case IDs')
+    oracle = contract['oracle']
+    if (not isinstance(oracle, dict) or oracle.get('kind') not in {'reference', 'independent', 'properties', 'official'}
+            or not oracle.get('description')):
+        raise ValueError('An independent correctness oracle is required, even without Torch or a baseline')
+    files = oracle.get('files')
+    if not isinstance(files, dict) or not files or len(files) > 128:
+        raise ValueError('Pin the oracle/checker source files with a nonempty file mapping')
+    for name, value in files.items():
+        if (not isinstance(name, str) or not name or Path(name).is_absolute() or '..' in Path(name).parts
+                or name == '.' or not isinstance(value, str) or not value):
+            raise ValueError('Oracle files must map safe relative filenames to existing source paths')
+    # Reject nonfinite or non-JSON values before retaining any workflow state.
+    encoded(contract)
+
+
+def normalized_contract_files(contract, file_hashes):
+    value = copy.deepcopy(contract)
+    if file_hashes is not None:
+        value['oracle']['files'] = dict(file_hashes)
+    return value
+
+
+def pin_declared_contract(contract, read_roots):
+    """Freeze optional task metadata and checker identities during preparation."""
+    contract_shape(contract)
+    bound = copy.deepcopy(contract)
+    hashes = {}
+    for name, value in contract['oracle']['files'].items():
+        path = Path(value).resolve(strict=True)
+        if (not any(path.is_relative_to(Path(root)) for root in read_roots)
+                or not path.is_file() or path.stat().st_size > 32 * 1024 * 1024):
+            raise ValueError('Declared oracle must be a bounded file within configured read roots: ' + name)
+        bound['oracle']['files'][name] = str(path)
+        hashes[name] = sha(path)
+    return {'schema_version': DECLARED_CONTRACT_SCHEMA, 'contract': bound,
+            'contract_sha256': digest(bound), 'oracle_files_sha256': hashes}
 
 
 def diagnostic_policy(config):
@@ -150,6 +206,46 @@ class Pipeline:
             path = Path(source['root']) / name
             if path.resolve() != path or not path.is_file() or sha(path) != expected:
                 raise ValueError('Frozen source changed: ' + name)
+
+    def declared_contract(self):
+        if 'declared_contract' not in self.config:
+            return None
+        binding = self.config['declared_contract']
+        if (not isinstance(binding, dict)
+                or set(binding) != {'schema_version', 'contract', 'contract_sha256', 'oracle_files_sha256'}
+                or binding['schema_version'] != DECLARED_CONTRACT_SCHEMA
+                or binding['contract_sha256'] != digest(binding['contract'])):
+            raise ValueError('Frozen declared contract metadata changed')
+        contract_shape(binding['contract'])
+        files = binding['contract']['oracle']['files']
+        if (not isinstance(binding['oracle_files_sha256'], dict)
+                or set(binding['oracle_files_sha256']) != set(files)):
+            raise ValueError('Frozen declared oracle file set changed')
+        for name, path in files.items():
+            if sha(self.path(path)) != binding['oracle_files_sha256'][name]:
+                raise ValueError('Frozen declared oracle source changed: ' + name)
+        return copy.deepcopy(binding)
+
+    def compare_declared_contract(self, declared, contract, file_hashes, output):
+        expected = normalized_contract_files(declared['contract'], declared['oracle_files_sha256'])
+        actual = normalized_contract_files(contract, file_hashes)
+        differences = contract_differences(expected, actual)
+        if not differences:
+            return
+        artifacts = {}
+        for name, value in (('bind-expected-contract.json', expected), ('bind-actual-contract.json', actual),
+                            ('bind-differences.json', differences)):
+            save(output / name, value)
+            artifacts[name] = {'sha256': sha(output / name), 'bytes': (output / name).stat().st_size}
+        preview = [{'path': row['path'][:256], 'kind': row['kind']} for row in differences[:8]]
+        message = 'Declared contract differs at bind: ' + ', '.join(
+            (row['path'] or '<root>') + ' (' + row['kind'] + ')' for row in preview)
+        raise ContractBindingRejected({'message': message[:2048], 'differences': preview,
+            'difference_count': len(differences), 'truncated': len(preview) != len(differences) or len(message) > 2048
+                or any(len(row['path']) > 256 for row in differences[:8]),
+            'declared_contract_sha256': declared['contract_sha256'], 'expected_contract_sha256': digest(expected),
+            'actual_contract_sha256': digest(actual), 'artifacts': artifacts,
+            'next_action': {'tool': 'pipeline_bind', 'arguments': {'selection': 'declared'}}})
 
     def current(self):
         s = self.state
@@ -958,6 +1054,9 @@ class Pipeline:
             return step(stage, 'pipeline_run', dict(stage=stage, driver=names[0], **arguments), reason,
                         alternatives=names)
         next_actions = []
+        declared_binding = 'declared_contract' in self.config
+        bind_arguments = {'selection': 'declared'} if declared_binding else {}
+        bind_required = [] if declared_binding else ['contract']
         pending = self.pending_launches()
         last = s.get('last_attempt', {})
         refusal = self.committed_launch_rejection(last.get('original_launch_run', last['run'])) if last.get('dispatch_outcome') == 'not_started' else None
@@ -979,14 +1078,18 @@ class Pipeline:
                 and (refusal['error']['code'] != 'candidate_format'
                      or refusal['binding']['source'] == (s.get('candidate') or {}).get('sha256'))):
             source_error = refusal['error']['code'] == 'candidate_format'
-            next_actions = [step('D' if source_error else 'A', 'pipeline_freeze' if source_error else 'pipeline_bind', {},
+            next_actions = [step('D' if source_error else 'A', 'pipeline_freeze' if source_error else 'pipeline_bind',
+                {} if source_error else bind_arguments,
                 ('Launch was rejected before any remote job started. Correct the candidate source format using the retained validation evidence, then freeze the changed source; the task contract remains bound.'
-                 if source_error else 'Launch was rejected before any remote job started. Bind the complete declared contract.json exactly; use the exposed baseline/settings tools separately. Do not trim or guess contract fields.'),
-                required_arguments=['files', 'origin'] if source_error else ['contract'], failure_phase='preflight', dispatch_outcome='not_started',
+                 if source_error else 'Launch was rejected before any remote job started. Select the complete frozen declared contract; use baseline/settings tools separately.'
+                 if declared_binding else 'Launch was rejected before any remote job started. Bind the complete declared contract.json exactly; use the exposed baseline/settings tools separately. Do not trim or guess contract fields.'),
+                required_arguments=['files', 'origin'] if source_error else bind_required, failure_phase='preflight', dispatch_outcome='not_started',
                 error=refusal['error'], evidence=refusal['artifacts'])]
         elif not s['contract']:
-            next_actions = [step('A', 'pipeline_bind', {}, 'Bind the task, pinned independent oracle, complete suite and measurement contract.',
-                                 required_arguments=['contract'])]
+            next_actions = [step('A', 'pipeline_bind', bind_arguments,
+                                 'Select the complete frozen declared task, oracle, suite and measurement contract.' if declared_binding
+                                 else 'Bind the task, pinned independent oracle, complete suite and measurement contract.',
+                                 required_arguments=bind_required)]
         elif not s.get('B') or (s.get('archive') and s['stage'] == 'I'
                 and s['archive']['binding']['source'] == (s['candidate'] or {}).get('sha256')):
             next_actions = [step('B', 'pipeline_plan', {'stage': 'B'}, 'Record workload families and per-case gaps; use archived successes/failures in the next iteration.',
@@ -1071,22 +1174,50 @@ class Pipeline:
                         pending_launches=self.pending_launches(),
                         transitions='A→B→C→D→E→F→G→H→I→B; F/G→J→C', device_acceptance='only as declared by original driver receipts')
         if tool == 'pipeline_bind':
-            contract = args['contract']
-            if not all(contract.get(k) for k in ['task', 'oracle', 'measurement', 'suite']):
-                raise ValueError('task, oracle, measurement and suite are required')
-            suite = contract['suite']
-            if not isinstance(suite, list) or not suite or any(not isinstance(case, dict) or not case.get('id') for case in suite) or len({case['id'] for case in suite}) != len(suite):
-                raise ValueError('Suite needs unique nonempty case IDs')
-            oracle = contract['oracle']
-            if oracle.get('kind') not in {'reference', 'independent', 'properties', 'official'} or not oracle.get('description'):
-                raise ValueError('An independent correctness oracle is required, even without Torch or a baseline')
-            if not oracle.get('files'): raise ValueError('Pin the oracle/checker source files')
-            frozen_oracle = self.freeze(oracle['files'], output / 'oracle')
-            contract = dict(contract, oracle=dict(oracle, files=frozen_oracle))
+            declared = self.declared_contract()
+            if set(args) == {'selection'} and args['selection'] == 'declared':
+                if declared is None:
+                    raise ValueError('This profile has no declared contract; provide contract explicitly')
+                contract = copy.deepcopy(declared['contract'])
+                selection = 'declared'
+            elif set(args) == {'contract'}:
+                contract = copy.deepcopy(args['contract'])
+                selection = 'explicit'
+            else:
+                raise ValueError('Choose exactly one: selection="declared" or an explicit contract')
+            if declared is not None:
+                oracle = contract.get('oracle') if isinstance(contract, dict) else None
+                files = oracle.get('files') if isinstance(oracle, dict) else None
+                actual_hashes = None
+                if (isinstance(files, dict) and len(files) <= 128
+                        and all(isinstance(name, str) and isinstance(path, str) and path for name, path in files.items())):
+                    actual_hashes = {name: sha(self.path(path)) for name, path in files.items()}
+                self.compare_declared_contract(declared, contract, actual_hashes, output)
+            contract_shape(contract)
+            # Existing isolation-only profiles also reject missing/different
+            # metadata at A, before freezing or invalidating prior acceptance.
+            try:
+                isolation_requirement(contract['measurement'], self.config.get('device_isolation'))
+            except ValueError as error:
+                raise ValueError('/measurement/device_isolation: ' + str(error)) from error
+            frozen_oracle = self.freeze(contract['oracle']['files'], output / 'oracle')
+            if declared is not None:
+                # Recheck the actual captured bytes, closing a source-change
+                # window between the read-only comparison and oracle freeze.
+                self.compare_declared_contract(declared, contract, frozen_oracle['files'], output)
+            contract = dict(contract, oracle=dict(contract['oracle'], files=frozen_oracle))
             s.update(contract=contract, baseline=None, candidate=None, check=None, pair=None, incumbent=None,
                      revision=s['revision'] + 1, stage='A')
             for key in ('B', 'C', 'diagnostics', 'archive', 'calibration', 'last_attempt'): s.pop(key, None)
-            return {'contract_sha256': digest(contract), 'baseline': None, 'oracle': frozen_oracle['sha256']}
+            return {'contract_sha256': digest(contract), 'baseline': None, 'oracle': frozen_oracle['sha256'],
+                    'selection': selection,
+                    'contract_sha256_scope': 'bound_contract_with_frozen_oracle_manifest',
+                    'verified_against_declared': declared is not None,
+                    **({'declared_contract_sha256': declared['contract_sha256'],
+                        'declared_contract_sha256_scope': 'declared_contract_with_original_oracle_paths',
+                        'binding_note': 'Every declared field and oracle source byte has been verified. '
+                            'The bound hash includes the frozen oracle manifest, so it can differ from the declared hash; '
+                            'this is expected and does not require rebinding.'} if declared is not None else {})}
         if not s['contract']: raise ValueError('Call pipeline_bind first')
         if tool == 'pipeline_plan':
             if not args['record']: raise ValueError('Retain workload evidence or a falsifiable hypothesis')
@@ -1282,6 +1413,11 @@ class Pipeline:
         previous = copy.deepcopy(self.state)
         try:
             result = self.execute(action['tool'], action['arguments'], output); status = 'completed'
+        except ContractBindingRejected as error:
+            self.state = previous
+            result = {'error': str(error), 'failure_phase': 'bind', 'dispatch_outcome': 'not_started',
+                      'binding_rejection': error.feedback}
+            status = 'failed'
         except NativeAdmissionRejected as error:
             self.state = previous
             self.state.setdefault('launch_rejections', []).append(error.record)
@@ -1349,7 +1485,7 @@ class Pipeline:
                         'read': {'tool': 'pipeline_read', 'arguments': {'run': identity, 'path': 'manifest.json'}}}
         selected = sorted(refs, key=lambda name: (name != 'result.json', name != 'driver/receipt.json', name))[:16]
         summary = {key: result[key] for key in ('error', 'evaluation_outcome', 'launch_outcome', 'recover_run', 'original_handle', 'observation_only', 'pending_observation',
-                    'failure_phase', 'dispatch_outcome', 'preflight_rejection', 'native_admission_rejection', 'original_launch_run') if key in result}
+                    'failure_phase', 'dispatch_outcome', 'preflight_rejection', 'native_admission_rejection', 'binding_rejection', 'original_launch_run') if key in result}
         if isinstance(summary.get('error'), str): summary['error'] = summary['error'][:2048]
         if isinstance(result.get('result'), dict) and isinstance(result['result'].get('evaluation'), dict):
             summary['evaluation'] = result['result']['evaluation']

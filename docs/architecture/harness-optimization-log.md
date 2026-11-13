@@ -1500,3 +1500,117 @@ suite or TUI invocation is claimed for this follow-up. Original probe 02 remains
 rejected; a new probe 03 is planned, not reported as run. No model call,
 operator candidate, eager baseline, case suite or measurement changed during
 this repair and verification.
+
+### Source ccdf041: completed Min and retained Max failure
+
+Public probe 03 subsequently passed with its original device-1 evidence. The
+new deployment verified all 313 files before the independent, blank-candidate
+Min and Max sessions began. Neither session had a total turn or token limit.
+The baseline remained the fixed `torch_npu` broadcast/mask/reduce composition in
+`npu_eager.py`, on the same logical NPU as the candidate. It is not a benchmark
+against an optimized `torch_scatter` extension. The declared task covers FP32,
+dim=0, six cases and 33 output bins; results do not establish other contracts.
+
+| Trial at ccdf041 | Actual parent calls | Known tokens | Native outcomes | Qualified outcome |
+| --- | ---: | ---: | --- | --- |
+| Min / `application-55ced96b-a6b1-48b4-b709-046f2377d0dc` | 72 | 9,894,782 | 11 admissions: ten children and one verified not-started refusal | 6/6 correct; 4.183931702563029x geomean; E1/E3 and promotion |
+| Max / `application-5da9e72e-6829-4030-8ec5-67ab7afeca42` | 69 | 5,995,300, with usage absent for the last two calls | Three children, all compile failures with original exits | No E1/G/E3/H; naturally awaiting_user after both providers returned HTTP 402 |
+
+Min's final attempt passed the sampled isolation policy with 31 original raw
+samples and no observer error. All six case speedups were positive (minimum
+1.458978x); paired log-delta 1.414253439622336 exceeded calibrated noise
+0.0059500295008799355. Earlier complete-correct attempts with raw gains of
+approximately 3.799x, 3.607x and 3.608x remain unqualified because their isolation
+evidence was unknown. They are not retrospectively upgraded. An independent
+246-assertion audit recomputed the original F/G/H evidence and Journal chain.
+There is no held-out repetition or E4 claim, and the exported top-level device
+qualification field remains pending.
+
+AGENTS.md and the task appendix appeared completely in 72/72 Min and 69/69 Max
+requests. Neither parent invoked a child or explicit J step, nor read an actual
+IR/profiler payload. Min's six automatic diagnostic triggers produced one
+completed IR result and five unavailable IR results; all six profiler results
+were unavailable. Max's three triggers yielded unavailable IR and profiler
+results. Tool availability and instruction delivery therefore do not establish
+that the model used diagnostic evidence to improve its algorithm.
+
+The original Max contract was already correct at call 19. Subsequent confusion
+between the declared hash and the hash containing the frozen oracle manifest
+caused avoidable rebinding. Max's first native attempt was at call 52. Its first
+compiler error reached call 53, but the first page of the long log omitted
+useful adjacent source/caret context. Four protocol failures also lacked the
+assembled provider data needed to determine the parser cause. No specific
+truncation or malformed-argument cause is inferred from the old evidence.
+
+Both full sessions are privately archived outside disposable worktrees under
+`~/.kernelbridge/optimization-archives/scatter-{min,max}/ccdf041-APPLICATION_ID/`,
+including all failed attempts, Pi history, original Journal, source/runtime,
+inputs, receipts and per-call observations. Min's archive manifest SHA256 is
+`756e23b5140d10dbfa3f12bb95be8af0b73f488ec0f48034207511aca869a40f`;
+Max's is `3ea20f148f864126a956aab7d30afcc26cbb0177279028a8119e97d54aa2de45`.
+The older qualified Max best pointer was not overwritten by this failed Max
+session. Only passive observers were stopped; original applications and PTYs
+were not resumed, edited or deleted to obtain these reports.
+
+### Generic feedback changes after the ccdf041 sessions
+
+The changes address observed framework costs without adding operator answers:
+
+* Profiles may pin a complete declared contract. `pipeline_bind` accepts
+  `selection="declared"`, or an explicit contract checked field-for-field and
+  oracle-byte-for-byte before state changes. It rechecks the frozen oracle
+  bytes, preserves prior state on rejection, and explains the two hash scopes.
+  Profiles without a declared contract retain their explicit binding path.
+* Native failures retain a bounded, byte-exact error neighborhood with source,
+  caret and notes, full-file/segment hashes and exact `pipeline_read` offsets.
+  The existing text and full-artifact read entry remain compatible.
+* Mapping and process inventory share the existing sampling deadline in
+  parallel. Linux direct-child exit evidence retains the unreaped original PID
+  until final sampling and binds its kernel identity and original wait result.
+  Missing, foreign or stale identities and real observer timeouts remain
+  unknown. The timeout, gap policy and performance qualification are unchanged.
+* Online search accepts optional explicit domains and retains original and
+  effective queries, response identities, filtering and snippet provenance.
+  An irrelevant successful response is not relabeled as a transport failure.
+* Provider parse failures retain private, action/request/source-bound assembled
+  response evidence and bounded parser diagnostics. These are not complete SSE
+  wire bytes. Credential sanitization precedes persistence; capture failure
+  cannot change provider usage, retry classification or unknown-effect fences.
+
+These mechanisms apply to arbitrary task contracts, native toolchains, child
+processes and provider responses. No candidate implementation, eager function,
+suite, tolerance, timer, speedup threshold or operator-specific hint changed.
+They have not yet demonstrated fewer model calls in a new clean trial.
+
+The first full Python invocation ran 691 tests: 679 passed, one failed and 11
+skipped (`.validation/acceptance/python-full-r1.log`). The sole failure expected
+a stripped isolation policy to bind and fail at G; the new implementation
+correctly rejected it at bind while preserving the original valid contract.
+The ten Linux-only checks and the optional historical excerpt replay were not
+counted as executed tests. The original excerpt was separately replayed with
+its exact fixture in the focused excerpt qualification.
+
+The first focused TUI invocation passed 11 groups and classified interaction
+as environmental after two StepTimeouts under high load, with no assertion
+failure (`.validation/acceptance/tui-focused-r1/acceptance.json`, SHA256
+`d2465f6803d5f51c2e5784333fb9946f626be1fde849fa23b3ede234992bd697`).
+All 56 referenced artifacts matched their recorded hashes and sizes. This
+invocation is inconclusive, not a complete pass. Linux CPU qualification
+separately executed all nine real-child tests with zero skips and exit zero;
+the exact source bytes matched upload and readback. It ran no Torch or NPU job.
+
+The old binding test was updated to require early rejection, unchanged prior
+state and no new execution evidence; its complete module passed 9/9. Review
+also found and closed a provider-capture credential issue: JSON-escaped keys
+inside serialized arguments must be sanitized before persistence. The final
+provider and retry regression passed 31/31, with original failure semantics
+preserved. Its correction and failed preliminary test assertions are retained
+under `.validation/acceptance/provider-encoded-*`.
+
+The subsequent affected TUI run passed 5/5 serially at timeout scale 1.0:
+deployment, authority, transport, interaction and codegen edges. There were
+zero flaky, failed or environmental groups, and all 19 evidence files matched
+their recorded hashes and sizes. Acceptance SHA256 is
+`eb4bf00944dfc7cbd2e1c513a0742271c49bce98d08c51a6a05e859223d56deb`.
+This resolves the observed issues within the tested scope; it is not a new
+complete Python/TUI run, nor evidence of optimization gains from these changes.

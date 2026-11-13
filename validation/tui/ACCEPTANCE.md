@@ -698,3 +698,65 @@ and zero failures (`.validation/device-isolation/pid-view-producer-npm.log`).
 This follow-up did not rerun the full Python suite or TUI. Probe 02 remains
 rejected; probe 03 is planned but has not run. These checks establish no new
 model/candidate, operator correctness or eager-performance result.
+
+### Generic feedback qualification after ccdf041
+
+The first complete Python invocation ran **691** tests in **312.128 seconds**:
+**679 passed, one failed and 11 skipped**. Original output and command/result
+metadata remain in `.validation/acceptance/python-full-r1.{log,json}`. The sole
+failure was the old `test_model_cannot_strip_frozen_policy` timing expectation:
+the new bind rejects missing fixed policy immediately, preserving the original
+valid contract, so a subsequent valid G must not be expected to fail. Only that
+test was changed to assert early failure, unchanged prior state and unchanged
+driver/effect artifacts. The complete isolation-acceptance module then passed
+**9/9** (`.validation/declared-contract-tests/isolation-acceptance.log`). This
+is a focused correction, not a newly passing complete 691-test invocation.
+
+Ten skips require Linux `/proc` or fdinfo. The remaining skip is the optional
+original Min error-excerpt fixture; that exact original fixture was exercised
+in `.validation/error-excerpt/targeted-03.log`, whose complete invocation passed
+**29** and skipped one unrelated optional historical fixture. Six newly added
+excerpt tests passed. The original build log and session hashes were unchanged.
+Separately, the Linux CPU child-exit closure ran **9/9**, zero skips and exit
+zero, under one original dispatch. The two source files matched upload,
+before/after and readback hashes. Its report is
+`.validation/linux-child-exit-fence/cpu-helper-b79d99f82be04a20a49377f64fd1732b/qualification.json`,
+SHA256 `f025f64dd90713762a35dee0a4ea88e6a9a1578d2c2c882dfb6de75fe3b72250`.
+This establishes child lifecycle behavior, not NPU performance.
+
+The first focused TUI run covered deployment, authority, JavaScript, SDK,
+recovery, transport, admission, interaction, codegen edges, parallel subagents,
+Goal review and Goal plan. **11 groups passed; interaction was environmental**
+after two StepTimeouts at timeout scale **1.28**, with measured load per CPU
+reaching **6.1**. There were zero assertion-failed or flaky groups, but the
+overall result remains **inconclusive**. No environmental outcome counts as a
+pass. All **56** indexed evidence files matched their bytes and SHA256.
+Receipt `.validation/acceptance/tui-focused-r1/acceptance.json`, SHA256
+`d2465f6803d5f51c2e5784333fb9946f626be1fde849fa23b3ede234992bd697`, retains both
+failed interaction attempts. npm passed **225**, with its genuine
+case-sensitive-filesystem skip; authority passed **167**.
+
+Independent review also found that Unicode-escaped authentication material
+inside JSON argument strings could evade literal-only provider-capture
+sanitization. The correction sanitizes JSON escapes and nested serialized
+arguments before writing. Exceeding the bounded decoding work or a diagnostic
+sanitization failure retains no unsafe artifact and cannot replace the original
+provider outcome. Its actual admitted-operation and retry tests passed
+**31/31** (`.validation/acceptance/provider-encoded-final-r3.log`); independent
+review confirmed the original finding closed. The first deep-JSON test used a
+safely processable value while expecting omission; its failed assertion is
+retained in r2, and r3 uses an actual recursion-limit input. Assembled data is
+still explicitly distinguished from full SSE bytes; arbitrary encodings such
+as base64 are outside this feature's scope.
+
+The final affected TUI run was serial and passed **5/5** at timeout scale
+**1.0**, with zero failed, flaky or environmental groups: deployment, authority,
+transport, interaction and codegen edges. Interaction passed its first attempt
+in **8.46 seconds** at load per CPU **0.37–0.38**. Receipt
+`.validation/acceptance/tui-final-r2/acceptance.json`, SHA256
+`eb4bf00944dfc7cbd2e1c513a0742271c49bce98d08c51a6a05e859223d56deb`,
+and all **19** referenced artifact sizes/hashes were verified. The earlier
+environmental result remains preserved; this is an affected-scope follow-up,
+not a replacement claim of a new complete TUI or Python invocation. No known
+failure remains in the exercised scope. No operator algorithm, baseline,
+suite, tolerance, timer or acceptance threshold changed.

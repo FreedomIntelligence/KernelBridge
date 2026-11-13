@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 
+from kernelcat_executor.capabilities.provider_evidence import ProviderEvidence, capture_provider_evidence
 from kernelcat_executor.contracts.messages import AssistantTurn
 from kernelcat_executor.contracts.models import (
     Action,
@@ -36,6 +37,31 @@ def recorded_request(store: Store, action_id: str) -> ModelRequest:
     if request.fingerprint() != arguments.get("request_digest"):
         raise Conflict("model request digest mismatch")
     return request
+
+
+def recorded_provider_response(store: Store, action_id: str) -> Json:
+    """Read a failed call's original observation without invoking its provider.
+
+    Redacted records and assembled-versus-wire scope remain explicit. This API
+    does not claim that decoding again will succeed or authorize replayed tools.
+    """
+    request = recorded_request(store, action_id)
+    admitted = store.snapshot()["actions"][action_id]
+    reference = admitted.get("outcome", {}).get("data", {}).get("failure_details", {}).get("provider_response", {})
+    if reference.get("status") != "recorded":
+        raise Conflict("this model failure has no retained provider response")
+    evidence = ProviderEvidence(store, admitted, request)
+    if evidence.artifacts is None:
+        raise Conflict("model response artifact storage is unavailable")
+    raw = evidence.artifacts.read(reference)
+    record = json.loads(raw)
+    if (record.get("schema_version") != "kernelbridge.provider-response/v1"
+            or any(record.get(key) != value for key, value in evidence.binding.items())
+            or record.get("capture_scope") != "assembled_provider_response"
+            or record.get("wire_complete") is not False
+            or record.get("redacted") != reference.get("redacted")):
+        raise Conflict("retained provider response differs from its original admission")
+    return record
 
 
 def recorded_harness_tools(store: Store, action_id: str) -> dict[str, Json]:
@@ -109,12 +135,14 @@ def propose(gateway: Gateway, proposer: Proposer, action_id: str, task_id: str,
             logged = recorded_request(gateway.store, action.id)
             if request is None or logged.fingerprint() != request.fingerprint():
                 raise Conflict("prepared model request diverged from durable admission")
-            if harness is not None:
-                assert isinstance(proposer, HarnessProposer)
-                reply = proposer.invoke_harness(logged)
-            else:
-                assert isinstance(proposer, PreparedProposer)
-                reply = proposer.invoke(logged)
+            admitted = gateway.store.snapshot()["actions"][action.id]
+            with capture_provider_evidence(ProviderEvidence(gateway.store, admitted, logged)):
+                if harness is not None:
+                    assert isinstance(proposer, HarnessProposer)
+                    reply = proposer.invoke_harness(logged)
+                else:
+                    assert isinstance(proposer, PreparedProposer)
+                    reply = proposer.invoke(logged)
         else:
             # Fresh inputs prevent a mutable custom adapter from changing the receipt.
             fresh_context = json.loads(canonical(detached_context))

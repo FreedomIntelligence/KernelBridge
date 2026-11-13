@@ -91,6 +91,8 @@ class NativeJobSupervisorTests(unittest.TestCase):
         handle, _ = self.start(argv=[shutil.which('true')])
         value = self.exited(handle)
         self.assertEqual(value['execution_exit']['returncode'], 0)
+        self.assertNotIn('exit_protocol', handle)
+        self.assertNotIn('wait_observation', value['execution_exit'])
         self.assertIsNone(value['execution_exit']['signal'])
         self.assertFalse((self.folder / 'job/result.json').exists())
         self.assertNotIn('correct', value['execution_exit'])
@@ -178,12 +180,12 @@ class NativeJobSupervisorTests(unittest.TestCase):
         # has no delay/hook; the child and supervisor remain real CPU processes.
         copied = self.root / 'tools/npu_job_supervisor.py'; copied.parent.mkdir()
         original = Path(supervisor.__file__).read_text()
-        needle = '    rc = child.wait()\n'
+        needle = '            wait_observation, rc = None, child.wait()\n'
         self.assertEqual(original.count(needle), 1)
         paused = original.replace(needle, needle +
-            "    (Path(request['remote_root']) / 'child-waited').write_text('wait completed')\n"
-            "    while not (Path(request['remote_root']) / 'release-exit').exists():\n"
-            "        time.sleep(.01)\n")
+            "            (Path(request['remote_root']) / 'child-waited').write_text('wait completed')\n"
+            "            while not (Path(request['remote_root']) / 'release-exit').exists():\n"
+            "                time.sleep(.01)\n")
         copied.write_text(paused)
         request = dict(self.request, supervisor_sha256=hashlib.sha256(copied.read_bytes()).hexdigest())
         with patch.object(supervisor, '__file__', str(copied)):

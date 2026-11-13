@@ -4,6 +4,7 @@ This proves only sampled observations and cooperative same-UID shared-directory
 leases. It does not claim global exclusivity or replace benchmark correctness.
 """
 import base64
+import concurrent.futures
 import hashlib
 import importlib.util
 import json
@@ -227,7 +228,34 @@ def validate_policy_view(policy):
     return normalized
 
 
-def _derive_sample(sample, policy, own_root=None, retained=None):
+def _validate_exit_identity(sample, observed, own_root, original_exit):
+    pre = sample['root_before_inventory']
+    identity = pre['identity']
+    if (original_exit is None or not processes.valid_identity(identity)
+            or processes.identity_key(identity) != processes.identity_key(own_root)
+            or identity['uid'] != own_root['uid'] or identity['ppid'] != own_root['ppid']
+            or identity['state'] in ('Z', 'X') or observed['identity'] != identity
+            or observed.get('lineage') != [identity]):
+        raise ValueError('Exit-race observation lacks this sample\'s exact live child identity')
+    command = sample['inventory']; proof = observed['exit_fence']
+    for start, end in (('started_mono_ns', 'ended_mono_ns'), ('started_ns', 'ended_ns')):
+        sample_start = 'observed_ns' if start == 'started_ns' else start
+        if any(not isinstance(value, str) or re.fullmatch(r'[1-9][0-9]*', value) is None for value in
+               (pre.get(start), pre.get(end), command.get(start), command.get(end), proof.get(start), proof.get(end))):
+            raise ValueError('Exit-race observation requires exact recorded clocks')
+        if not (int(sample[sample_start]) <= int(pre[start]) <= int(pre[end]) <= int(command[start])
+                <= int(command[end]) <= int(proof[start]) <= int(proof[end]) <= int(sample[end])):
+            raise ValueError('Exit-race identity does not enclose the original inventory window')
+    rc = processes.validate_unreaped_child(proof, identity, parent_pid=own_root['ppid'])
+    recorded = original_exit['wait_observation']
+    if (original_exit.get('exit_authority') != 'linux_waitid_wnowait'
+            or processes.validate_child_wait(recorded, pid=own_root['pid'], parent_pid=own_root['ppid']) != rc
+            or recorded['result'] != proof['wait']['result'] or recorded['result']['si_uid'] != identity['uid']
+            or original_exit['returncode'] != rc):
+        raise ValueError('Exit-race wait differs from the original OS exit')
+
+
+def _derive_sample(sample, policy, own_root=None, retained=None, original_exit=None):
     if sample.get('error'): return 'unknown'
     try:
         if sample.get('visibility') != {'ASCEND_VISIBLE_DEVICES': '', 'ASCEND_RT_VISIBLE_DEVICES': ''}: return 'unknown'
@@ -254,6 +282,8 @@ def _derive_sample(sample, policy, own_root=None, retained=None):
             lineage = observed.get('lineage')
             if own_root is None:
                 foreign = True
+            elif observed.get('lineage_source') == 'unreaped_direct_child':
+                _validate_exit_identity(sample, observed, own_root, original_exit)
             elif lineage and processes.validate_lineage(lineage, root_identity=own_root):
                 if processes.identity_key(lineage[-1]) != processes.identity_key(identity): return 'unknown'
                 if observed.get('lineage_source') == 'retained' and (retained or {}).get(processes.identity_key(identity)) != lineage:
@@ -266,7 +296,36 @@ def _derive_sample(sample, policy, own_root=None, retained=None):
         return 'unknown'
 
 
-def observe_target(policy, *, own_root=None, retained_lineages=None):
+def _observe_command(binary, args, deadline):
+    """Retain each read-only query under one shared observation deadline."""
+    record = {'argv': [str(binary), *args], 'started_mono_ns': str(time.monotonic_ns()),
+              'started_ns': str(time.time_ns()), 'returncode': None, 'stdout': '', 'stderr': ''}
+    try:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0: raise TimeoutError('Observation deadline expired before command start')
+        result = subprocess.run(record['argv'], capture_output=True, timeout=remaining)
+        stdout, stderr = result.stdout, result.stderr
+        record['returncode'] = result.returncode
+    except subprocess.TimeoutExpired as error:
+        stdout, stderr = error.stdout or b'', error.stderr or b''
+        record['error'] = {'type': type(error).__name__, 'message': str(error)[:2048]}
+    except (OSError, TimeoutError) as error:
+        stdout, stderr = b'', b''
+        record['error'] = {'type': type(error).__name__, 'message': str(error)[:2048]}
+    if len(stdout) + len(stderr) > MAX_BYTES:
+        record['error'] = {'type': 'ValueError', 'message': 'Ascend observation exceeds retention bound'}
+        record.update(stdout_bytes=len(stdout), stderr_bytes=len(stderr), stdout_sha256=digest(stdout), stderr_sha256=digest(stderr))
+    else:
+        try:
+            record.update(stdout=stdout.decode('utf-8', errors='strict'), stderr=stderr.decode('utf-8', errors='strict'))
+        except UnicodeDecodeError:
+            record.update(stdout_base64=base64.b64encode(stdout).decode(), stderr_base64=base64.b64encode(stderr).decode(),
+                          error={'type': 'UnicodeDecodeError', 'message': 'Ascend observation was not UTF-8'})
+    record.update(ended_mono_ns=str(time.monotonic_ns()), ended_ns=str(time.time_ns()))
+    return record
+
+
+def observe_target(policy, *, own_root=None, retained_lineages=None, direct_child_fence=False):
     policy = normalize_policy(policy)
     sample = {'schema_version': SAMPLE_SCHEMA, 'started_mono_ns': str(time.monotonic_ns()),
               'observed_ns': str(time.time_ns()), 'processes': [],
@@ -275,13 +334,28 @@ def observe_target(policy, *, own_root=None, retained_lineages=None):
         observer = processes.identify_process(os.getpid())
         sample['observer'] = observer
         if any(sample['visibility'].values()): raise ValueError('Ascend visibility remapping prevents physical isolation admission')
+        if direct_child_fence and own_root is not None:
+            pre = {'started_mono_ns': str(time.monotonic_ns()), 'started_ns': str(time.time_ns())}
+            try:
+                identity = processes.identify_process(own_root['pid'])
+                if (identity is None or processes.identity_key(identity) != processes.identity_key(own_root)
+                        or identity['ppid'] != os.getpid() or identity['uid'] != own_root['uid']):
+                    raise ValueError('Original child has no matching live pre-inventory identity')
+                pre['identity'] = identity
+            except (OSError, ValueError) as error:
+                pre['error'] = str(error)[:2048]
+            pre.update(ended_mono_ns=str(time.monotonic_ns()), ended_ns=str(time.time_ns()))
+            sample['root_before_inventory'] = pre
         binary = Path(shutil.which('npu-smi') or '/usr/local/Ascend/driver/tools/npu-smi').resolve(strict=True)
-        deadline = time.monotonic() + policy['sample_timeout_ms'] / 1000
-        for name, args in (('mapping', ['info', '-m']), ('inventory', ['info'])):
-            result = subprocess.run([str(binary), *args], capture_output=True, timeout=max(.001, deadline-time.monotonic()))
-            if len(result.stdout) + len(result.stderr) > MAX_BYTES: raise ValueError('Ascend observation exceeds retention bound')
-            sample[name] = {'argv': [str(binary), *args], 'returncode': result.returncode,
-                            'stdout': result.stdout.decode('utf-8', errors='strict'), 'stderr': result.stderr.decode('utf-8', errors='strict')}
+        deadline = int(sample['started_mono_ns']) / 1000000000 + policy['sample_timeout_ms'] / 1000
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix='npu-readonly-inventory') as pool:
+            pending = {name: pool.submit(_observe_command, binary, args, deadline)
+                       for name, args in (('mapping', ['info', '-m']), ('inventory', ['info']))}
+            sample.update({name: future.result() for name, future in pending.items()})
+        failures = [sample[name]['error'] for name in ('mapping', 'inventory') if sample[name].get('error')]
+        if failures:
+            problem = failures[0]
+            raise ValueError(problem['type'] + ': ' + problem['message'])
         version = re.search(r'npu-smi\s+([^\s|]+)', sample['inventory']['stdout'])
         if version is None: raise ValueError('No Ascend driver identity in original inventory')
         sample.update(observer=observer, driver={'path': str(binary), 'sha256': digest(binary.read_bytes()), 'version_text': version.group(1)})
@@ -303,6 +377,15 @@ def observe_target(policy, *, own_root=None, retained_lineages=None):
                     record['lineage_source'] = 'fresh'
             except (OSError, ValueError) as error:
                 record['error'] = str(error)[:2048]
+                pre = sample.get('root_before_inventory', {}).get('identity')
+                if (direct_child_fence and pre is not None and row['reported_pid'] == pre['pid']
+                        and (record.get('identity') is None or record.get('identity') == pre)):
+                    try:
+                        proof = processes.observe_unreaped_child(pre)
+                        record.update(identity=pre, lineage=[pre], lineage_source='unreaped_direct_child', exit_fence=proof)
+                        record['original_identity_error'] = record.pop('error')
+                    except (OSError, ValueError, KeyError) as fence_error:
+                        record['exit_fence_error'] = str(fence_error)[:2048]
             sample['processes'].append(record)
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         sample['error'] = type(error).__name__ + ': ' + str(error)[:2048]
@@ -438,10 +521,18 @@ def validate_evidence(samples_raw, receipt_raw, request_raw, exit_raw, *, handle
         phases = [r['phase'] for r in rows]
         root = record.get('own_root')
         if not processes.valid_identity(root) or root['pid'] != handle['pid'] or root['birth'] != handle['process_birth']:
+            result['reason'] = 'Original live child identity was unavailable or changed'
             return result
+        original_exit = json.loads(exit_raw)
+        if handle.get('exit_protocol') == 'linux_waitid_wnowait/v1':
+            owner = handle['supervisor']
+            if (root['ppid'] != owner['pid'] or any(not processes.valid_identity(row.get('observer'))
+                    or row['observer']['pid'] != owner['pid'] or row['observer']['birth'] != owner['birth']
+                    for row in rows)):
+                raise ValueError('Original non-reaping supervisor observation identity changed')
         derived = []; retained = {}
         for row in rows:
-            verdict = _derive_sample(row, normalized, root if row['phase'] in {'running', 'final'} else None, retained)
+            verdict = _derive_sample(row, normalized, root if row['phase'] in {'running', 'final'} else None, retained, original_exit)
             derived.append(verdict)
             if verdict != 'unknown':
                 for item in row.get('processes', []):
@@ -449,11 +540,15 @@ def validate_evidence(samples_raw, receipt_raw, request_raw, exit_raw, *, handle
                             and processes.validate_lineage(item.get('lineage'), root_identity=root)
                             and processes.identity_key(item['lineage'][-1]) == processes.identity_key(item['identity'])):
                         retained[processes.identity_key(item['identity'])] = item['lineage']
+        if any(verdict != CLAIM for verdict in derived):
+            # A failed command can legitimately omit domain/driver fields. Keep
+            # its original diagnostic before later coverage validation rejects
+            # the incomplete sample, rather than replacing it with a KeyError.
+            result.update(_observation_reasons(samples_raw, rows, normalized, derived, True, record.get('observer_error')))
         starts = [int(row['started_mono_ns']) for row in rows]; ends = [int(row['ended_mono_ns']) for row in rows]
         clock_fields = ('started_mono_ns', 'ended_mono_ns', 'observed_ns', 'ended_ns')
         exact_clocks = all(isinstance(row.get(key), str) and re.fullmatch(r'[1-9][0-9]*', row[key]) for row in rows for key in clock_fields)
         wall_starts = [int(row['observed_ns']) for row in rows]; wall_ends = [int(row['ended_ns']) for row in rows]
-        original_exit = json.loads(exit_raw)
         launch_ns, exit_ns = int(handle['started_ns']), int(original_exit['finished_ns'])
         gap = normalized['max_gap_ms'] * 1000000
         complete = (phases[:2] == ['admission', 'admission_locked'] and phases[-1] == 'final' and 'running' in phases
@@ -471,6 +566,22 @@ def validate_evidence(samples_raw, receipt_raw, request_raw, exit_raw, *, handle
         lease_records = record.get('leases', [])
         complete = complete and len(lease_records) == len(keys) and sorted(item['device_key'] for item in lease_records) == keys
         complete = complete and not record.get('observer_error')
+        if handle.get('exit_protocol') == 'linux_waitid_wnowait/v1':
+            reaped = record.get('child_reap', {})
+            wait_before = reaped.get('wait_before')
+            reap_rc = processes.validate_child_wait(wait_before, pid=handle['pid'], parent_pid=handle['supervisor']['pid'])
+            complete = complete and (reaped.get('pid') == handle['pid'] and reaped.get('birth') == handle['process_birth']
+                and type(reaped.get('returncode')) is int and reaped['returncode'] == reap_rc == original_exit['returncode']
+                and wait_before['options'] == ['WEXITED', 'WNOWAIT', 'WNOHANG']
+                and wait_before['result']['si_uid'] == root['uid']
+                and wait_before['result'] == original_exit['wait_observation']['result']
+                and reaped.get('execution_exit_sha256') == digest(exit_raw)
+                and all(isinstance(reaped.get(key), str) and re.fullmatch(r'[1-9][0-9]*', reaped[key])
+                        for key in ('started_mono_ns', 'ended_mono_ns', 'started_ns', 'ended_ns'))
+                and ends[-1] <= int(reaped['started_mono_ns']) <= int(wait_before['started_mono_ns'])
+                    <= int(wait_before['ended_mono_ns']) <= int(reaped['ended_mono_ns'])
+                and wall_ends[-1] <= int(reaped['started_ns']) <= int(wait_before['started_ns'])
+                    <= int(wait_before['ended_ns']) <= int(reaped['ended_ns']))
         for row in rows[1:]:
             complete = complete and row.get('lease_evidence') == lease_records
         for lease in lease_records:
@@ -484,9 +595,61 @@ def validate_evidence(samples_raw, receipt_raw, request_raw, exit_raw, *, handle
                 and lease['root_ino'] > 0 and lease['ino'] > 0)
         result['coverage'] = {'samples': len(rows), 'phases': phases, 'bounded': bool(complete), 'device_keys': keys}
         result['verdict'] = 'foreign' if 'foreign' in derived else CLAIM if complete and all(v == CLAIM for v in derived) else 'unknown'
-    except (ValueError, TypeError, KeyError, IndexError):
+        if result['verdict'] != CLAIM:
+            result.update(_observation_reasons(samples_raw, rows, normalized, derived, complete, record.get('observer_error')))
+    except (ValueError, TypeError, KeyError, IndexError) as error:
         result['verdict'] = 'unknown'
+        result.setdefault('reason', str(error)[:2000])
     return result
+
+
+def _observation_reasons(samples_raw, rows, policy, derived, complete, observer_error):
+    """Bounded navigation into original evidence, not another qualification rule."""
+    reasons = []; total = 0; offset = 0; previous_start = None
+    file_sha = digest(samples_raw)
+    def add(code, detail, location=None, **extra):
+        nonlocal total
+        total += 1
+        if len(reasons) < 16:
+            reasons.append({'code': code, 'detail': str(detail)[:1000], **(location or {}), **extra})
+    for row, raw_line, verdict in zip(rows, samples_raw.splitlines(keepends=True), derived):
+        location = {'artifact': 'isolation-samples.jsonl', 'sha256': file_sha,
+                    'line': row['sequence'] + 1, 'byte_offset': offset, 'line_sha256': digest(raw_line),
+                    'sequence': row['sequence'], 'phase': row['phase']}
+        before = total
+        for name in ('mapping', 'inventory'):
+            command = row.get(name, {})
+            if command.get('error'):
+                error = command['error']
+                add('observation_command_error', error.get('message', error) if isinstance(error, dict) else error,
+                    location, command=name, error_type=error.get('type') if isinstance(error, dict) else None)
+        if row.get('error') and total == before:
+            add('observation_error', row['error'], location)
+        for item in row.get('processes', []):
+            if item.get('error'):
+                add('process_identity_unavailable', item['error'], location,
+                    reported_pid=item.get('reported', {}).get('reported_pid'))
+            if item.get('exit_fence_error'):
+                add('exit_identity_unavailable', item['exit_fence_error'], location,
+                    reported_pid=item.get('reported', {}).get('reported_pid'))
+        duration = int(row['ended_mono_ns']) - int(row['started_mono_ns'])
+        limit = policy['sample_timeout_ms'] * 1000000
+        if not 0 <= duration <= limit:
+            add('observation_duration_exceeded', 'Original observation exceeded its configured window', location,
+                actual_ns=str(duration), limit_ns=str(limit))
+        if previous_start is not None:
+            gap = int(row['started_mono_ns']) - previous_start; limit = policy['max_gap_ms'] * 1000000
+            if not 0 <= gap <= limit:
+                add('observation_gap_exceeded', 'Original observations exceeded their configured maximum gap', location,
+                    actual_ns=str(gap), limit_ns=str(limit))
+        if verdict == 'foreign': add('foreign_process_observed', 'A process outside the original child lineage was observed', location)
+        elif verdict == 'unknown' and total == before:
+            add('observation_unproven', 'Original sample lacks sufficient identity, driver, mapping, or lease evidence', location)
+        previous_start = int(row['started_mono_ns']); offset += len(raw_line)
+    if observer_error: add('observer_error', observer_error)
+    if not complete and not reasons: add('coverage_unproven', 'Original lifecycle, timing, or lease coverage was incomplete')
+    return {'structured_reasons': reasons, 'omitted_reasons': max(0, total-len(reasons)),
+            **({'reason': reasons[0]['detail']} if reasons else {})}
 
 
 class Guard:
@@ -509,7 +672,7 @@ class Guard:
     def sample(self, phase, error=None):
         with self.lock:
             sample = observe_target(self.policy, own_root=self.own_root if phase in {'running', 'final'} else None,
-                                    retained_lineages=self.retained_lineages)
+                                    retained_lineages=self.retained_lineages, direct_child_fence=self.handle is not None)
             for item in sample.get('processes', []):
                 if (not item.get('error') and item.get('lineage_source') == 'fresh'
                         and processes.validate_lineage(item.get('lineage'), root_identity=self.own_root)):
@@ -582,16 +745,33 @@ class Guard:
         self.thread = threading.Thread(target=watch, name='native-device-observer', daemon=True)
         self.thread.start()
 
-    def finish(self, exit_raw):
+    def wait_child_exit(self):
+        observed = processes.wait_child_exit(self.handle['pid'])
+        return observed, processes.validate_child_wait(observed, pid=self.handle['pid'], parent_pid=os.getpid())
+
+    def finish(self, exit_raw, reap=None):
         self.stop.set()
         if self.thread is not None: self.thread.join()
         self.sample('final')
+        child_reap = None
+        if reap is not None:
+            child_reap = {'pid': self.handle['pid'], 'birth': self.handle['process_birth'],
+                          'execution_exit_sha256': digest(exit_raw), 'started_mono_ns': str(time.monotonic_ns()),
+                          'started_ns': str(time.time_ns())}
+            wait_before = processes.wait_child_exit(self.handle['pid'], nonblocking=True)
+            expected_rc = processes.validate_child_wait(wait_before, pid=self.handle['pid'], parent_pid=os.getpid())
+            actual_rc = reap()
+            if actual_rc != expected_rc or actual_rc != json.loads(exit_raw)['returncode']:
+                raise ValueError('Original child reap differs from its non-reaping OS exit')
+            child_reap.update(wait_before=wait_before, returncode=actual_rc,
+                              ended_mono_ns=str(time.monotonic_ns()), ended_ns=str(time.time_ns()))
         result_path = self.folder / 'job/result.json'
         result_sha = digest(_read(result_path)) if result_path.exists() or result_path.is_symlink() else None
         record = {'schema_version': RECEIPT_SCHEMA, **self.binding, 'handle': self.handle,
                   'execution_exit_sha256': digest(exit_raw), 'result_sha256': result_sha,
                   'own_root': self.own_root, 'leases': [lease.evidence for lease in self.leases],
                   'observer_error': self.failure,
+                  **({'child_reap': child_reap} if child_reap is not None else {}),
                   'samples_sha256': digest(_read(self.folder / 'isolation-samples.jsonl'))}
         raw = _save(self.folder / 'isolation-receipt.json', record)
         return validate_evidence(_read(self.folder / 'isolation-samples.jsonl'), raw, self.request_raw, exit_raw,

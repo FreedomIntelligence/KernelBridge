@@ -178,6 +178,10 @@ def validate_launch_receipt(launch_raw, request_raw, *, intent):
         raise ValueError('Invalid original child argv')
     if not isinstance(handle, dict) or handle.get('schema_version') != HANDLE_SCHEMA:
         raise ValueError('Invalid original execution handle schema')
+    if handle.get('exit_protocol') not in (None, 'linux_waitid_wnowait/v1'):
+        raise ValueError('Unsupported original child exit protocol')
+    if handle.get('exit_protocol') is not None and request.get('isolation_policy') is None:
+        raise ValueError('Non-reaping protocol requires the original isolation policy')
     if (handle.get('execution_request_sha256') != _sha(request_raw) or handle.get('argv') != argv
             or handle.get('attempt') != request['remote_attempt']
             or any(handle.get(key) != request[key] for key in ('remote_root', 'remote_attempt', 'canonical_root'))):
@@ -236,6 +240,29 @@ def validate_exit_receipt(raw, *, handle, intent):
         raise ValueError('Actual child signal differs from returncode')
     if not _decimal(record.get('finished_ns')):
         raise ValueError('Invalid execution finish time')
+    if handle.get('exit_protocol') == 'linux_waitid_wnowait/v1':
+        wait = record.get('wait_observation', {}); value = wait.get('result', {})
+        if (record.get('exit_authority') != 'linux_waitid_wnowait'
+                or wait.get('schema') != 'kernelbridge.child-wait-observation/v1'
+                or wait.get('pid') != handle['pid'] or wait.get('parent_pid') != supervisor['pid']
+                or wait.get('options') != ['WEXITED', 'WNOWAIT']
+                or value.get('si_pid') != handle['pid'] or value.get('si_signo') != 17
+                or any(type(value.get(key)) is not int for key in ('si_pid', 'si_uid', 'si_signo', 'si_status', 'si_code'))
+                or value['si_uid'] < 0):
+            raise ValueError('Original non-reaping exit authority changed')
+        code, status = value.get('si_code'), value['si_status']
+        waited_rc = status if code == 1 and 0 <= status <= 255 else -status if code in (2, 3) and 0 < status < 65 else None
+        if waited_rc is None or waited_rc != record['returncode']:
+            raise ValueError('Original waitid exit differs from the terminal returncode')
+        for start, end in (('started_mono_ns', 'ended_mono_ns'), ('started_ns', 'ended_ns')):
+            if (not all(_decimal(wait.get(key)) and int(wait[key]) > 0 for key in (start, end))
+                    or int(wait[start]) > int(wait[end])):
+                raise ValueError('Original waitid observation clock changed')
+        if int(wait['ended_ns']) > int(record['finished_ns']):
+            raise ValueError('Original exit predates the waitid observation')
+    elif (handle.get('exit_protocol') is not None or record.get('wait_observation') is not None
+            or record.get('exit_authority') is not None):
+        raise ValueError('Legacy handle cannot borrow a different exit authority')
     return record
 
 
@@ -497,7 +524,8 @@ def _supervise(folder, lease, expected_sha):
               'attempt': request['remote_attempt'], 'process_birth': process_birth(child.pid),
               'supervisor': supervisor, 'execution_request_sha256': request_sha,
               'remote_root': request['remote_root'], 'canonical_root': request['canonical_root'],
-              'remote_attempt': request['remote_attempt']}
+              'remote_attempt': request['remote_attempt'],
+              **({'exit_protocol': 'linux_waitid_wnowait/v1'} if guard is not None else {})}
     if not _valid_birth(handle['process_birth']):
         # Never produce a qualified exit without exact child identity.
         child.wait()
@@ -505,24 +533,33 @@ def _supervise(folder, lease, expected_sha):
     _save(folder / 'launch.json', handle)
     if guard is not None:
         guard.start(handle)
-    rc = child.wait()
-    record = {'schema_version': EXIT_SCHEMA, 'intent': request['intent'], 'handle': handle,
-              'supervisor': supervisor, 'process_birth': handle['process_birth'],
-              'returncode': rc, 'signal': -rc if rc < 0 else None, 'finished_ns': str(time.time_ns()),
-              **{key: handle[key] for key in ('remote_root', 'canonical_root', 'remote_attempt', 'execution_request_sha256')}}
-    raw = (json.dumps(record, allow_nan=False) + '\n').encode()
-    validate_exit_receipt(raw, handle=handle, intent=request['intent'])
-    # Revalidate original evidence after the child exits; tampering never gains
-    # a trusted terminal receipt.
-    _load(folder)
     try:
+        if guard is not None:
+            wait_observation, rc = guard.wait_child_exit()
+        else:
+            wait_observation, rc = None, child.wait()
+        record = {'schema_version': EXIT_SCHEMA, 'intent': request['intent'], 'handle': handle,
+                  'supervisor': supervisor, 'process_birth': handle['process_birth'],
+                  'returncode': rc, 'signal': -rc if rc < 0 else None, 'finished_ns': str(time.time_ns()),
+                  **{key: handle[key] for key in ('remote_root', 'canonical_root', 'remote_attempt', 'execution_request_sha256')}}
+        if wait_observation is not None:
+            record.update(exit_authority='linux_waitid_wnowait', wait_observation=wait_observation)
+        raw = (json.dumps(record, allow_nan=False) + '\n').encode()
+        validate_exit_receipt(raw, handle=handle, intent=request['intent'])
+        # Preserve the real OS exit for F before final isolation collection.
+        _load(folder)
         _save(folder / 'execution-exit.json', record)
         if guard is not None:
-            guard.finish(_read(folder / 'execution-exit.json'))
+            guard.finish(_read(folder / 'execution-exit.json'), reap=child.wait)
     finally:
-        if guard is not None:
-            guard.close()
-        os.close(lease)
+        try:
+            if guard is not None:
+                # Cleanup cannot grant an exit receipt or repair an ECHILD wait
+                # with Popen's fallback returncode. Normal reaping is in finish.
+                try: child.wait()
+                finally: guard.close()
+        finally:
+            os.close(lease)
 
 
 if __name__ == '__main__':

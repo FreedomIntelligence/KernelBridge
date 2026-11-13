@@ -9,6 +9,7 @@ import httpx
 
 from kernelcat_executor.capabilities.http import request_json
 from kernelcat_executor.capabilities.messages import conversation, harness_conversation, parse_turn
+from kernelcat_executor.capabilities.provider_evidence import failure_evidence, observe_response, parse_diagnostic
 from kernelcat_executor.capabilities.streaming import prepare_stream, request_stream
 from kernelcat_executor.capabilities.task_instructions import TaskInstructions
 from kernelcat_executor.contracts.context import ContextOverflow
@@ -260,6 +261,7 @@ class APIProposer:
         headers.update({"authorization": f"Bearer {self.api_key}"} if self.provider == "openai"
                        else {"x-api-key": self.api_key})
         usage: Json = {}
+        stage = "provider_transport_or_assembly"
         try:
             if request.payload().get("stream") is True:
                 data = request_stream(request, headers, provider=self.provider,
@@ -268,6 +270,8 @@ class APIProposer:
                 data = request_json("POST", request.endpoint, headers,
                     body=request.body_json.encode("utf-8"), timeout=request.timeout,
                     max_bytes=self.max_response_bytes, client=self.client)
+            observe_response(data, secret=self.api_key)
+            stage = "provider_usage"
             raw_usage = data.get("usage", {})
             if isinstance(raw_usage, dict):
                 usage = {key: value for key, value in raw_usage.items()
@@ -275,6 +279,7 @@ class APIProposer:
                                     "completion_tokens", "total_tokens", "cache_read_input_tokens",
                                     "cache_creation_input_tokens", "prompt_cache_hit_tokens", "prompt_cache_miss_tokens"}
                          and type(value) is int and value >= 0}
+            stage = "parse_turn" if native_turns else "parse_tool_reply"
             if native_turns:
                 turn = parse_turn(self.provider, data, usage)
                 if len(self.api_key) >= 12 and self.api_key in canonical(turn):
@@ -307,9 +312,15 @@ class APIProposer:
                 raise ToolFailure("provider returned authentication material",
                                   details={"category": "credential_echo", "usage": usage})
             return Reply(tool=name, arguments=args, usage=usage)
-        except (KeyError, TypeError, ValueError, IndexError, AttributeError):
+        except ToolFailure as error:
+            error.details.update(failure_evidence())
+            if stage in {"parse_turn", "parse_tool_reply"}:
+                error.details.setdefault("parse_error", parse_diagnostic(error, stage=stage, secret=self.api_key))
+            raise
+        except (KeyError, TypeError, ValueError, IndexError, AttributeError) as error:
             raise ToolFailure("malformed provider response",
-                              details={"usage": usage, "category": "protocol"}) from None
+                              details={"usage": usage, "category": "protocol", **failure_evidence(),
+                                       "parse_error": parse_diagnostic(error, stage=stage, secret=self.api_key)}) from None
 
     def discover_models(self) -> Json:
         """One non-generating catalogue request; never select a billable model implicitly."""

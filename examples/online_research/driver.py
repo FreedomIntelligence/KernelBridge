@@ -398,6 +398,48 @@ def query_results(raw, metadata, config):
     return results, warnings
 
 
+def search_domains(value):
+    """Explicit host constraints only; never infer a subject's preferred sites."""
+    if not isinstance(value, list) or not 1 <= len(value) <= 8:
+        raise Unavailable('invalid_search_domains')
+    domains = []
+    for name in value:
+        if not isinstance(name, str) or not 1 <= len(name) <= 253 or any(c in name for c in '/:@?#\\'):
+            raise Unavailable('invalid_search_domain')
+        _, host = public_url('https://' + name + '/')
+        if (len(host) > 253 or any(not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', label)
+                                   for label in host.split('.'))):
+            raise Unavailable('invalid_search_domain')
+        if host not in domains: domains.append(host)
+    return domains
+
+
+def search_query_echo(raw, metadata, config, requested):
+    """Expose provider-declared query identity; it is not a relevance verdict."""
+    body = decoded(raw, metadata['content_type']); echo = None; location = None
+    context = {}
+    if config['provider'] == 'bing_rss':
+        rss = ET.fromstring(body)  # Already validated by query_results.
+        title, link = rss.findtext('./channel/title'), rss.findtext('./channel/link')
+        context = {'channel_title': (title or '')[:1024], 'channel_link': (link or '')[:4096]}
+        try:
+            values = parse_qs(urlsplit(link or '').query, keep_blank_values=True).get('q', [])
+        except ValueError:
+            values = []
+        if len(values) == 1: echo, location = values[0], 'rss/channel/link query parameter q'
+    elif config['provider'] in ('brave', 'searxng'):
+        payload = json.loads(body)
+        if config['provider'] == 'brave':
+            echo, location = payload['query']['original'], 'json/query/original'
+        elif isinstance(payload.get('query'), str):
+            echo, location = payload['query'], 'json/query'
+    return {'declared': echo is not None, 'location': location,
+            'query': echo[:4096] if echo is not None else None,
+            'query_sha256': sha(echo.encode()) if echo is not None else None,
+            'query_truncated': echo is not None and len(echo) > 4096,
+            'matches_requested': echo == requested if echo is not None else None, **context}
+
+
 def run(action, config, output):
     args, tool = action['arguments'], action['tool']
     if tool == 'online_search':
@@ -413,7 +455,11 @@ def run(action, config, output):
             raise Unavailable('credential_in_query_or_invalid_credential')
         if re.search(r'-----BEGIN .*PRIVATE KEY-----|\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,})\b', query):
             raise Unavailable('credential_like_query')
-        parameters = {'q': query}
+        domains = search_domains(args['domains']) if 'domains' in args else []
+        domain_query = ('site:' + domains[0] if len(domains) == 1
+                        else '(' + ' OR '.join('site:' + domain for domain in domains) + ')') if domains else ''
+        effective_query = query + (' ' + domain_query if domain_query else '')
+        parameters = {'q': effective_query}
         if config['provider'] == 'brave': parameters['count'] = count
         if config['provider'] == 'searxng': parameters['format'] = 'json'
         if config['provider'] == 'bing_rss': parameters['format'] = 'rss'
@@ -422,10 +468,29 @@ def run(action, config, output):
         if credential and credential in json.dumps([rows, warnings], ensure_ascii=False):
             raise Unavailable('provider_echoed_credential_parsed_result_withheld')
         save(output / 'text.txt', json.dumps(rows, ensure_ascii=False, indent=2).encode())
-        # Full parsed rows and response remain available through online_read.
-        bounded = [{**row, 'title': row['title'][:512], 'snippet': row['snippet'][:1500]} for row in rows[:count]]
+        # Retain the complete parsed results even if the provider ignored site:
+        # constraints. Filter only the returned URL host, not words or relevance.
+        selected = [row for row in rows if not domains or any(
+            public_url(row['url'])[1] == domain or public_url(row['url'])[1].endswith('.' + domain)
+            for domain in domains)]
+        bounded = [{**row, 'content_kind': 'search_snippet',
+                    'title': row['title'][:512], 'snippet': row['snippet'][:1500]} for row in selected[:count]]
+        provenance = {'schema_version': 'kernelbridge.search-provenance/v1',
+            'query': query, 'effective_query': effective_query, 'domains': domains,
+            'request_url': metadata['final_url'], 'query_parameter': 'q',
+            'provider_query_echo': search_query_echo(raw, metadata, config, effective_query),
+            'response_sha256': metadata.get('full_response_sha256'),
+            'parsed_results_sha256': sha(json.dumps(rows, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode()),
+            'safe_result_count': len(rows), 'domain_matched_count': len(selected),
+            'domain_filtered_count': len(rows) - len(selected), 'returned_count': len(bounded),
+            'content_kind': 'search_snippets', 'source_bodies_fetched': False,
+            'relevance_assessment': 'not_performed'}
+        save(output / 'search.json', provenance)
         return {'available': True, 'provider': config['provider'], 'provider_contract': config['provider_contract'],
-                'results': bounded, 'retained_result_count': len(rows), 'results_truncated': len(rows) > count,
+                'content_kind': 'search_snippets', 'source_bodies_fetched': False,
+                'results': bounded, 'retained_result_count': len(rows), 'results_truncated': len(selected) > count,
+                'domain_matched_count': len(selected), 'domain_filtered_count': len(rows) - len(selected),
+                'search': provenance,
                 'partial_provider_failure': bool(warnings), 'provider_warnings': str(warnings)[:2000] if warnings else None,
                 'response': metadata}
     if tool != 'online_fetch': raise Unavailable('unknown_online_tool')
@@ -442,7 +507,8 @@ def run(action, config, output):
         text, title = parser.text(), ''.join(parser.title)
     save(output / 'text.txt', text.encode())
     maximum = config['max_text_chars']
-    return {'available': True, 'url': metadata['final_url'], 'title': title[:512], 'text': text[:maximum],
+    return {'available': True, 'content_kind': 'fetched_page_text', 'source_body_fetched': True,
+            'url': metadata['final_url'], 'title': title[:512], 'text': text[:maximum],
             'text_characters': len(text), 'text_truncated': len(text) > maximum, 'response': metadata}
 
 
@@ -497,7 +563,7 @@ def main(config, action):
             rejection = str(error)
     if credential and credential in json.dumps(request_arguments, ensure_ascii=False):
         rejection = 'configured_credential_in_request'
-    if action['tool'] == 'online_search' and re.search(r'-----BEGIN .*PRIVATE KEY-----|\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,})\b', str(request_arguments.get('query', ''))):
+    if action['tool'] == 'online_search' and re.search(r'-----BEGIN .*PRIVATE KEY-----|\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,})\b', json.dumps(request_arguments, ensure_ascii=False)):
         rejection = 'credential_like_query'
     if rejection:
         request_arguments = {'withheld': rejection}

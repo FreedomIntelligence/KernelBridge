@@ -553,7 +553,9 @@ def isolation_projection(config, folder, intent, handle):
     except (KeyError, ValueError, TypeError, OSError) as error:
         derived = {'verdict': 'unknown', 'reason': str(error)}
     return {**descriptor, 'verdict': derived['verdict'],
-            **({'reason': str(derived['reason'])[:2000]} if derived.get('reason') else {})}
+            **({'reason': str(derived['reason'])[:2000]} if derived.get('reason') else {}),
+            **({'structured_reasons': derived['structured_reasons'],
+                'omitted_reasons': derived.get('omitted_reasons', 0)} if derived.get('structured_reasons') else {})}
 
 
 def repeatable_attempt(config, folder, intent):

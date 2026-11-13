@@ -1,5 +1,6 @@
 """A-J adapter over one original NPU job: E executes, F/G/J read its receipts."""
 import base64
+from bisect import bisect_right
 import hashlib
 import json
 import os
@@ -343,6 +344,60 @@ def verify_log_binding(record, evidence):
         raise ValueError('Original run log binding changed')
 
 
+DIAGNOSTIC_EXCERPT_BYTES = 3072
+DIAGNOSTIC_EXCERPT_LINES = 18
+
+
+def utf8_edge(raw, offset, *, after):
+    """Move an edge only when it bisects a valid original UTF-8 character."""
+    if not 0 < offset < len(raw) or raw[offset] & 0xc0 != 0x80:
+        return offset
+    start = offset
+    while start > 0 and offset - start < 3 and raw[start] & 0xc0 == 0x80:
+        start -= 1
+    lead = raw[start]
+    width = 2 if 0xc2 <= lead <= 0xdf else 3 if 0xe0 <= lead <= 0xef else 4 if 0xf0 <= lead <= 0xf4 else 0
+    end = start + width
+    if not width or not start < offset < end or end > len(raw):
+        return offset
+    try:
+        raw[start:end].decode('utf-8')
+    except UnicodeDecodeError:
+        return offset
+    return end if after else start
+
+
+def diagnostic_excerpt(raw, starts, index, match_offset, artifact):
+    """Select contiguous original bytes, with room for compiler source and notes."""
+    first = max(0, index - 3)
+    last = min(len(starts), first + DIAGNOSTIC_EXCERPT_LINES)
+    start = starts[first]
+    end = starts[last] if last < len(starts) else len(raw)
+    if end - start > DIAGNOSTIC_EXCERPT_BYTES:
+        # Long prefixes must not consume the whole window before the error.
+        start = max(start, match_offset - DIAGNOSTIC_EXCERPT_BYTES // 4)
+        end = min(end, start + DIAGNOSTIC_EXCERPT_BYTES)
+    start = utf8_edge(raw, start, after=True)
+    end = utf8_edge(raw, end, after=False)
+    page = raw[start:end]
+    begin_line = bisect_right(starts, start)
+    end_line = bisect_right(starts, max(start, end - 1))
+    boundary_after = starts[end_line] if end_line < len(starts) else len(raw)
+    excerpt = {'offset': start, 'length': len(page), 'sha256': hashlib.sha256(page).hexdigest(),
+        'artifact_bytes': artifact['bytes'], 'artifact_sha256': artifact['sha256'],
+        'line_start': begin_line, 'line_end': end_line, 'line_scope': 'artifact',
+        'first_line_partial': start != starts[begin_line - 1], 'last_line_partial': end != boundary_after,
+        'truncated': start > 0 or end < len(raw), 'truncated_before': start > 0, 'truncated_after': end < len(raw)}
+    try:
+        excerpt.update(encoding='utf-8', text=page.decode('utf-8'))
+    except UnicodeDecodeError:
+        excerpt.update(encoding='base64', data=base64.b64encode(page).decode('ascii'))
+    read = artifact.get('read')
+    if read:
+        excerpt['read'] = {**read, 'arguments': {**read['arguments'], 'offset': start, 'limit': len(page)}}
+    return excerpt
+
+
 def terminal_feedback(folder, request, result, evidence, config=None):
     """Project already verified terminal evidence; never execute or repair work."""
     if result.get('status') not in {'completed', 'failed'}:
@@ -398,7 +453,7 @@ def terminal_feedback(folder, request, result, evidence, config=None):
                     raise ValueError('Original retained log fragment identity or length changed')
                 data = path.read_bytes(); retain(name, data)
                 log['fragments'][name] = {**part, 'artifact': artifacts[name]}
-                texts.append((name, data.decode('utf-8', errors='replace')))
+                texts.append((name, data))
         elif record.get('status') in {'completed', 'partial'}:
             path = folder / 'run.log'; observed = observation.get('log') or {}
             if (record.get('path') != 'run.log' or path.resolve() != path or not path.is_file()
@@ -409,7 +464,7 @@ def terminal_feedback(folder, request, result, evidence, config=None):
                 raise ValueError('Original retained run log identity or length changed')
             data = path.read_bytes(); retain('run.log', data)
             log['artifact'] = artifacts['run.log']
-            texts.append(('run.log', data.decode('utf-8', errors='replace')))
+            texts.append(('run.log', data))
     if 'run.log' not in artifacts and observation.get('log_tail'):
         # Old receipts remain readable offline. A tail is explicitly incomplete.
         retain('legacy-log-tail.txt', observation['log_tail'].encode())
@@ -451,7 +506,7 @@ def terminal_feedback(folder, request, result, evidence, config=None):
             data = (output / name).read_bytes(); retain(name, data)
             copied[relative] = artifacts[name]
             if path.suffix == '.log':
-                entry = (name, data.decode('utf-8', errors='replace'))
+                entry = (name, data)
                 build_entries[relative] = entry
         incomplete = bool(unavailable) or len(paths) > 64
         build_feedback.update(artifacts=copied, unavailable_artifacts=unavailable,
@@ -487,12 +542,18 @@ def terminal_feedback(folder, request, result, evidence, config=None):
         text = result.get(field)
         if not isinstance(text, str) or not text: continue
         retain(field + '.txt', text.encode())
-        texts.append((field + '.txt', text))
+        texts.append((field + '.txt', text.encode()))
 
     def first_matching_line(pattern, flags=0, entries=None):
-        for field, text in texts if entries is None else entries:
-            lines = text.splitlines()
-            for number, line in enumerate(lines, 1):
+        for field, raw in texts if entries is None else entries:
+            lines = raw.splitlines(keepends=True)
+            starts = []; offset = 0
+            for line in lines:
+                starts.append(offset); offset += len(line)
+            for index, original_line in enumerate(lines):
+                # Surrogate escape keeps regex positions reversible even when
+                # an original compiler output contains non-UTF-8 bytes.
+                line = original_line.rstrip(b'\r\n').decode('utf-8', errors='surrogateescape')
                 if line.lstrip().startswith('{'):
                     try:
                         value = json.loads(line)
@@ -500,16 +561,22 @@ def terminal_feedback(folder, request, result, evidence, config=None):
                             continue  # Final result JSON is not an independent log diagnostic.
                     except ValueError:
                         pass
-                if re.search(pattern, line, flags):
+                match = re.search(pattern, line, flags)
+                if match:
                     context = []
-                    if number > 1 and re.search(r':\d+(?::\d+)?:\s*$', lines[number - 2]):
-                        previous = lines[number - 2].encode()
-                        context.append({'text': previous[:1024].decode('utf-8', errors='ignore'),
-                                        'line': number - 1, 'artifact': field,
-                                        'truncated': len(previous) > 1024})
-                    return {'text': line[:2048], 'line': number, 'artifact': field,
-                            'truncated': len(line) > 2048, 'context_before': context,
-                            'read': artifacts[field].get('read')}
+                    if index > 0:
+                        previous = lines[index - 1].rstrip(b'\r\n')
+                        if re.search(r':\d+(?::\d+)?:\s*$', previous.decode('utf-8', errors='surrogateescape')):
+                            stop = utf8_edge(previous, min(1024, len(previous)), after=False)
+                            context.append({'text': previous[:stop].decode('utf-8', errors='backslashreplace'),
+                                            'line': index, 'artifact': field, 'truncated': stop < len(previous)})
+                    match_offset = starts[index] + len(line[:match.start()].encode('utf-8', errors='surrogateescape'))
+                    excerpt = diagnostic_excerpt(raw, starts, index, match_offset, artifacts[field])
+                    original = original_line.rstrip(b'\r\n')
+                    stop = utf8_edge(original, min(2048, len(original)), after=False)
+                    return {'text': original[:stop].decode('utf-8', errors='backslashreplace'),
+                            'line': index + 1, 'artifact': field, 'truncated': stop < len(original),
+                            'context_before': context, 'excerpt': excerpt, 'read': artifacts[field].get('read')}
         return None
 
     # A C++ symbol such as c10::Error::Error is a stack frame, not a diagnostic.

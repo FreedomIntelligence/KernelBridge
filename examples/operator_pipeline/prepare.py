@@ -68,6 +68,9 @@ def prepare(profile, output, python):
         sys.path.pop(0)
     if profile.get('diagnostics') is not None:
         config['diagnostics'] = module.diagnostic_policy(config)
+    if 'declared_contract' in profile:
+        config['declared_contract'] = module.pin_declared_contract(profile['declared_contract'], config['read_roots'])
+        module.isolation_requirement(config['declared_contract']['contract']['measurement'], config.get('device_isolation'))
     # Leave enough time for the original evaluation plus its serial diagnostics;
     # the business-tool watchdog must not kill the diagnostic recovery boundary.
     diagnostic_seconds = sum(config['drivers'][name].get('timeout', 600)
@@ -89,9 +92,17 @@ def prepare(profile, output, python):
     source_files = {'type': 'object', 'description': 'Map bundle-relative filenames to existing source paths relative to the current workspace, or explicitly accessible absolute paths. Values are paths, never source text or hashes.',
                     'additionalProperties': {'type': 'string', 'minLength': 1, 'description': 'Existing workspace-relative or explicitly accessible absolute source file path'}}
     obj = {'type': 'object'}
+    declared = 'declared_contract' in config
+    bind_description = ('A: bind the complete frozen task contract with selection="declared". '
+        'Alternatively supply the full contract; every declared field and oracle source identity must match. '
+        'Choose exactly one form. Binding invalidates earlier acceptance.' if declared else
+        'A: bind task, independent correctness oracle, measurement and optional performance baseline. Changing them invalidates earlier acceptance.')
+    bind_properties = {'contract': obj}
+    if declared:
+        bind_properties['selection'] = {'enum': ['declared'],
+            'description': 'Bind the full host-declared contract, including its fixed measurement/provenance metadata; do not copy or invent those fields.'}
     specs = [
-        ('pipeline_bind', 'A: bind task, independent correctness oracle, measurement and optional performance baseline. Changing them invalidates earlier acceptance.',
-         {'contract': obj}, ['contract']),
+        ('pipeline_bind', bind_description, bind_properties, [] if declared else ['contract']),
         ('pipeline_plan', 'B/C: record workload families or a falsifiable hypothesis, including retained diagnostic evidence.',
          {'stage': {'enum': ['B', 'C']}, 'record': obj}, ['stage', 'record']),
         ('pipeline_freeze', 'D: freeze explicit candidate files and origin before execution. Never evaluates mutable workspace bytes.',

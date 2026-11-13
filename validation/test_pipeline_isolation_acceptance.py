@@ -193,13 +193,23 @@ class PipelineIsolationAcceptanceTests(unittest.TestCase):
 
     def test_model_cannot_strip_frozen_policy(self):
         self.setup_pipeline()
+        before = copy.deepcopy(self.pipeline.state)
+        def execution_artifacts():
+            return {str(path.relative_to(self.pipeline.root)): sha(path.read_bytes())
+                    for path in self.pipeline.root.rglob('*') if path.is_file()
+                    and ('driver' in path.parts or path.name.endswith('-intent.json'))}
+        before_execution = execution_artifacts()
         changed = copy.deepcopy(self.contract); changed['measurement'].pop('device_isolation')
-        self.call('pipeline_bind', contract=changed)
-        self.call('pipeline_baseline', selection='files', files={'baseline.py': str(self.root / 'baseline.py')})
-        self.call('pipeline_plan', stage='C', record={'hypothesis': 'synthetic'})
-        self.call('pipeline_freeze', files={'candidate.py': str(self.root / 'candidate.py')}, origin={})
-        self.call('pipeline_run', stage='F', driver='check')
-        self.assertEqual(self.pair()['status'], 'failed')
+        _, rejected = self.call('pipeline_bind', contract=changed)
+        self.assertEqual(rejected['status'], 'failed', rejected)
+        self.assertIn('/measurement/device_isolation', rejected['data']['result']['error'])
+        after = self.pipeline.state
+        self.assertEqual({key: value for key, value in after.items() if key != 'receipts'},
+                         {key: value for key, value in before.items() if key != 'receipts'})
+        self.assertEqual(after['receipts'][:-1], before['receipts'])
+        self.assertEqual(after['receipts'][-1]['tool'], 'pipeline_bind')
+        self.assertEqual(after['receipts'][-1]['status'], 'failed')
+        self.assertEqual(execution_artifacts(), before_execution)
 
     def test_without_baseline_correctness_bootstrap_is_not_E3(self):
         self.setup_pipeline(baseline=False)

@@ -145,7 +145,7 @@ def prepare(args):
     config_path = root / 'trial-config.json'; save(config_path, config)
     names = {'launch': 'npu-launch', 'collect': 'npu-collect', 'check': 'npu-check',
              'measure': 'npu-measure', 'ir': 'npu-ir', 'profiler': 'npu-profiler'}
-    save(project / 'workflow-inputs.json', {'contract': contract,
+    save(project / 'workflow-inputs.json', {'contract': contract, 'bind': {'selection': 'declared'},
         'baseline': {'selection': 'files', 'files': baseline_files}, 'freeze': {'files': {'candidate.py': 'candidate.py'}},
         'drivers': names, 'candidate_abi': task.get('candidate_abi'),
         'execution': 'E executes one native job containing build, correctness and ABBA; F/G/J only project its original receipt.',
@@ -165,7 +165,9 @@ def prepare(args):
         save(project / 'online-research.json', {'resources': research['resources']})
     (project / 'AGENTS.task.md').write_text(
         '# Configured operator workflow\n\n'
-        'Use contract.json exactly for pipeline_bind. workflow-inputs.json separately declares '
+        'Bind the complete frozen contract with pipeline_bind({"selection":"declared"}). '
+        'contract.json remains readable for understanding the task; if supplying contract explicitly, every field must match. '
+        'workflow-inputs.json separately declares bind arguments, '
         'baseline selection, driver IDs and the candidate ABI; do not add those fields to the contract.\n\n'
         'Use pipeline_evaluate for one source-bound build/check attempt, then recover its original '
         'continuation if pending. A preflight rejection marked not_started has no device job; correct '
@@ -197,7 +199,7 @@ def prepare(args):
             HERE.parent / 'operator_pipeline/job_identity.py', HERE.parent / 'operator_pipeline/preflight.py',
             HERE.parent / 'operator_pipeline/observation.py', HERE.parent / 'operator_pipeline/process_isolation.py', config_path,
             root / 'task.json', project / 'contract.json', transport]
-    profile = {'device_isolation': isolation, 'candidate_source': 'workspace', 'read_roots': [str(root), *sorted(set([*oracle_files.values(), *baseline_files.values()]))],
+    profile = {'declared_contract': contract, 'device_isolation': isolation, 'candidate_source': 'workspace', 'read_roots': [str(root), *sorted(set([*oracle_files.values(), *baseline_files.values()]))],
         'drivers': {name: {'kind': 'diagnostic' if operation in ('ir', 'profiler') else operation,
                     'argv': [str(args.python.absolute()), '-B', str(HERE / 'npu_pipeline_driver.py'), str(config_path), operation],
                     'files': [str(path) for path in pins], 'timeout': 1800 if operation in ('launch', 'collect') else 180,

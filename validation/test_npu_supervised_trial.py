@@ -308,9 +308,9 @@ if mode in ('sleep','early-result'):time.sleep(30)
         # sleep or testing hook, and the test host pins the copied module bytes.
         path = self.deployment / 'tools/npu_job_supervisor.py'
         code = path.read_text()
-        original = '    rc = child.wait()\n'
-        replacement = (original + "    (folder / 'test-settling-ready').write_text('wait returned')\n"
-                       + "    while not (folder / 'test-settling-release').exists(): time.sleep(.01)\n")
+        original = '            wait_observation, rc = None, child.wait()\n'
+        replacement = (original + "            (folder / 'test-settling-ready').write_text('wait returned')\n"
+                       + "            while not (folder / 'test-settling-release').exists(): time.sleep(.01)\n")
         self.assertEqual(code.count(original), 1)
         path.write_text(code.replace(original, replacement))
         return patch.object(npu_trial, '__file__', str(path.with_name('npu_trial.py')))
