@@ -1698,3 +1698,79 @@ with zero flaky, failed or environmental groups. Receipt SHA256 is
 `7988b90f435367fffdd1e3e745b4e83f9c5414f2926ef71a244c2afc6a74e2af`; all 57
 indexed artifacts matched their original lengths and hashes. This is focused
 local qualification, not a new NPU result or a full 27-group invocation.
+
+### Archived Min failure and resource-blocked Max after delivery 794b2a5
+
+The delivery receipt in the `generic-context-ir` worktree,
+`.validation/acceptance/main-push-result.json`, records an ordinary fast-forward
+push and remote verification of `794b2a5528c1ffbf8a651a8bd804c29b117907cc`.
+The independent trials below started with blank candidates and no aggregate
+turn/token cap, using the fixed same-device NPU eager baseline described above.
+Their different operators and stop boundaries do not form a controlled
+comparison of optimization efficiency.
+
+| Trial / source | Actual model calls | Recorded tokens | Native outcomes | Qualification |
+| --- | ---: | ---: | --- | --- |
+| Min / `9777abb` | 122 parent + 15 child calls across 2 instances | 17,153,232 | 12 original children and exits; 6 builds completed; all benchmark outcomes failed | No candidate case accepted, timing, E1/G/E3/H or promotion |
+| Max / `794b2a5` | 32 parent; no child | 1,938,673 | 2 children with compile-failure exits + 2 verified `not_started` admissions; no completed build | No candidate case accepted, timing, E1/G/E3/H or promotion |
+
+Min's old receipt-wait defect is the producer-classification issue corrected in
+the preceding section. Its original Journal remains unchanged at seq3348.
+Attempt11 had a known original exit but unknown measurement isolation; it is
+still nonqualifying. Five automatic IR collections completed, and four pages
+across two original artifacts entered subsequent model requests. Neither
+artifact was read completely. No profiler payload was read. Delivery of IR,
+compiler errors and child summaries did not yield a passing candidate.
+
+Max stopped for verified foreign device occupancy, not that old waiting defect.
+Its call32 requested `update_goal(status="blocked")`; the Goal transition is
+seq856 and the final checkpoint is seq868. Attempts3 and4 prove
+`not_started`, `dispatched=false` for the same foreign occupant. There are no
+unknown dispatches. Candidate v3 was never executed: its file SHA256 is
+`07444aefb5be58611dcbbf74ba06119bf24e24bd83e3c5e662a7f14863d1f9d3`;
+`f4845bc8e180e40ae134de17644df40a8ffa00d7f18d167f003eddb2ba829def` is the
+separate pipeline source-bundle identity. Both attempts returned unavailable IR and profiler envelopes
+after compilation failure, with no actual payload reads.
+This trial did not reach the new correctness-mismatch feedback path on NPU or
+establish a successful diagnostic-driven optimization loop.
+
+All 32 Max requests contained the complete instruction files and the same
+37,061-byte static system prefix. Provider usage reported 234,112 prompt-cache
+hit tokens, 1,693,289 misses and 11,272 completion tokens. These are observed
+bytes and usage, not proof of cache causation, monetary savings or reduced
+optimization cost. The detailed source-bound record is
+`trajectory/blocked32-prefix-cache-audit.json` within the Max archive.
+
+The prior local qualification remains as reported above: the initial 720-method
+Python run retained two failed methods and ten Linux skips; corrected modules
+passed 12/12 and 2/2, and terminal-progress tests passed 38/38. npm passed 230
+with three skips, followed by successful replay of both optional original-session
+fixtures. Affected TUI acceptance passed 12/12, with all 57 evidence files
+verified. These do not constitute a replacement all-pass Python invocation,
+a new full TUI invocation, or NPU performance qualification. Original commands,
+failures and follow-up receipts remain under `.validation/acceptance/` in the
+delivery worktree.
+
+Both complete sessions are now privately sealed outside disposable worktrees:
+
+| Archive under `~/.kernelbridge/optimization-archives/` | Manifest SHA256 | Entries / bytes, excluding manifest | Independent archival checks |
+| --- | --- | ---: | ---: |
+| `scatter-min/9777abb-application-6d0c5e8b-569c-43d3-91ec-99919cebf0e7` | `c7c1a4279b01e54e48e345774e6926920a9ab539710574178e89191be37bc7cc` | 20,718 / 683,314,640 | 19/19 |
+| `scatter-max/794b2a5-application-2d0675bf-5dbe-40b4-a77d-bc512187cc3f` | `58a1ef91212e51018068ebd1581ac1c16048619b97f275750f6a7bb321668dfd` | 19,282 / 278,023,362 | 24/24 |
+
+Each archive retains original requests, results, all attempts, candidate
+history, Pi sessions, source/deployment lineage and application dependencies.
+Max also retains the three public probe attempts and original occupancy
+observations. Source files were copied to independent APFS inodes; dependency
+links stay inside the archives. Credentials and live control sockets are
+excluded, and best-session pointers and original PTYs were not changed.
+`SUMMARY.md`, `failure-evidence.json`, `archive-provenance.json` and
+`trajectory/final-report.md` provide the evidence entry points. Platform
+interpreters, OS, remote CANN/device and credentials are external dependencies;
+an evidence archive is not an executable live session.
+
+Cube/matmul remains the unfinished non-scatter auxiliary check. Preparation of
+the alternate `31486` endpoint was at environment upload when this record was
+written; no trial or operator result is claimed there. Its different device/SDK
+environment still requires qualification. Neither retained trial establishes
+new acceleration, stable reproduction or E4 acceptance.
