@@ -155,7 +155,7 @@ class Journal:
             if any(value == task or value.startswith(task + "/") for value in tasks for task in protected):
                 raise Conflict("application-owned task requires its host execution lease")
             return
-        from kernelcat_executor.state.application import ModelAdmissionStopped, project
+        from kernelcat_executor.state.application import ModelAdmissionStopped, check_blocker_review_admission, project
         identity, worker, epoch = self._application_lease
         state = project(rows, identity)
         lease = state["lease"]
@@ -171,6 +171,11 @@ class Journal:
                 prior = prior_admissions.get(item.get("action_id"), {})
                 if prior.get("application_session_id") == identity and prior.get("lease_epoch") != epoch:
                     raise Conflict("an unstarted action cannot cross execution leases")
+            if item["kind"] in {"admitted", "started"}:
+                action = item.get("action", prior_admissions.get(item.get("action_id"), {}).get("action", {}))
+                if action.get("tool") == "__propose__" and action.get("id", "").startswith(
+                        state["task"]["id"] + "/goal-blocker/goal-review/"):
+                    check_blocker_review_admission(state, self._state(rows), action, rows)
         if goal and goal["status"] != "cleared" and any(item["kind"] == "admitted" and item["action"]["tool"] == "__propose__" for item in effects):
             if goal["status"] not in {"active", "cleared"} or state.get("takeover_requested") or state.get("pending_transition"):
                 raise ModelAdmissionStopped(goal["status"])

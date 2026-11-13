@@ -49,6 +49,11 @@ def continuation_text(state, decision, workspace_mode):
                 "Automatic continuation without new settled information returns control to the user; repeated polling is not progress.\n")
     text += ("The full original task, AGENTS instructions and ABI remain in the admitted instruction snapshot and workspace files. "
              "Read those files and the exact evidence references for details; this cue does not replace or shorten them.\n")
+    if decision.get("blocker_review"):
+        text += ("The original blocker proposal received an independent tool-free review. Its retained verdict and next check "
+                 "are in decision.blocker_review. Continue once within the existing authority and use original evidence to check "
+                 "the claim; this review grants no permissions and does not settle any external work. "
+                 "Repeating the blocker without new settled tool information returns control instead of starting another review.\n")
     # The decision stays in the last JSON line for the TUI continuation label.
     text += limits_text(state, decision) + "\n" + canonical(facts)
     return AgentInput(kind="prompt", text=text).text

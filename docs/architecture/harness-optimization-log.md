@@ -1949,3 +1949,96 @@ delivery verification passed. Receipts in the `sdk-search-progress` worktree:
 `sdk-search-npm-r1/result.json`, beneath `.validation/acceptance/`. A later clean
 trial must establish any reduction in model calls or improvement in kernel
 qualification; the still-running `2fc8186` trial cannot measure this revision.
+
+### 2026-11-13 — Max with SDK references: terminal trial audit
+
+The independent Max trial at `2fc8186` subsequently ended naturally after
+**131 parent model calls**, with zero child, compaction or review calls and
+**28,466,986 reported tokens**. No aggregate turn, token or credit limit was
+configured. The final status was `awaiting_user`, reason `blocked`, with no
+pending effects. This was the model's explicit `update_goal` request, not the
+old terminal-job/receipt-wait classification defect. The original session was
+not resumed or given a replacement candidate or additional prompt.
+
+All **nine** native attempts have their original exit receipts and sampled
+clear isolation verdicts: eight failed compilation and one built but failed
+at runtime before a correctness case completed. There is no candidate timing,
+complete correctness, E1/E3/H or promotion from this trial. The baseline remains
+the bound same-device NPU eager composition. The final workspace also differs
+from all nine evaluated candidates and cannot inherit any of their receipts.
+
+The agent made **56 SDK searches** (54 completed, two invalid-limit failures)
+and **23 SDK reads**. Each of those 23 source pages, including its action
+identity, appeared in the next actual provider request. Both frozen instruction
+files appeared in all 131 requests. The first and last requests offered the
+`delegate` tool with read-only scout/reviewer agents; no delegation was chosen.
+These observations establish capability and delivery, not model comprehension.
+
+Automatic IR reports were seven unavailable, one completed and one failed;
+profiler reports were eight unavailable and one blocked. Four `pipeline_read`
+calls read result/build logs; none read IR or profiler payloads. The completed
+IR artifact therefore did not become an observed diagnostic reasoning step.
+
+The model stopped on a claimed hard 32-block limit, an unavailable float atomic
+interface and a request for permission to use workspace or multiple launches.
+The source audit establishes the atomic link failure, but not that all legal
+implementations are blocked. The cited 32 is a constructor default in a replay
+helper; the runtime failure did not prove that this value imposed the launch
+limit. The task does not require one block per output bin or cross-block
+merging. Its delivered instructions already permit workspace and multiple
+launches. Thus the stopping argument contains unsupported inferences and an
+unnecessary permission request; it is not proof of a platform impossibility.
+
+The complete trial is retained at
+`~/.kernelbridge/optimization-archives/scatter-max/2fc8186-31486-application-4a44dc5c-fecc-4c83-bb83-754993f143e4`.
+Independent archive verification passed **26/26**: all 2,077 trial files are
+included, with 3,529 total members and 733,020,416 bytes. Manifest SHA256 is
+`b26ac36f39aadcf5c04e3ac9d454d2b7b34a634acf1b64f26b5ba9ab1df291b0`.
+Runtime and SDK dependencies retain their explicit external path/hash indexes;
+this is a complete session archive, not a self-contained executable environment.
+Only the owned passive observer was stopped after the terminal outcome; the
+original application and receipts remain unchanged.
+
+### 2026-11-13 — Opt-in review of Goal blocker proposals
+
+The Max stopping argument motivated a generic hypothesis: before accepting a
+model's blocker claim, a fresh tool-free review can compare it with the task,
+existing authority and original evidence. This may prevent unsupported stops;
+it is not yet evidence of fewer calls or better kernels. The existing
+`goal_review.enabled` flag opts in and remains false by default. Ordinary
+codegen and the isolated-task correctness, pairing and promotion gates remain
+unchanged.
+
+An enabled `update_goal(blocked)` records a source-bound proposal. Review runs
+only after its input and tools settle, using the same provider and usage ledger.
+An accepted continuation is a deterministic policy input bound to the original
+proposal and verdict. Its durable receipt prevents duplicate consumption after
+restart; an unresolved review is recovered under its original identity. A
+reviewed continuation that repeats a blocker without new tool information stops
+instead of generating an unbounded review loop. The review cannot certify
+isolated completion, grant permissions, clear unknown effects or override user
+input, pause, replacement, takeover or configured budgets. Admission/start and
+application boundaries check those conditions inside the Journal transaction.
+
+Source alignment used pinned public Codex Goal and Stop-hook implementations
+at `c0cc9fc820f62e4dbdde68214dd6d792d6c8a7ee`, and the public Claude Python SDK
+at `3cf3446b0fa6c97042e85b245bba07459f22f946`. Codex's model-facing Goal rules
+and settled-turn Stop hooks are relevant precedents; this independent blocker
+review is our addition. The public Claude SDK is not the complete CLI core.
+The source audit remains in the `sdk-search-progress` worktree at
+`.validation/acceptance/goal-blocker-source-alignment/report.md`.
+
+Review receives the same host-frozen instruction files as the working agent,
+including project AGENTS files that need not appear in task seeds. Original
+text, byte hashes and order are retained; context omission has an explicit
+manifest and count. It does not reread changed files or acquire new roots.
+
+The `goal-blocker-review` worktree passed all 209 local authority/session tests,
+including 28 new blocker regressions. Full npm passed 232 tests, with zero
+failures and three conditional skips. Real locked-Pi PTY acceptance passed seven
+new checks through 11 scripted local provider requests, plus all five original
+completion-review checks. The new checks establish actual feedback delivery,
+original project instruction bytes, once-only continuation, shared accounting, user-pause precedence and isolated
+noncompletion. They make no external-model reasoning or NPU performance claim.
+Detailed failed attempts and final receipts are recorded in
+`validation/tui/ACCEPTANCE.md`; original model trials remain unchanged.

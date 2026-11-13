@@ -111,7 +111,8 @@ def main():
     for name in ['sdk', 'long', 'recovery', 'steering', 'lifecycle', 'transport', 'admission', 'fork']:
         checks[name] = (scenario('product_scenario.py', '--deployment', str(deployment), '--scenario', name), ROOT, 300)
     for name, script, timeout in [('pty', 'pty_scenario.py', 300), ('interaction', 'interaction_scenario.py', 300),
-                                  ('codegen', 'codegen_scenario.py', 1200), ('codegen-edges', 'codegen_edges.py', 300)]:
+                                  ('codegen', 'codegen_scenario.py', 1200), ('codegen-edges', 'codegen_edges.py', 300),
+                                  ('goal-blocker-review', 'goal_blocker_scenario.py', 300)]:
         checks[name] = (scenario(script, '--deployment', str(deployment)), ROOT, timeout)
     for name, script in [('advanced', 'advanced_scenario.py'), ('resume', 'resume_default_home.py'), ('trace', 'trace_scenario.py'),
                          ('subagents-parallel', 'subagent_parallel.py'), ('subagents-stop', 'subagent_stop_scenario.py'),

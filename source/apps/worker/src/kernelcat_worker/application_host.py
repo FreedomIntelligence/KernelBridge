@@ -162,7 +162,10 @@ class ApplicationHost:
                 description=("Complete an active Goal only after verifying its objective, or report a concrete blocker needing user input. "
                     if config.workspace_mode == "project" else
                     "Report a concrete blocker or wait for an original external receipt; this returns control without settling or replacing unknown effects. Task completion still requires its original acceptance gates. ")
-                    + "Pause/resume/clear remain user controls. Include evidence or the exact missing input in summary.",
+                    + "Report blocked only after the same external obstruction persists across at least three consecutive Goal turns; "
+                    "difficulty, uncertainty, unfinished work or a new design alone is not a blocker. "
+                    "When Goal review is enabled, this is a proposal reviewed after the current input settles, not an immediate stop. "
+                    "Pause/resume/clear remain user controls. Include evidence or the exact missing input in summary.",
                 parameters={"type": "object", "properties": {"status": {"enum": ["complete", "blocked"] if config.workspace_mode == "project" else ["blocked"]},
                     "summary": {"type": "string", "minLength": 1, "maxLength": 4096}},
                     "required": ["status", "summary"], "additionalProperties": False}), self.update_codegen_goal)
@@ -311,6 +314,10 @@ class ApplicationHost:
                                     result = {"stop": True, "result": {"status": "trial_limit"}}
                                 elif method == "prepare_turn" and any(item["status"] == "queued" and item.get("transition_operation") for item in self.journal.state()["inputs"].values()):
                                     result = {"stop": True, "result": {"status": "trial_transition"}}
+                                elif method == "prepare_turn" and self.goal_blocker_pending(goal, request.get("context", {}).get("input_id")):
+                                    # Finish only this invocation. The explicit Goal
+                                    # remains active until its settled-input review.
+                                    result = {"stop": True, "result": {"status": "finished", "reason": "goal_blocker_review_pending"}}
                                 else:
                                     if method in {"tool", "native_call", "batch"}:
                                         verify_evaluator(self.evaluator)
@@ -722,12 +729,27 @@ class ApplicationHost:
         if (admitted.get("seq", -1) <= boundary
                 or admitted.get("application_context", {}).get("goal_id") not in (None, goal["goal_id"])):
             return Outcome(status="failed", data={"reason": "goal_changed", "summary": "The original action belongs to another Goal boundary."})
+        if self.config.goal_review.enabled:
+            input_id = admitted.get("application_context", {}).get("input_id")
+            original = self.journal.state()["inputs"].get(input_id)
+            if not original or original["kind"] == "control" or original["status"] != "applied":
+                return Outcome(status="failed", data={"reason": "review_input_missing",
+                    "summary": "A blocker proposal must belong to the current applied input."})
+            return Outcome(data={"review_pending": True, "review_purpose": "blocker",
+                "goal_id": goal["goal_id"], "goal_sha256": digest(goal), "input_id": input_id,
+                "proposal_action_id": action.id, "summary": action.arguments["summary"]})
         result = self.journal.command("goal_outcome", {"status": "awaiting_user", "reason": "blocked",
             "summary": action.arguments["summary"], "action_id": action.id, "expected_goal_sha256": digest(goal)})
         recorded_goal = result.get("goal") or {}
         if recorded_goal.get("status") != "awaiting_user" or recorded_goal.get("goal_id") != goal["goal_id"]:
             return Outcome(status="failed", data={"reason": "goal_changed", "summary": "A newer Goal control superseded this blocker report."})
         return Outcome(data={"status": "awaiting_user", "reason": "blocked", "summary": action.arguments["summary"]})
+
+    def goal_blocker_pending(self, goal, input_id):
+        if not self.config.goal_review.enabled:
+            return False
+        from kernelcat_worker.application_goal_blocker import pending_proposal
+        return pending_proposal(self, goal, input_id) is not None
 
     def update_codegen_plan(self, action):
         from kernelcat_executor.contracts.models import Outcome, ToolFailure
@@ -787,6 +809,14 @@ class ApplicationHost:
         queued = [item for item in state["inputs"].values() if item["status"] == "queued" and item["kind"] != "control"]
         if queued:
             return {"action": queued[0].get("transition_operation", "input"), "receipt": queued[0]}
+        if self.config.goal_review.enabled:
+            from kernelcat_worker.application_goal_blocker import maybe_review
+            try:
+                blocker_decision = maybe_review(self, connection, state)
+            except ModelAdmissionStopped:
+                return {"action": "wait", "reason": "review_admission_stopped"}
+            if blocker_decision is not None:
+                return blocker_decision
         if (self.config.goal_review.enabled and self.config.workspace_mode == "project"
                 and state["goal"] and state["goal"]["status"] == "active"
                 and not state["calls"] and not state["pending_effect_ids"]):

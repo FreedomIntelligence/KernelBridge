@@ -856,3 +856,43 @@ Receipts under `.validation/acceptance/` in `sdk-search-progress`:
   `47e7c825d52c6d91a2a855b17e2e3706bff431e08a4257a4c6838dbd6e997111`.
 * `sdk-search-npm-r1/test.log`: SHA256
   `c7d239f01412a51f048e5926237b1c37385fd0b4bb53f4fbec686f2c2b2582fe`.
+
+### 2026-11-13 — Opt-in Goal blocker review
+
+In worktree `goal-blocker-review`, the complete local authority/session unittest
+discovery passed **209/209**. This includes **28** new blocker tests and the
+original completion-review, lease, budget, input and continuation tests. The
+focused subset passed **118/118**. Full npm passed **232/235**, with zero failures
+and the three existing conditional skips. No external model or device was used.
+
+Actual locked-Pi PTY checks passed **7/7** for ordinary idle behavior, settled
+blocker review, feedback in the next serialized provider request, single
+continuation consumption, shared model-call usage, user pause against a late
+verdict, and isolated repeated-blocker stopping. The scenario made 11 scripted
+provider requests and compared the original project AGENTS text and byte hash
+inside the actual reviewer request. The original completion-review PTY scenario also passed all
+five checks. These focused scenarios do not constitute a new full TUI matrix.
+
+Earlier attempts remain retained: the initial unittest interpreter lacked
+pydantic; the first PTY invocation lacked pyte, and its configured retry found
+three bytecode files from that initial import. Only those new cache files were
+removed. A later launch rejected the changed test-file manifest while its final
+unit cases were still being added. The next local provider fixture omitted the
+normal final-answer request after a completion proposal; that fixture assertion
+caused a transport failure and timeout. After correcting the fixture, the final
+new and existing PTY scenarios passed. Unit testing also found and fixed strict
+JSON deserialization when cancelling an originally unstarted review reservation.
+Final source review found that project AGENTS were absent from task seed files;
+the reviewer now reuses the host-frozen instruction snapshot. Five additional
+unit tests and a second successful Pi invocation cover that repair. The initial
+204-test result and earlier successful Pi invocation remain retained.
+
+Evidence beneath `.validation/acceptance/` in that worktree:
+
+- `goal-blocker-unit-summary.json`, `goal-blocker-instructions-summary.json`,
+  `blocker-authority-r1.log` and final `blocker-authority-r2.log`.
+- `blocker-npm-r1.log`.
+- `blocker-pi-r1/`, `blocker-pi-r2.log`, `blocker-pi-r3.log` and the passing
+  `blocker-pi-r4/scenario.json`, plus final `blocker-pi-r5/scenario.json`, original
+  requests, states and terminal casts.
+- `completion-review-pi-r1/scenario.json` and original requests/terminal cast.

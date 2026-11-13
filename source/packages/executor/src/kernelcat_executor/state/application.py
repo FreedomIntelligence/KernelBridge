@@ -24,6 +24,65 @@ class ModelAdmissionStopped(Conflict):
         super().__init__(f"model admission stopped by application state: {status}")
 
 
+def goal_review_boundary(state, execution, guard, *, ignore_action_id=None):
+    """Verify a blocker review boundary within its caller's Journal transaction."""
+    current = state["lease"]
+    if (not current or current["worker_id"] != guard.get("worker_id")
+            or current["lease_epoch"] != guard.get("lease_epoch")):
+        raise Conflict("stale or missing Goal review execution lease")
+    goal = state["goal"]
+    original = state["inputs"].get(guard.get("input_id"))
+    if (not goal or goal["status"] != "active" or digest(goal) != guard.get("goal_sha256")
+            or state["task_version"] != guard.get("task_version")
+            or not original or original["status"] != "completed"):
+        return False
+    end = original["completed_seq"]
+    if any(item["status"] in {"queued", "applied"}
+           or (item["kind"] == "control" and item["accepted_seq"] > end)
+           or (item["kind"] != "control" and max(item.get(status + "_seq", -1)
+               for status in TERMINAL_INPUT) > end) for item in state["inputs"].values()):
+        return False
+    return (not state.get("takeover_requested") and not state.get("pending_transition")
+            and not any(call["status"] == "pending" for call in state["calls"].values())
+            and not any(not entry.get("terminal") and key != ignore_action_id
+                        for key, entry in execution["actions"].items()))
+
+
+def check_blocker_review_admission(state, execution, action, rows):
+    """No charged stale review after new input/control, even before dispatch."""
+    prefix = state["task"]["id"] + "/goal-blocker/goal-review/"
+    if action.get("tool") != "__propose__" or not action.get("id", "").startswith(prefix):
+        return
+    parents = action.get("parents", ())
+    proposal_id = parents[0] if len(parents) == 1 else None
+    proposal = execution["actions"].get(proposal_id, {})
+    proposed = (proposal.get("outcome") or {}).get("data") or {}
+    original = proposal.get("action") or {}
+    context = proposal.get("application_context") or {}
+    goal = state.get("goal") or {}
+    guard = {**(state.get("lease") or {}), "goal_sha256": proposed.get("goal_sha256"),
+             "input_id": proposed.get("input_id"), "task_version": context.get("task_version")}
+    boundary = max([-1, *(value for value in (goal.get("start_seq"), goal.get("resume_seq")) if isinstance(value, int))])
+    expected = prefix + str(goal.get("goal_id")) + "/" + digest({
+        "proposal": proposal_id, "goal": guard["goal_sha256"], "input": guard["input_id"]})
+    if (not proposal.get("terminal") or proposal.get("seq", -1) <= boundary
+            or original.get("task") != state["task"]["id"] or original.get("tool") != "update_goal"
+            or original.get("arguments", {}).get("status") != "blocked"
+            or proposal["outcome"].get("status") != "completed"
+            or proposed.get("review_pending") is not True or proposed.get("review_purpose") != "blocker"
+            or proposed.get("proposal_action_id") != proposal_id or proposed.get("goal_id") != goal.get("goal_id")
+            or context.get("input_id") != guard["input_id"] or context.get("goal_id") not in (None, goal.get("goal_id"))
+            or action.get("task") != state["task"]["id"] or action["id"] != expected
+            or not goal_review_boundary(state, execution, guard, ignore_action_id=action["id"])):
+        raise ModelAdmissionStopped("goal_blocker_boundary")
+    from kernelcat_executor.state.continuation_progress import continuation_activity
+    latest = state["inputs"][guard["input_id"]]
+    activity = continuation_activity(list(Journal._events(rows)), latest,
+        task_id=state["task"]["id"], goal_id=goal["goal_id"], start_seq=goal["start_seq"])
+    if activity["waiting"] or (latest.get("goal_blocker_review") and not activity["progress"]):
+        raise ModelAdmissionStopped("goal_blocker_original_receipt")
+
+
 def project(rows: list[dict], identity: str) -> dict:
     state: dict[str, Any] = {"application_session_id": identity, "inputs": {}, "lease_epoch": 0,
                              "lease": None, "goal": None, "trials": [], "calls": {},
@@ -125,6 +184,8 @@ class ApplicationJournal:
             def stable():
                 if any(call["status"] == "pending" for call in state["calls"].values()):
                     raise Conflict("unresolved calls require original receipt reconciliation")
+            def review_boundary(guard):
+                return goal_review_boundary(state, self.journal._state(rows), guard)
             if method == "create":
                 if "task" in state:
                     if state["creation_digest"] != digest(data):
@@ -147,12 +208,64 @@ class ApplicationJournal:
                 if not isinstance(data.get("text"), str) or len(data["text"].encode()) > 262144:
                     raise Conflict("input must be bounded UTF-8 text")
                 previous = state["inputs"].get(key)
-                checksum = digest(data)
+                # A resumed host may apply the same original review under a new
+                # lease. The transient CAS guard is not input content.
+                accepted = {key: value for key, value in data.items() if key != "review_guard"} if "goal_blocker_review" in data else data
+                checksum = digest(accepted)
                 if previous:
                     if previous["content_digest"] != checksum:
                         raise Conflict("input ID reused with different content")
                     return None, previous
-                emit("input_accepted", {**data, "content_digest": checksum, "task_version": state["task_version"]})
+                if "goal_blocker_review" in data:
+                    guard, feedback = data.get("review_guard") or {}, data["goal_blocker_review"]
+                    if not review_boundary(guard):
+                        return None, state
+                    if data["kind"] != "policy" or data["initiator"] != "loopx" or data["channel"] != "policy":
+                        raise Conflict("Goal blocker review can only continue through a policy input")
+                    execution = self.journal._state(rows)
+                    proposal_id = feedback.get("proposal_action_id")
+                    proposal = execution["actions"].get(proposal_id, {})
+                    proposed = (proposal.get("outcome") or {}).get("data") or {}
+                    action = proposal.get("action") or {}
+                    review_id = state["task"]["id"] + "/goal-blocker/goal-review/" + state["goal"]["goal_id"] + "/" + digest({
+                        "proposal": proposal_id, "goal": guard["goal_sha256"], "input": guard["input_id"]})
+                    decision_id = digest({"proposal": proposal_id, "review": review_id,
+                                          "goal": guard["goal_sha256"], "input": guard["input_id"]})
+                    reviewed = execution["actions"].get(review_id, {})
+                    reviewed_action = reviewed.get("action") or {}
+                    from kernelcat_executor.state.goal_progress import review_verdict
+                    try:
+                        verdict = review_verdict(reviewed["outcome"])
+                    except (ValueError, KeyError):
+                        raise Conflict("Goal blocker continuation requires an original review verdict") from None
+                    context = proposal.get("application_context") or {}
+                    boundary = max([-1, *(value for value in (state["goal"].get("start_seq"), state["goal"].get("resume_seq"))
+                                         if isinstance(value, int))])
+                    if (not proposal.get("terminal") or proposal.get("seq", -1) <= boundary
+                            or action.get("task") != state["task"]["id"] or action.get("tool") != "update_goal"
+                            or action.get("arguments", {}).get("status") != "blocked"
+                            or proposal["outcome"].get("status") != "completed"
+                            or proposed.get("review_pending") is not True or proposed.get("review_purpose") != "blocker"
+                            or proposed.get("proposal_action_id") != proposal_id
+                            or proposed.get("goal_id") != state["goal"]["goal_id"]
+                            or proposed.get("goal_sha256") != guard["goal_sha256"]
+                            or proposed.get("input_id") != guard["input_id"] or context.get("input_id") != guard["input_id"]
+                            or context.get("goal_id") not in (None, state["goal"]["goal_id"])
+                            or not reviewed.get("terminal") or reviewed_action.get("tool") != "__propose__"
+                            or reviewed_action.get("task") != state["task"]["id"]
+                            or list(reviewed_action.get("parents", ())) != [proposal_id]
+                            or feedback.get("purpose") != "blocker" or feedback.get("action_id") != review_id
+                            or data.get("decision_id") != decision_id or key != "loopx-" + decision_id
+                            or data.get("goal_id") != state["goal"]["goal_id"]
+                            or feedback.get("review_sha256") != digest(reviewed["outcome"])
+                            or verdict != {"status": "continue", "summary": feedback.get("summary")}):
+                        raise Conflict("Goal blocker continuation does not match its original proposal and review")
+                    from kernelcat_executor.state.continuation_progress import continuation_activity
+                    activity = continuation_activity(list(Journal._events(rows)), state["inputs"][guard["input_id"]],
+                        task_id=state["task"]["id"], goal_id=state["goal"]["goal_id"], start_seq=state["goal"]["start_seq"])
+                    if activity["waiting"]:
+                        return None, state
+                emit("input_accepted", {**accepted, "content_digest": checksum, "task_version": state["task_version"]})
                 if (data["initiator"] == "user" and data["kind"] in {"prompt", "steer", "follow_up"}
                         and state["goal"] and state["goal"]["status"] == "completed"):
                     emit("goal", {**state["goal"], "status": "cleared", "reason": "new_user_request"})
@@ -252,6 +365,8 @@ class ApplicationJournal:
                 emit("input_transition", {"input_id": data["input_id"], "status": "completed", "control_result": goal})
             elif method == "goal_outcome":
                 goal = state["goal"]
+                if "review_guard" in data and not review_boundary(data["review_guard"]):
+                    return None, state
                 # An asynchronous rejection must not replace a newer explicit
                 # pause/resume/set that arrived after the host's state read.
                 if "expected_goal_sha256" in data and digest(goal) != data["expected_goal_sha256"]:
@@ -288,7 +403,7 @@ class ApplicationJournal:
                             pass
                     if not codegen and not reviewed and (not evidence or evidence["task_version"] != state["task_version"]):
                         raise Conflict("Goal completion requires current original acceptance evidence")
-                outcome = {key: value for key, value in data.items() if key not in {"expected_goal_sha256", "expected_input_id"}}
+                outcome = {key: value for key, value in data.items() if key not in {"expected_goal_sha256", "expected_input_id", "review_guard"}}
                 emit("goal", {**goal, **outcome, **({"ended_at_ns": time.time_ns()} if data["status"] in {"completed", "failed"} else {})})
             elif method == "call_intent":
                 lease()

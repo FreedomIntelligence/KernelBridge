@@ -263,7 +263,7 @@ class GoalAwaitCASTests(unittest.TestCase):
     def test_isolated_blocked_tool_cannot_complete_or_replace_unknown_effects(self):
         self.control('set', objective='work')
         host = ApplicationHost.__new__(ApplicationHost)
-        host.config = SimpleNamespace(workspace_mode='task')
+        host.config = SimpleNamespace(workspace_mode='task', goal_review=SimpleNamespace(enabled=False))
         host.journal = self.app
         host.owner = SimpleNamespace(gateway=SimpleNamespace(store=self.store))
         action = Action(id='blocked', task='task', tool='update_goal', arguments={'status': 'blocked', 'summary': 'Need original receipt job-1'})
