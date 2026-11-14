@@ -80,3 +80,17 @@ release qualification while keeping the generator itself on `dev`.
 - A preliminary JS run skipped the two Python-backed SDK cases because this new dev worktree had no bound runtime. After binding the existing Python installation to freshly built development wheels, both cases passed in the final run.
 - The first development bind failed because the shell selected an old Node. It succeeded with the existing Node 22.19 installation on PATH. Both logs remain in `.validation/release-boundary/`.
 - Release installation and launcher acceptance are recorded separately; development test results are not NPU performance qualification.
+
+### Published release acceptance
+
+The runtime-only projection of dev `91d0f6a6569cbc3b91244817655b92cd3c2a8c62` is main `d976307`. Its tracked tree is exactly the 810 manifest entries plus `PIN_MANIFEST.json`; there are no tracked development docs, validation suite, release exporter, private experiment scripts or developer metadata. The runtime instructions and user task templates remain available.
+
+A fresh exported installation built and imported all four Python packages, installed the locked production npm dependencies, and passed source verification and `pip check`. The direct LoopX download initially failed this machine's TLS trust configuration; a certificate-verified proxy download matched the locked SHA256 before offline installation. No TLS verification was disabled.
+
+The installed launcher passed all 11 ordinary-codegen PTY checks with 35 consecutive ordinary turns and 52 local fixture requests, covering idle startup, native commands, project instructions, read/edit/bash, no implicit step cap, command admission, compact/new, interruption, opt-in Goal, provider failure recovery and resume without replay. The main-checkout launcher separately passed the same 11 checks with the repeated-turn loop disabled (17 local fixture requests). Neither run called an external model or NPU.
+
+The main checkout now points to this verified immutable installation through ignored `.installation` state. Existing `node_modules` were retained and all 135 installed runtime package versions matched the release lockfile. Existing `.development`, `.validation` and archived sessions were retained for original-session recovery.
+
+Cleanup removed the merged remote `codex/harness-20turn-rebased` reference and the idle local `codex/sdk-search-progress` reference. The latter's worktree remains at its original detached commit because retained evidence references it. Branches used by live hosts and the not-proven-merged remote `codex/harness-20turn` were kept. No history rewrite was performed.
+
+Local acceptance evidence: `.validation/release-boundary/`. Future release promotion must repeat the export/install checks for its own source commit.

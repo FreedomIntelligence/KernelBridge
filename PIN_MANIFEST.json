@@ -632,8 +632,8 @@
       "sha256": "b91082e5c5fe0b787545c79e7f2c33478875810d934037900864c338eb37109f"
     },
     "docs/architecture/release-workflow.md": {
-      "bytes": 5287,
-      "sha256": "fe04819a86328012cf36fa26aa28b3517053210f8fcb1664a1049a7150fb215e"
+      "bytes": 7440,
+      "sha256": "1c87be0da9f3188b3bcf832f0ef03d6f037acab8f70be46bfa6e3f53b29e6ef2"
     },
     "docs/architecture/tui-implementation-plan.md": {
       "bytes": 44715,
