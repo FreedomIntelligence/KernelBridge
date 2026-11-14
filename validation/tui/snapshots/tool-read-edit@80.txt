@@ -1,3 +1,0 @@
-⏺ Read(src/parser.py)
-  ⎿  读取 3 行
-⏺ Update(src/parser.py)

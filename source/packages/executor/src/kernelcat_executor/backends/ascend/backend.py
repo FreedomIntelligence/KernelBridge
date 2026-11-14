@@ -38,36 +38,9 @@ def execute(argv: list[str], cwd: Path) -> int:
     return subprocess.run([sys.executable, *argv], cwd=cwd, env=environment(), check=False).returncode
 
 
-def test_plan() -> list[tuple[Path, list[str]]]:
-    manifest = json.loads((ROOT / "tests/suites.json").read_text())
-    actual = {p.name for p in (TOOLS / "ab_sdk/tests").glob("test_*.py")}
-    maintained, historical = manifest["sdk_current"], manifest["sdk_historical"]
-    if (len(maintained) != len(set(maintained)) or len(historical) != len(set(historical))
-            or set(maintained) & set(historical) or set(maintained) | set(historical) != actual):
-        raise ValueError("SDK tests changed: classify every file in tests/suites.json before running the gate")
-    if any(Path(name).name != name for name in (*maintained, *historical)):
-        raise ValueError("test manifest must contain filenames, not paths")
-    return [
-        (ROOT, ["-m", "pytest", "-q", "tests/test_boundaries.py", "tests/test_performance_schema.py"]),
-        (PIPELINE, ["-m", "pytest", "-q", "tests"]),
-        (TOOLS, ["-m", "pytest", "-q", *["ab_sdk/tests/" + name for name in maintained]]),
-        *[(ROOT, [str(ROOT / "tests" / script)]) for script in
-          ("test_ast_audit.py", "test_audit_modelnew.py", "test_runtime_guard.py")],
-    ]
-
-
-def run_tests() -> int:
-    result = 0
-    for cwd, argv in test_plan():
-        print("Backend contract suite:", cwd.relative_to(SOURCE), flush=True)
-        code = execute(argv, cwd)
-        result = result or code
-    return result
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=(*COMMANDS, "evaluate", "batch", "inspect", "catalog", "test"))
+    parser.add_argument("command", choices=(*COMMANDS, "evaluate", "batch", "inspect", "catalog"))
     parser.add_argument("arguments", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     rest = args.arguments[1:] if args.arguments[:1] == ["--"] else args.arguments
@@ -86,10 +59,6 @@ def main(argv: list[str] | None = None) -> int:
         from kernelcat_executor.evaluation.protocols.six_source.catalog import dataset
         print(json.dumps(dataset, sort_keys=True))
         return 0
-    if args.command == "test":
-        if rest:
-            parser.error("test takes no extra arguments")
-        return run_tests()
     cwd, command = COMMANDS[args.command]
     return execute([*command, *rest], cwd)
 

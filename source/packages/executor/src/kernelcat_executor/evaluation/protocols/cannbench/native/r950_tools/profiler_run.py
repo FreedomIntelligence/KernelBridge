@@ -37,6 +37,9 @@ RUNNER_NAME = "r950_tools/profiler_run.py"
 
 def _main_impl(argv: list[str] | None = None) -> int:
     raw_argv = list(sys.argv[1:] if argv is None else argv)
+    if "--help" in raw_argv or "-h" in raw_argv:
+        _core._build_parser().print_help()
+        return 0
     try:
         cleaned, metrics, explicit_metrics = _strip_metrics(raw_argv)
         final_artifact = Path(_option_value(cleaned, "--artifact-dir")).expanduser()

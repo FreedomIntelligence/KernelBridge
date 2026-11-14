@@ -26,8 +26,3 @@ include = ["kernelcat_knowledge*"]
 
 [tool.setuptools.package-data]
 kernelcat_knowledge = ["py.typed"]
-
-[tool.pytest.ini_options]
-addopts = "-ra --import-mode=importlib"
-pythonpath = ["src", "tests"]
-testpaths = ["tests"]

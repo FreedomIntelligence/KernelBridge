@@ -1,10 +1,10 @@
-"""Load KernelCat/cann.env into os.environ. Never print secret values."""
+"""Load an explicitly selected CANN environment file. Never print secret values."""
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-ENV = Path(__file__).resolve().parents[2] / "cann.env"
+ENV = Path(os.environ.get("CANN_ENV_FILE", str(Path.home() / ".config/kernelbridge/cann.env")))
 
 
 def load() -> list[str]:
@@ -22,12 +22,6 @@ def load() -> list[str]:
         val = val.strip().strip("'").strip('"')
         os.environ[key] = val
         loaded.append(key)
-    os.environ.setdefault("CANN_BOARD", "910c")
-    os.environ["CANN_BOARD"] = "910c"
-    os.environ.setdefault(
-        "PUSH_SKIP_ACCTS",
-        ",".join(["GITCODE_TOKEN_%d" % i for i in range(6, 20)]),
-    )
     return loaded
 
 

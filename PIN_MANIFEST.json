@@ -1,655 +1,23 @@
 {
-  "derivation": {
-    "added_files": [
-      ".gitignore",
-      "docs/architecture/tui-implementation-plan.md",
-      "docs/operator-workflow.md",
-      "docs/tui.md",
-      "examples/cann/README.md",
-      "examples/cann/application.mjs",
-      "examples/cann/archive.mjs",
-      "examples/cann/candidate.mjs",
-      "examples/cann/continue-run.mjs",
-      "examples/cann/cube-matmul/README.md",
-      "examples/cann/cube-matmul/baseline.py",
-      "examples/cann/cube-matmul/case.json",
-      "examples/cann/cube-matmul/evaluation-request.example.json",
-      "examples/cann/cube-matmul/native/bindings/model.py",
-      "examples/cann/cube-matmul/native/bindings/op.cpp",
-      "examples/cann/cube-matmul/native/matmul_custom.json",
-      "examples/cann/cube-matmul/native/op_host/matmul_custom.cpp",
-      "examples/cann/cube-matmul/native/op_kernel/matmul_custom.cpp",
-      "examples/cann/cube-matmul/native/op_kernel/matmul_custom_tiling.h",
-      "examples/cann/cube-matmul/native/sources.json",
-      "examples/cann/cube-matmul/reference.py",
-      "examples/cann/cube-matmul/task.compiled.json",
-      "examples/cann/cube-matmul/task.json",
-      "examples/cann/diagnostic_tools.py",
-      "examples/cann/evaluate.py",
-      "examples/cann/evaluation_tools.py",
-      "examples/cann/export.mjs",
-      "examples/cann/goal-contract.template.json",
-      "examples/cann/goal.mjs",
-      "examples/cann/goal_inputs.py",
-      "examples/cann/instructions/AGENTS.md",
-      "examples/cann/make_tasks.py",
-      "examples/cann/matmul-template.py",
-      "examples/cann/native-template.py",
-      "examples/cann/pack_native.py",
-      "examples/cann/prepare.py",
-      "examples/cann/prepare_goal.py",
-      "examples/cann/profiles/npu.example.json",
-      "examples/cann/restore-session.mjs",
-      "examples/cann/rsi_local.py",
-      "examples/cann/run-legacy.mjs",
-      "examples/cann/run.mjs",
-      "examples/cann/scatter-max/baseline.py",
-      "examples/cann/scatter-max/case.json",
-      "examples/cann/scatter-max/evaluation-request.example.json",
-      "examples/cann/scatter-max/reference.py",
-      "examples/cann/scatter-max/task.compiled.json",
-      "examples/cann/scatter-max/task.json",
-      "examples/cann/scatter-min/baseline.py",
-      "examples/cann/scatter-min/case.json",
-      "examples/cann/scatter-min/evaluation-request.example.json",
-      "examples/cann/scatter-min/reference.py",
-      "examples/cann/scatter-min/task.compiled.json",
-      "examples/cann/scatter-min/task.json",
-      "examples/cann/scatter_task.py",
-      "examples/cann/sigmoid-optimization/README.md",
-      "examples/cann/sigmoid-optimization/baseline.py",
-      "examples/cann/sigmoid-optimization/native/bindings/model.py",
-      "examples/cann/sigmoid-optimization/native/bindings/op.cpp",
-      "examples/cann/sigmoid-optimization/native/op_host/sigmoid_custom.cpp",
-      "examples/cann/sigmoid-optimization/native/op_kernel/sigmoid_custom.cpp",
-      "examples/cann/sigmoid-optimization/native/op_kernel/sigmoid_custom_tiling.h",
-      "examples/cann/sigmoid-optimization/native/sigmoid_custom.json",
-      "examples/cann/sigmoid-optimization/native/sources.json",
-      "examples/cann/sigmoid-optimization/performance.json",
-      "examples/cann/sigmoid-optimization/provenance.json",
-      "examples/cann/sigmoid-optimization/reproduce.mjs",
-      "examples/cann/sigmoid-optimization/solution.py",
-      "examples/cann/sigmoid-optimization/suite/LICENSE",
-      "examples/cann/sigmoid-optimization/suite/baseline.py",
-      "examples/cann/sigmoid-optimization/suite/cases.yaml",
-      "examples/cann/sigmoid-optimization/suite/desc.md",
-      "examples/cann/sigmoid-optimization/suite/generator/kernel_eval/__init__.py",
-      "examples/cann/sigmoid-optimization/suite/generator/kernel_eval/data/__init__.py",
-      "examples/cann/sigmoid-optimization/suite/generator/kernel_eval/data/data_generator.py",
-      "examples/cann/sigmoid-optimization/suite/generator/kernel_eval/utils/__init__.py",
-      "examples/cann/sigmoid-optimization/suite/generator/kernel_eval/utils/dtype_mapper.py",
-      "examples/cann/sigmoid-optimization/suite/golden.py",
-      "examples/cann/sigmoid-optimization/suite/origin.json",
-      "examples/cann/sigmoid-optimization/suite/proto.yaml",
-      "examples/cann/sigmoid-optimization/suite/reference.py",
-      "examples/cann/sigmoid-optimization/task-contract.json",
-      "examples/cann/sigmoid-optimization/task.json",
-      "examples/cann/task_bundle.py",
-      "examples/cann/tools/README.md",
-      "examples/cann/tools/diagnostics.py",
-      "examples/cann/tools/ir_bridge.py",
-      "examples/cann/tools/trace_lab.py",
-      "examples/cann/tools/vendor/pypto/LICENSE",
-      "examples/cann/tools/vendor/pypto/README.txt",
-      "examples/cann/tools/vendor/pypto/clean_sim_trace.py",
-      "examples/cann/tools/vendor/pypto/ir_trace/__init__.py",
-      "examples/cann/tools/vendor/pypto/ir_trace/__main__.py",
-      "examples/cann/tools/vendor/pypto/ir_trace/cli.py",
-      "examples/cann/tools/vendor/pypto/ir_trace/diff.py",
-      "examples/cann/tools/vendor/pypto/ir_trace/discovery.py",
-      "examples/cann/tools/vendor/pypto/ir_trace/html.py",
-      "examples/cann/tools/vendor/pypto/ir_trace/model.py",
-      "examples/cann/tools/vendor/pypto/provenance.json",
-      "examples/cann/validate.py",
-      "examples/cann/validate_goal.py",
-      "examples/cann/vector-add/README.md",
-      "examples/cann/vector-add/baseline.py",
-      "examples/cann/vector-add/case.json",
-      "examples/cann/vector-add/evaluation-request.example.json",
-      "examples/cann/vector-add/native/bindings/model.py",
-      "examples/cann/vector-add/native/bindings/op.cpp",
-      "examples/cann/vector-add/native/op_host/vector_add_custom.cpp",
-      "examples/cann/vector-add/native/op_kernel/vector_add_custom.cpp",
-      "examples/cann/vector-add/native/op_kernel/vector_add_custom_tiling.h",
-      "examples/cann/vector-add/native/sources.json",
-      "examples/cann/vector-add/native/vector_add_custom.json",
-      "examples/cann/vector-add/reference.py",
-      "examples/cann/vector-add/task.compiled.json",
-      "examples/cann/vector-add/task.json",
-      "examples/codegen/config.example.json",
-      "examples/codegen/deepseek.example.json",
-      "examples/operator_infra/adapter.py",
-      "examples/operator_infra/prepare.py",
-      "examples/operator_pipeline/pipeline.py",
-      "examples/operator_pipeline/prepare.py",
-      "examples/operator_tools.py",
-      "examples/scatter/ascend_sources.py",
-      "examples/scatter/diagnostic.py",
-      "examples/scatter/driver.py",
-      "examples/scatter/native.cpp",
-      "examples/scatter/prepare.py",
-      "examples/scatter/reference.py",
-      "examples/scatter/torch_api.py",
-      "githubgist.diff",
-      "restore.py",
-      "restore.sh",
-      "source/apps/agent/patches/pi-coding-agent-1.5.0-host-actions.json",
-      "source/apps/agent/patches/pi-coding-agent-1.5.0-host-actions.patch",
-      "source/apps/agent/src/application/cli.d.mts",
-      "source/apps/agent/src/application/cli.mjs",
-      "source/apps/agent/src/application/client.mjs",
-      "source/apps/agent/src/application/codegen.mjs",
-      "source/apps/agent/src/application/credentials.mjs",
-      "source/apps/agent/src/application/host.mjs",
-      "source/apps/agent/src/application/input-queue.mjs",
-      "source/apps/agent/src/application/project-info.mjs",
-      "source/apps/agent/src/application/recovery.mjs",
-      "source/apps/agent/src/application/session-picker.mjs",
-      "source/apps/agent/src/application/start-screen.mjs",
-      "source/apps/agent/src/application/worker-lease.mjs",
-      "source/apps/agent/src/application/worker.mjs",
-      "source/apps/agent/src/harness/pi/command-policy.mjs",
-      "source/apps/agent/src/harness/pi/context-files.mjs",
-      "source/apps/agent/src/harness/pi/delegation-prompt.mjs",
-      "source/apps/agent/src/harness/pi/environment.mjs",
-      "source/apps/agent/src/harness/pi/headless-driver.mjs",
-      "source/apps/agent/src/harness/pi/host-actions.mjs",
-      "source/apps/agent/src/harness/pi/interactive-driver.mjs",
-      "source/apps/agent/src/harness/pi/interactive-patch.mjs",
-      "source/apps/agent/src/harness/pi/product-ui.mjs",
-      "source/apps/agent/src/harness/pi/runtime-factory.mjs",
-      "source/apps/agent/src/harness/pi/workspace-tools.mjs",
-      "source/apps/agent/src/rsi/feedback.ts",
-      "source/apps/agent/src/sdk/application-session.d.mts",
-      "source/apps/agent/src/sdk/application-session.mjs",
-      "source/apps/worker/src/kernelcat_worker/application_acceptance.py",
-      "source/apps/worker/src/kernelcat_worker/application_artifacts.py",
-      "source/apps/worker/src/kernelcat_worker/application_exports.py",
-      "source/apps/worker/src/kernelcat_worker/application_goal_review.py",
-      "source/apps/worker/src/kernelcat_worker/application_host.py",
-      "source/apps/worker/src/kernelcat_worker/application_measurements.py",
-      "source/apps/worker/src/kernelcat_worker/application_recovery.py",
-      "source/apps/worker/src/kernelcat_worker/business_tools.py",
-      "source/apps/worker/src/kernelcat_worker/candidate_retention.py",
-      "source/apps/worker/src/kernelcat_worker/loopx_application.py",
-      "source/apps/worker/src/kernelcat_worker/rsi_retained.py",
-      "source/contracts/execution/v1/acceptance-evidence.schema.json",
-      "source/contracts/execution/v1/application-host.schema.json",
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/__init__.py",
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/direct_ssh.py",
-      "source/packages/executor/src/kernelcat_executor/capabilities/streaming.py",
-      "source/packages/executor/src/kernelcat_executor/capabilities/workspace_policy.py",
-      "source/packages/executor/src/kernelcat_executor/generated/acceptance_evidence.py",
-      "source/packages/executor/src/kernelcat_executor/generated/application_host.py",
-      "source/packages/executor/src/kernelcat_executor/state/acceptance_evidence.py",
-      "source/packages/executor/src/kernelcat_executor/state/application.py",
-      "source/packages/executor/src/kernelcat_executor/state/goal_progress.py",
-      "source/scripts/develop.py",
-      "source/scripts/generate_application_contracts.py",
-      "source/scripts/generate_context_contract.py",
-      "validation/ACCEPTANCE.md",
-      "validation/CODEGEN_WORKFLOW.md",
-      "validation/DELIVERY_GUIDE.md",
-      "validation/PERFORMANCE_EXAMPLES.md",
-      "validation/VALIDATION_GUIDE.md",
-      "validation/business-tools.mjs",
-      "validation/cann-export.mjs",
-      "validation/cannbench_sigmoid_adapter.py",
-      "validation/codegen.mjs",
-      "validation/environment.mjs",
-      "validation/fixtures/aclnn_lifetime.cpp",
-      "validation/fixtures/ascend_add.py",
-      "validation/fixtures/ascend_add_reference.py",
-      "validation/fixtures/sigmoid_baseline.py",
-      "validation/goal-workflow.py",
-      "validation/live_agent.py",
-      "validation/live_cpu_evaluator.py",
-      "validation/native_rsi_adapter.py",
-      "validation/npu_acceptance.py",
-      "validation/pending-effect.mjs",
-      "validation/pi-compatibility.mjs",
-      "validation/portable-restore.mjs",
-      "validation/rsi-feedback.mjs",
-      "validation/test_aclnn_lifetime.py",
-      "validation/test_business_diagnostics.py",
-      "validation/test_candidate_retention.py",
-      "validation/test_cann_acceptance.py",
-      "validation/test_cann_delivery.py",
-      "validation/test_cann_examples.py",
-      "validation/test_cannbench_precision.py",
-      "validation/test_correctness.py",
-      "validation/test_install.py",
-      "validation/test_native_compiler.py",
-      "validation/test_native_failure.py",
-      "validation/test_npu_events.py",
-      "validation/test_operator_infra.py",
-      "validation/test_operator_pipeline.py",
-      "validation/test_portable_environment.py",
-      "validation/test_portable_replay.py",
-      "validation/test_rsi_proposal.py",
-      "validation/test_rsi_snapshot.py",
-      "validation/test_runtime.py",
-      "validation/test_scatter_torch.py",
-      "validation/test_subagents.py",
-      "validation/test_workspace_discovery.py",
-      "validation/tui/ACCEPTANCE.md",
-      "validation/tui/README.md",
-      "validation/tui/admission-scenario.mjs",
-      "validation/tui/advanced_scenario.py",
-      "validation/tui/codegen_demo.py",
-      "validation/tui/codegen_edges.py",
-      "validation/tui/codegen_fixture.py",
-      "validation/tui/codegen_scenario.py",
-      "validation/tui/compatibility.mjs",
-      "validation/tui/deepseek_live.py",
-      "validation/tui/demo.py",
-      "validation/tui/evaluator.py",
-      "validation/tui/fork-scenario.mjs",
-      "validation/tui/goal_review_scenario.py",
-      "validation/tui/interaction.mjs",
-      "validation/tui/interaction_scenario.py",
-      "validation/tui/lifecycle-scenario.mjs",
-      "validation/tui/long-scenario.mjs",
-      "validation/tui/operator_profile_smoke.py",
-      "validation/tui/product_scenario.py",
-      "validation/tui/pty_scenario.py",
-      "validation/tui/recovery-scenario.mjs",
-      "validation/tui/requirements-ui.txt",
-      "validation/tui/results/codegen-20261110.json",
-      "validation/tui/results/goal-review-20261110.json",
-      "validation/tui/results/installation-20261110.json",
-      "validation/tui/results/local-20261110.json",
-      "validation/tui/results/native-pi-deepseek-20261110.json",
-      "validation/tui/results/operators-20261110.json",
-      "validation/tui/results/resume-20261110.json",
-      "validation/tui/results/ui-20261110.json",
-      "validation/tui/resume_default_home.py",
-      "validation/tui/run.py",
-      "validation/tui/sdk-scenario.mjs",
-      "validation/tui/session-discovery.mjs",
-      "validation/tui/steering-scenario.mjs",
-      "validation/tui/subagent-presentation.mjs",
-      "validation/tui/subagent_cancel_scenario.py",
-      "validation/tui/subagent_live.py",
-      "validation/tui/test_authority.py",
-      "validation/tui/test_codegen.py",
-      "validation/tui/test_goal_progress.py",
-      "validation/tui/test_goal_review.py",
-      "validation/tui/transport-scenario.mjs",
-      "validation/usage.mjs",
-      "validation/workspace-tools.mjs"
-    ],
-    "application_tui": {
-      "base_commit": "ce125812cb335e6d738efcf8589d94753e473bb9",
-      "budget": "unlimited unless explicitly configured",
-      "date": "2026-11-10",
-      "default_mode": "ordinary_codegen",
-      "device_validation": "deferred by user",
-      "interaction": "Codex Goal syntax, governed command completion, visible feedback, compact footer, safe model admission pause",
-      "latest_validation": "validation/tui/results/native-pi-deepseek-20261110.json",
-      "publication": "not performed",
-      "scope": "idle-first project codegen, persistent host and shared Pi runtime; explicit Goal, Trial and device acceptance",
-      "startup": "native Pi InteractiveMode; passive host, zero execution before explicit input"
-    },
-    "base_delivery_commit": "87c8fe4059988344c4ddd001fb38f1402e359b93",
-    "base_pin_manifest_sha256": "b7c4c3a3a095588eba5dc95457b77c99998aa86b30a3699e0d7c22477b0c47df",
-    "base_source_provenance": {
-      "commit": "d28bf3837ac925813fb9b5b3a97e74b259eb82d5",
-      "selected_source_sha256": "8bf9f2e46880924e3e82fcf8709dd44ecf1e13aacf66e22b49bb7e43a6237253",
-      "worktree_dirty": false
-    },
-    "changed_files": [
-      ".gitignore",
-      "README.md",
-      "docs/architecture/tui-implementation-plan.md",
-      "docs/tui.md",
-      "examples/cann/README.md",
-      "examples/cann/archive.mjs",
-      "examples/cann/candidate.mjs",
-      "examples/cann/continue-run.mjs",
-      "examples/cann/cube-matmul/README.md",
-      "examples/cann/cube-matmul/baseline.py",
-      "examples/cann/cube-matmul/case.json",
-      "examples/cann/cube-matmul/evaluation-request.example.json",
-      "examples/cann/cube-matmul/native/bindings/model.py",
-      "examples/cann/cube-matmul/native/bindings/op.cpp",
-      "examples/cann/cube-matmul/native/matmul_custom.json",
-      "examples/cann/cube-matmul/native/op_host/matmul_custom.cpp",
-      "examples/cann/cube-matmul/native/op_kernel/matmul_custom.cpp",
-      "examples/cann/cube-matmul/native/op_kernel/matmul_custom_tiling.h",
-      "examples/cann/cube-matmul/native/sources.json",
-      "examples/cann/cube-matmul/reference.py",
-      "examples/cann/cube-matmul/task.compiled.json",
-      "examples/cann/cube-matmul/task.json",
-      "examples/cann/diagnostic_tools.py",
-      "examples/cann/evaluate.py",
-      "examples/cann/evaluation_tools.py",
-      "examples/cann/export.mjs",
-      "examples/cann/goal-contract.template.json",
-      "examples/cann/goal.mjs",
-      "examples/cann/goal_inputs.py",
-      "examples/cann/instructions/AGENTS.md",
-      "examples/cann/make_tasks.py",
-      "examples/cann/matmul-template.py",
-      "examples/cann/native-template.py",
-      "examples/cann/pack_native.py",
-      "examples/cann/prepare.py",
-      "examples/cann/prepare_goal.py",
-      "examples/cann/profiles/npu.example.json",
-      "examples/cann/restore-session.mjs",
-      "examples/cann/rsi_local.py",
-      "examples/cann/run-legacy.mjs",
-      "examples/cann/run.mjs",
-      "examples/cann/sigmoid-optimization/README.md",
-      "examples/cann/sigmoid-optimization/baseline.py",
-      "examples/cann/sigmoid-optimization/native/bindings/model.py",
-      "examples/cann/sigmoid-optimization/native/bindings/op.cpp",
-      "examples/cann/sigmoid-optimization/native/op_host/sigmoid_custom.cpp",
-      "examples/cann/sigmoid-optimization/native/op_kernel/sigmoid_custom.cpp",
-      "examples/cann/sigmoid-optimization/native/op_kernel/sigmoid_custom_tiling.h",
-      "examples/cann/sigmoid-optimization/native/sigmoid_custom.json",
-      "examples/cann/sigmoid-optimization/native/sources.json",
-      "examples/cann/sigmoid-optimization/performance.json",
-      "examples/cann/sigmoid-optimization/provenance.json",
-      "examples/cann/sigmoid-optimization/reproduce.mjs",
-      "examples/cann/sigmoid-optimization/solution.py",
-      "examples/cann/sigmoid-optimization/suite/LICENSE",
-      "examples/cann/sigmoid-optimization/suite/baseline.py",
-      "examples/cann/sigmoid-optimization/suite/cases.yaml",
-      "examples/cann/sigmoid-optimization/suite/desc.md",
-      "examples/cann/sigmoid-optimization/suite/generator/kernel_eval/__init__.py",
-      "examples/cann/sigmoid-optimization/suite/generator/kernel_eval/data/__init__.py",
-      "examples/cann/sigmoid-optimization/suite/generator/kernel_eval/data/data_generator.py",
-      "examples/cann/sigmoid-optimization/suite/generator/kernel_eval/utils/__init__.py",
-      "examples/cann/sigmoid-optimization/suite/generator/kernel_eval/utils/dtype_mapper.py",
-      "examples/cann/sigmoid-optimization/suite/golden.py",
-      "examples/cann/sigmoid-optimization/suite/origin.json",
-      "examples/cann/sigmoid-optimization/suite/proto.yaml",
-      "examples/cann/sigmoid-optimization/suite/reference.py",
-      "examples/cann/sigmoid-optimization/task-contract.json",
-      "examples/cann/sigmoid-optimization/task.json",
-      "examples/cann/task_bundle.py",
-      "examples/cann/tools/README.md",
-      "examples/cann/tools/diagnostics.py",
-      "examples/cann/tools/ir_bridge.py",
-      "examples/cann/tools/trace_lab.py",
-      "examples/cann/tools/vendor/pypto/LICENSE",
-      "examples/cann/tools/vendor/pypto/README.txt",
-      "examples/cann/tools/vendor/pypto/clean_sim_trace.py",
-      "examples/cann/tools/vendor/pypto/ir_trace/__init__.py",
-      "examples/cann/tools/vendor/pypto/ir_trace/__main__.py",
-      "examples/cann/tools/vendor/pypto/ir_trace/cli.py",
-      "examples/cann/tools/vendor/pypto/ir_trace/diff.py",
-      "examples/cann/tools/vendor/pypto/ir_trace/discovery.py",
-      "examples/cann/tools/vendor/pypto/ir_trace/html.py",
-      "examples/cann/tools/vendor/pypto/ir_trace/model.py",
-      "examples/cann/tools/vendor/pypto/provenance.json",
-      "examples/cann/validate.py",
-      "examples/cann/validate_goal.py",
-      "examples/cann/vector-add/README.md",
-      "examples/cann/vector-add/baseline.py",
-      "examples/cann/vector-add/case.json",
-      "examples/cann/vector-add/evaluation-request.example.json",
-      "examples/cann/vector-add/native/bindings/model.py",
-      "examples/cann/vector-add/native/bindings/op.cpp",
-      "examples/cann/vector-add/native/op_host/vector_add_custom.cpp",
-      "examples/cann/vector-add/native/op_kernel/vector_add_custom.cpp",
-      "examples/cann/vector-add/native/op_kernel/vector_add_custom_tiling.h",
-      "examples/cann/vector-add/native/sources.json",
-      "examples/cann/vector-add/native/vector_add_custom.json",
-      "examples/cann/vector-add/reference.py",
-      "examples/cann/vector-add/task.compiled.json",
-      "examples/cann/vector-add/task.json",
-      "githubgist.diff",
-      "install.py",
-      "kernelagent",
-      "kernelbridge/README.md",
-      "kernelcat/README.md",
-      "restore.py",
-      "restore.sh",
-      "source/apps/agent/package-lock.json",
-      "source/apps/agent/package.json",
-      "source/apps/agent/patches/pi-coding-agent-1.5.0-host-actions.json",
-      "source/apps/agent/patches/pi-coding-agent-1.5.0-host-actions.patch",
-      "source/apps/agent/python/generated_startup.py",
-      "source/apps/agent/src/application/cli.mjs",
-      "source/apps/agent/src/application/worker.mjs",
-      "source/apps/agent/src/clients/protocol.mjs",
-      "source/apps/agent/src/generated/context.ts",
-      "source/apps/agent/src/generated/harness.ts",
-      "source/apps/agent/src/generated/runtime.ts",
-      "source/apps/agent/src/harness/pi/child-tools.mjs",
-      "source/apps/agent/src/harness/pi/context-files.mjs",
-      "source/apps/agent/src/harness/pi/environment.mjs",
-      "source/apps/agent/src/harness/pi/host-actions.mjs",
-      "source/apps/agent/src/harness/pi/input.ts",
-      "source/apps/agent/src/harness/pi/native.mjs",
-      "source/apps/agent/src/harness/pi/product-ui.mjs",
-      "source/apps/agent/src/harness/pi/replay-context-extension.ts",
-      "source/apps/agent/src/harness/pi/runtime-factory.mjs",
-      "source/apps/agent/src/harness/pi/sdk.d.mts",
-      "source/apps/agent/src/harness/pi/sdk.mjs",
-      "source/apps/agent/src/harness/pi/workspace-tools.mjs",
-      "source/apps/agent/src/loopx/pi-host.ts",
-      "source/apps/agent/src/loopx/rsi-control.ts",
-      "source/apps/agent/src/main.ts",
-      "source/apps/agent/src/replay/product-session.ts",
-      "source/apps/agent/src/rsi/controller.ts",
-      "source/apps/agent/src/rsi/feedback.ts",
-      "source/apps/agent/src/rsi/records.ts",
-      "source/apps/agent/src/run/controller.mjs",
-      "source/apps/agent/src/sdk/goal.ts",
-      "source/apps/agent/src/sdk/index.ts",
-      "source/apps/agent/src/sdk/next-trial.ts",
-      "source/apps/agent/src/sdk/pursuit.ts",
-      "source/apps/worker/README.md",
-      "source/apps/worker/src/kernelcat_worker/application_host.py",
-      "source/apps/worker/src/kernelcat_worker/bindings.py",
-      "source/apps/worker/src/kernelcat_worker/business_tools.py",
-      "source/apps/worker/src/kernelcat_worker/candidate_retention.py",
-      "source/apps/worker/src/kernelcat_worker/configuration.py",
-      "source/apps/worker/src/kernelcat_worker/remote_jobs.py",
-      "source/apps/worker/src/kernelcat_worker/replay.py",
-      "source/apps/worker/src/kernelcat_worker/rsi_branches.py",
-      "source/apps/worker/src/kernelcat_worker/rsi_experiments.py",
-      "source/apps/worker/src/kernelcat_worker/rsi_records.py",
-      "source/apps/worker/src/kernelcat_worker/rsi_retained.py",
-      "source/apps/worker/src/kernelcat_worker/runtime.py",
-      "source/contracts/execution/v1/context.schema.json",
-      "source/contracts/execution/v1/harness.schema.json",
-      "source/contracts/execution/v1/runtime.schema.json",
-      "source/packages/executor/README.md",
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/backend.py",
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/compiler.py",
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/runtime.py",
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/templates/CppExtension/csrc/pytorch_npu_helper.hpp",
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/__init__.py",
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/direct_ssh.py",
-      "source/packages/executor/src/kernelcat_executor/capabilities/llm.py",
-      "source/packages/executor/src/kernelcat_executor/capabilities/runtime_artifacts.py",
-      "source/packages/executor/src/kernelcat_executor/capabilities/worker.py",
-      "source/packages/executor/src/kernelcat_executor/capabilities/workspace_policy.py",
-      "source/packages/executor/src/kernelcat_executor/contracts/harness.py",
-      "source/packages/executor/src/kernelcat_executor/contracts/models.py",
-      "source/packages/executor/src/kernelcat_executor/evaluation/evaluate.py",
-      "source/packages/executor/src/kernelcat_executor/evaluation/measurement/ascend_events.py",
-      "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/CONTROL_PLANE.md",
-      "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab20_duration.py",
-      "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/ssh.py",
-      "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/gs3d_outq2_probe.py",
-      "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/max_3case_probe.py",
-      "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/max_schedbat_ab.py",
-      "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/profiler_transport.py",
-      "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/school_xfer.py",
-      "source/packages/executor/src/kernelcat_executor/evaluation/protocols/six_source/config.py",
-      "source/packages/executor/src/kernelcat_executor/evaluation/protocols/six_source/correctness.py",
-      "source/packages/executor/src/kernelcat_executor/evaluation/protocols/six_source/evaluator.py",
-      "source/packages/executor/src/kernelcat_executor/evaluation/protocols/six_source/runner.py",
-      "source/packages/executor/src/kernelcat_executor/evaluation/protocols/six_source/session.py",
-      "source/packages/executor/src/kernelcat_executor/generated/context.py",
-      "source/packages/executor/src/kernelcat_executor/generated/harness.py",
-      "source/packages/executor/src/kernelcat_executor/generated/runtime.py",
-      "source/packages/executor/src/kernelcat_executor/operations/authority.py",
-      "source/packages/executor/src/kernelcat_executor/operations/delegated.py",
-      "source/packages/executor/src/kernelcat_executor/operations/gateway.py",
-      "source/packages/executor/src/kernelcat_executor/operations/native.py",
-      "source/packages/executor/src/kernelcat_executor/operations/recovery.py",
-      "source/packages/executor/src/kernelcat_executor/operations/registry.py",
-      "source/packages/executor/src/kernelcat_executor/operations/session.py",
-      "source/packages/executor/src/kernelcat_executor/state/application.py",
-      "source/packages/executor/src/kernelcat_executor/state/journal.py",
-      "source/packages/executor/src/kernelcat_executor/state/runtime.py",
-      "source/packages/ingestion/README.md",
-      "source/packages/knowledge/README.md",
-      "source/packages/knowledge/src/kernelcat_knowledge/storage/filesystem.py",
-      "source/runtime-resources.json",
-      "validation/ACCEPTANCE.md",
-      "validation/CODEGEN_WORKFLOW.md",
-      "validation/DELIVERY_GUIDE.md",
-      "validation/PERFORMANCE_EXAMPLES.md",
-      "validation/VALIDATION_GUIDE.md",
-      "validation/business-tools.mjs",
-      "validation/cann-export.mjs",
-      "validation/cannbench_sigmoid_adapter.py",
-      "validation/environment.mjs",
-      "validation/fixtures/aclnn_lifetime.cpp",
-      "validation/fixtures/ascend_add.py",
-      "validation/fixtures/ascend_add_reference.py",
-      "validation/fixtures/sigmoid_baseline.py",
-      "validation/goal-workflow.py",
-      "validation/live_agent.py",
-      "validation/live_cpu_evaluator.py",
-      "validation/native_rsi_adapter.py",
-      "validation/npu_acceptance.py",
-      "validation/pending-effect.mjs",
-      "validation/pi-compatibility.mjs",
-      "validation/portable-restore.mjs",
-      "validation/rsi-feedback.mjs",
-      "validation/test_aclnn_lifetime.py",
-      "validation/test_business_diagnostics.py",
-      "validation/test_candidate_retention.py",
-      "validation/test_cann_acceptance.py",
-      "validation/test_cann_delivery.py",
-      "validation/test_cann_examples.py",
-      "validation/test_cannbench_precision.py",
-      "validation/test_correctness.py",
-      "validation/test_install.py",
-      "validation/test_native_compiler.py",
-      "validation/test_native_failure.py",
-      "validation/test_npu_events.py",
-      "validation/test_portable_environment.py",
-      "validation/test_portable_replay.py",
-      "validation/test_rsi_proposal.py",
-      "validation/test_rsi_snapshot.py",
-      "validation/test_runtime.py",
-      "validation/tui/ACCEPTANCE.md",
-      "validation/tui/README.md",
-      "validation/tui/demo.py",
-      "validation/tui/interaction_scenario.py",
-      "validation/tui/product_scenario.py",
-      "validation/tui/pty_scenario.py",
-      "validation/tui/run.py",
-      "validation/tui/test_authority.py",
-      "validation/usage.mjs",
-      "validation/workspace-tools.mjs"
-    ],
-    "kind": "pi-native-tools-native-device-and-goal-acceptance",
-    "patch": {
-      "base": "87c8fe4",
-      "excludes": [
-        "PIN_MANIFEST.json",
-        "githubgist.diff",
-        "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/school_sdk/**"
-      ],
-      "path": "githubgist.diff"
-    },
-    "pi_subagents_version": "0.87.0",
-    "pi_version": "1.5.0",
-    "previous_delivery_validation": {
-      "cann_task_delivery": "Functional LoopX Goals: Vector 7 turns and Cube 9 turns, completed and accepted; real NPU baseline/check/evaluate passed; separate Cube20 optimization accepted",
-      "goal_protocol": "Real Pi SDK/LoopX with synthetic device receipts: completed acceptance and two sequential Trials passed",
-      "linux_workspace_regressions": 10,
-      "local_node_regressions": 27,
-      "local_python_regressions": 60,
-      "native_device": "Ascend910_9382 logical 1; CANN 9.1; torch_npu 2.10",
-      "native_generation": "Exact Vector and Cube task examples: Pi SDK finished; five seeds correct; 100 samples; independent final-source receipt checks passed",
-      "performance_note": "40 parent model turns; Pi SDK + LoopX validated progress; Sigmoid all20 correct; 16.9087x vs conservative native seed; 0.5122x vs Torch across reversed paired runs; no official score",
-      "selected_upstream_node": 119,
-      "selected_upstream_python": 181,
-      "selected_upstream_python_note": "Additional 175-test earlier selection and 56 remote-job tests are separate possibly overlapping sets",
-      "session_restore": "Seven accepted run archives restored with original session bytes, IDs, leaves and context; functional continuation retains source and mode",
-      "status": "delivery_checks_passed"
-    },
-    "removed_files": [
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/school_sdk/__init__.py",
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/school_sdk/__main__.py",
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/school_sdk/_align_apply.py",
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/school_sdk/_align_env.py",
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/school_sdk/cli.py",
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/school_sdk/config.py",
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/school_sdk/keep.py",
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/school_sdk/proxy_win.py",
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/school_sdk/socks.py",
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/school_sdk/socks_cmd.cmd",
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/school_sdk/socks_cmd.py",
-      "source/packages/executor/src/kernelcat_executor/backends/ascend/transport/school_sdk/ssh.py"
-    ],
-    "validation": {
-      "device_qualification": "pending",
-      "installation_and_supplemental": "validation/tui/results/installation-20261110.json",
-      "interaction": "validation/tui/results/ui-20261110.json",
-      "interaction_status": "passed_across_recorded_runs_with_parallel_timeout_repeats_retained",
-      "local_tui": "validation/tui/results/local-20261110.json",
-      "ordinary_codegen": "validation/tui/results/codegen-20261110.json",
-      "ordinary_codegen_status": "passed_across_recorded_runs",
-      "previous_delivery_results_requalified": false,
-      "status": "local_codegen_and_host_checks_passed_device_pending"
-    }
-  },
+  "schema_version": "kernelcat.customer-source/v1",
+  "installation": "required-online",
+  "resource_selection": "source/runtime-resources.json",
   "files": {
     ".gitignore": {
       "bytes": 129,
       "sha256": "8deb59f1a8202b7d50b8b77304206ab8ac2d05d3a81566796870c5ba5f8ee60c"
     },
     "README.md": {
-      "bytes": 10052,
-      "sha256": "8b753b3f64fefda655c88dd4fb8605d86174a8ee69db59b093780df1ef766336"
+      "bytes": 2911,
+      "sha256": "53de103e216ad58d83cb80f08bcbcafbba7ea2f43e9362451bbe827e991d5f97"
     },
-    "docs/architecture/harness-optimization-log.md": {
-      "bytes": 135111,
-      "sha256": "79c1d42e0f2b283407e6f54690207cc30059b15fb40702fe33a75274e785143b"
+    "examples/cann/adapters/cannbench_sigmoid_adapter.py": {
+      "bytes": 14233,
+      "sha256": "566727bacbbca02acbb6bcc069af9940398bfd953111c82b0e531afdcbdfc0fa"
     },
-    "docs/architecture/harness-trial-results.md": {
-      "bytes": 3775,
-      "sha256": "abfdb82d087f463f46ca129a43d4df265fc10e1a196d821467fe5945730578ad"
-    },
-    "docs/architecture/operator-guidance-alignment.md": {
-      "bytes": 6691,
-      "sha256": "b91082e5c5fe0b787545c79e7f2c33478875810d934037900864c338eb37109f"
-    },
-    "docs/architecture/tui-implementation-plan.md": {
-      "bytes": 44715,
-      "sha256": "d82cbfab532e22c760560d1d949630428b434f08b5338aed3241fe7a85390b36"
-    },
-    "docs/architecture/tui-subagent-redesign.md": {
-      "bytes": 55124,
-      "sha256": "61d280e85e2a831301ae1865c66e5c3d0c345a9cd55504e7e1c97fd9972c0b52"
-    },
-    "docs/operator-workflow.md": {
-      "bytes": 19471,
-      "sha256": "b92dfb1ec00d0fe7429031c1948ff7a25549a66b5ba465509b1d7c9569ab2a87"
-    },
-    "docs/prompt-migration.md": {
-      "bytes": 3603,
-      "sha256": "8d5258f4fa4bdbea748f6b1f2a282796d34688cc497ec05daaa0d66679bc0d61"
-    },
-    "docs/tui.md": {
-      "bytes": 35465,
-      "sha256": "662c450a503f3aaf8ba4f3b3ef530739d30ddca3586ccd5bf1ec64424689e0ab"
-    },
-    "examples/cann/README.md": {
-      "bytes": 10939,
-      "sha256": "263d4daecc60eb83bbe2fce418bcdab1d50ffdc575a0ecb2196228b8386c9779"
+    "examples/cann/adapters/native_rsi_adapter.py": {
+      "bytes": 12212,
+      "sha256": "b228a58e1a077add3cdb1a91914885a07c81aa679cd45dc0acb8c3d0c48103ad"
     },
     "examples/cann/application.mjs": {
       "bytes": 1186,
@@ -666,10 +34,6 @@
     "examples/cann/continue-run.mjs": {
       "bytes": 6054,
       "sha256": "f7a2634d51a5b6bafb3cf6620979aea9d5d2fccb8dd539c2ae9050d5d4609877"
-    },
-    "examples/cann/cube-matmul/README.md": {
-      "bytes": 1487,
-      "sha256": "89d34e76e28ce12f4a4d1b966d27f0164a8d5195c8b4dd8c9ded4a93a387cc50"
     },
     "examples/cann/cube-matmul/baseline.py": {
       "bytes": 6014,
@@ -748,8 +112,8 @@
       "sha256": "1bdfabb237af7aa248fcd3c08cd1273a9e574d11e0127fe788b4fd37a6b1450f"
     },
     "examples/cann/goal_inputs.py": {
-      "bytes": 5718,
-      "sha256": "01042f6853f9618d5ff8b26aceac5538e6d835cda890257cc04576b5783f9bb5"
+      "bytes": 5742,
+      "sha256": "511e3842951e339d939a6ccfaa063b771ac44a3b3e48f546a754410f5f91b67a"
     },
     "examples/cann/instructions/AGENTS.md": {
       "bytes": 15334,
@@ -792,8 +156,8 @@
       "sha256": "7414c2114d89610c418202c49644b2cbca8d1964e0b1dc9b5b3fcbeb7caa46be"
     },
     "examples/cann/rsi_local.py": {
-      "bytes": 2907,
-      "sha256": "11209a8e570a32622d42f44602ad990f16f5898922b8aff30ddd328ab6494b99"
+      "bytes": 2917,
+      "sha256": "0b613dfcc51d3938fb3a2f116fbdd04231371d8397d2cf8aef51825f4045b166"
     },
     "examples/cann/run-legacy.mjs": {
       "bytes": 4079,
@@ -855,10 +219,6 @@
       "bytes": 3726,
       "sha256": "20d9a5ddbc005e4c33a2018a77e5b537c1a8607b43e5caff1e65bc808448efed"
     },
-    "examples/cann/sigmoid-optimization/README.md": {
-      "bytes": 2528,
-      "sha256": "d1bae1230cd9672bdbaf28144df6592b98b0448ae6c8dc69073ad53aff088dd0"
-    },
     "examples/cann/sigmoid-optimization/baseline.py": {
       "bytes": 5740,
       "sha256": "bf8490109e9ba9a0fba628e693d4ce124b0d2d785e2efdc87d7ce35646f60897"
@@ -890,18 +250,6 @@
     "examples/cann/sigmoid-optimization/native/sources.json": {
       "bytes": 1119,
       "sha256": "52cea548c00270e27606b298abd5025f54327b94394181f0e179e9593728f2b1"
-    },
-    "examples/cann/sigmoid-optimization/performance.json": {
-      "bytes": 483,
-      "sha256": "379253af486c553414a82e63c62d8d0a42da20ed7f3667bfa3633ffc8a0dbce8"
-    },
-    "examples/cann/sigmoid-optimization/provenance.json": {
-      "bytes": 858,
-      "sha256": "e3f9ff4305d3f36288adfa080138637169ec2ce5e749dee2a56e7d731d9517c6"
-    },
-    "examples/cann/sigmoid-optimization/reproduce.mjs": {
-      "bytes": 766,
-      "sha256": "5dae542816977a0fd18fb7f57ef339fe9a653f37394dad292ebf05bc600764c2"
     },
     "examples/cann/sigmoid-optimization/solution.py": {
       "bytes": 6293,
@@ -964,16 +312,12 @@
       "sha256": "c87a053a49e73f68417af9471799c96a8cb6025e1733cbe877f4ec4848f06b3f"
     },
     "examples/cann/sigmoid-optimization/task.json": {
-      "bytes": 32106,
-      "sha256": "749c66cdc0e245e55ba399ab6c9b518936ef317eed21c57988e9a5b76ee6d33b"
+      "bytes": 30645,
+      "sha256": "e85f46715953b7a87c6bbd7d9fdfbfdc8c3be30d070aa317d844f24c0f50f910"
     },
     "examples/cann/task_bundle.py": {
       "bytes": 4584,
       "sha256": "8ce58b41f548433df4be71e61db929db8f7e3d60b78d19c2978fb49a5a4bf4ee"
-    },
-    "examples/cann/tools/README.md": {
-      "bytes": 2286,
-      "sha256": "8ba0632e5bff4621b0ff757ab5ada4f2e4043999daacd91367ae7091dfe44c23"
     },
     "examples/cann/tools/diagnostics.py": {
       "bytes": 12106,
@@ -1039,10 +383,6 @@
       "bytes": 3867,
       "sha256": "43ed5dd7365e0952d15d23566d30b456199d8fd7f6043cdc4c5c2a2af5a62d17"
     },
-    "examples/cann/vector-add/README.md": {
-      "bytes": 1464,
-      "sha256": "5a1a9ad31b79c1a5ec7a2beab22713f6392e398ede870a7e1fd2c9a1790abf48"
-    },
     "examples/cann/vector-add/baseline.py": {
       "bytes": 6115,
       "sha256": "65c289d081e51e6375696553a4d7e53b1d9553edcf4659e0d177152549b5ba09"
@@ -1103,10 +443,6 @@
       "bytes": 843,
       "sha256": "d7d8bdc2ea653b7f2669d5ba20ba73817203891b9afd23351c488ecaa5f87ff5"
     },
-    "examples/online_research/README.md": {
-      "bytes": 10018,
-      "sha256": "07e734f7cdaeaa6476b8052322ed2f82e45878cbed1c8046038e90212e6eec32"
-    },
     "examples/online_research/driver.py": {
       "bytes": 32786,
       "sha256": "6eb8888191764604f9ccb6ea3f907fab7269907f50a544b5c8727ccdeb24343b"
@@ -1166,10 +502,6 @@
     "examples/operator_tools.py": {
       "bytes": 1632,
       "sha256": "8314cb9172e6758c8acb8a02616405b17b4df79498f0df141934eb18e9903d1a"
-    },
-    "examples/scatter/README.md": {
-      "bytes": 5832,
-      "sha256": "96eef17a6317847e01d0ca04951035f8054daa53cdb1f24976bb17e5cd859130"
     },
     "examples/scatter/ascend_sources.py": {
       "bytes": 5514,
@@ -1235,10 +567,6 @@
       "bytes": 48745,
       "sha256": "cdd68f5edca3c99b8a7db33f97ce3e098bcbf50cad2a8022a772a9c5c80bebec"
     },
-    "examples/scatter/npu_validation.md": {
-      "bytes": 3531,
-      "sha256": "d51cc9187b7f4b012d4da1a65237c7fd9ee2db83d47546e03b978fa5c7f60d46"
-    },
     "examples/scatter/prepare.py": {
       "bytes": 3373,
       "sha256": "2d5651f39b6643e582e146caaeef5dc920db87683083391c6379629d2bf0507e"
@@ -1255,17 +583,9 @@
       "bytes": 1570,
       "sha256": "3a59ea1ff2ed5a5b972997c48ae03ddfb7adf7546f76c6e560459160ef441899"
     },
-    "examples/scatter/run_operator_trial.py": {
-      "bytes": 5024,
-      "sha256": "0967eddcfdb45065eeb08b8dcbd762f481197ce4301027b9886a9f956fc89b01"
-    },
     "examples/scatter/torch_api.py": {
       "bytes": 2352,
       "sha256": "47d32d30512c6e32d0c6e03e90b9bedb1c2b103a4ae46ee7f9a7bcf3f5343be6"
-    },
-    "examples/sdk_reference/README.md": {
-      "bytes": 8937,
-      "sha256": "a927dd05aff26f6a372e9c37d413e0961034250fde699b6b4bd6463e8ffa44dc"
     },
     "examples/sdk_reference/driver.py": {
       "bytes": 23634,
@@ -1307,25 +627,13 @@
       "bytes": 264,
       "sha256": "01528ed71043e131d7bb627eb219d3b009e3d68dbea3ba95fed6194b6201d0cf"
     },
-    "githubgist.diff": {
-      "bytes": 1044013,
-      "sha256": "9d520dc5f3913003756852735f10e85b2516c02e95d96c15a19b6493ebde6e05"
-    },
     "install.py": {
-      "bytes": 11308,
-      "sha256": "3118143c3bb4a423dd810ae4724d0607b25cc27c88479e6ed0dc46cde8b0f944"
+      "bytes": 11305,
+      "sha256": "7878155efb8b9df267367f3ff8a25df3e2680f5f7b8e7ebf34be2a0f977412cf"
     },
     "kernelagent": {
-      "bytes": 2391,
-      "sha256": "4ed9afa8d201c2b728059ba94f95f8d81fbcc5bf7130d38856e9b37378afdea0"
-    },
-    "kernelbridge/README.md": {
-      "bytes": 24890,
-      "sha256": "af5c392af5b0b1b1ea166c38865663403f98b0945a35a5e8ff8bc8270deeb9dc"
-    },
-    "kernelcat/README.md": {
-      "bytes": 24758,
-      "sha256": "ff4bf1d5295369bb16889ff5c3cb015c6dfb427c52b731d64a0ed96ba00f8aa1"
+      "bytes": 1846,
+      "sha256": "6d24d4cbe538aecb8e247e34ff163b273a406ec538609f9114e4b348abc3544a"
     },
     "requirements.lock": {
       "bytes": 512,
@@ -1348,12 +656,12 @@
       "sha256": "bbedf09b6a81b8cb842fffed6004749f0f9e1dfa7f674c101ef0e413efbd751b"
     },
     "source/apps/agent/package-lock.json": {
-      "bytes": 65491,
-      "sha256": "00caab7fe47dfe32d8361fd341199905397a91454f9c8610f15df7a8fcb85ded"
+      "bytes": 64971,
+      "sha256": "ae2f15c78c19b33c47f1951ee2373e8e809a495d76c5a5a6373f60d0e34cf235"
     },
     "source/apps/agent/package.json": {
-      "bytes": 2220,
-      "sha256": "292036b32198b42b6397f998bd91c8f0e84f6b10ed370c097bf77ab8621ed5f5"
+      "bytes": 1089,
+      "sha256": "64c9f7e8bfbec24d0efc61e16c3e5d5e7586d53f5e417c8af62365deb9f16d09"
     },
     "source/apps/agent/patches/pi-coding-agent-1.5.0-host-actions.json": {
       "bytes": 718,
@@ -1371,21 +679,9 @@
       "bytes": 2795,
       "sha256": "5f06eccde6b70753cfe7b13e47a1b95973625554845dc861ec208cbce4b1dc4f"
     },
-    "source/apps/agent/scripts/check-managed-continuation.ts": {
-      "bytes": 10298,
-      "sha256": "2f6a9f656c378e47cce572827a3b78764517131bb93a04a0e1437c49269cef30"
-    },
     "source/apps/agent/scripts/session-replay.ts": {
       "bytes": 2237,
       "sha256": "e42e397c83b267c9050761f1cb43f7678bfee4e111d9f9a3fba8193cf15c2970"
-    },
-    "source/apps/agent/scripts/smoke-subagents.ts": {
-      "bytes": 14414,
-      "sha256": "496d6b4bd1bfe939ec1da21ce77c27d40ef99af55744213fa0bfd38f77b33a38"
-    },
-    "source/apps/agent/scripts/version-test-plan.ts": {
-      "bytes": 3001,
-      "sha256": "fe58eba5def3f97321dc81f2087c56995ea8c457571c429be12de5287746b185"
     },
     "source/apps/agent/src/application/cli.d.mts": {
       "bytes": 233,
@@ -1636,8 +932,8 @@
       "sha256": "a674b9dcbf48e9cbee132c41094c34344f576231cdbe08b5cfd741cee64d9cad"
     },
     "source/apps/agent/src/harness/pi/delegation-prompt.mjs": {
-      "bytes": 3764,
-      "sha256": "fc6fb453f8aa90b82a9912b32fa63b39905b7cacb8915064b097889ab4e2e015"
+      "bytes": 3731,
+      "sha256": "202f4e9fafcef2478d3a641ad9cb759d62be3ab7a5964774415629a6624d63e8"
     },
     "source/apps/agent/src/harness/pi/environment.mjs": {
       "bytes": 1079,
@@ -1818,10 +1114,6 @@
     "source/apps/agent/src/replay/session-output.ts": {
       "bytes": 4292,
       "sha256": "6005950e3e41883a62691988341e5e4a008ff60bb6b24d8caf8249214b27beea"
-    },
-    "source/apps/agent/src/replay/version-tests.ts": {
-      "bytes": 12183,
-      "sha256": "0428cd6836c30b5405f5dc4f048ab3e6253be189a04db78dd8d688a62fb04294"
     },
     "source/apps/agent/src/rsi/artifacts.ts": {
       "bytes": 2169,
@@ -2059,17 +1351,13 @@
       "bytes": 2384,
       "sha256": "988c0f8cce37f909bf4014b291e6b24a44e5667c04d9c2ae0d3876f369ce1c02"
     },
-    "source/apps/agent/tsconfig.json": {
-      "bytes": 280,
-      "sha256": "1f7bb9feaecb514d54596206d5bfea3663ee6251daf60260620a428cd8506716"
-    },
     "source/apps/worker/README.md": {
-      "bytes": 14391,
-      "sha256": "f1439e5e8306108e8584da20c15ea23bf18b3aa3bc2b454391ad15c337c41111"
+      "bytes": 138,
+      "sha256": "3c8459ce8f06d8cbfab8ae9d8309316746ed6c86d17965fa1c369f790fa3516a"
     },
     "source/apps/worker/pyproject.toml": {
-      "bytes": 961,
-      "sha256": "6f9e0a5c5942b5dc7f29d367c9e4c0b6c6145f110a6998c1c01f2522e26d2e17"
+      "bytes": 672,
+      "sha256": "9eb88ab4608015cb8b8e30fdf14c040b372bff4189f20727c4d8949141d5bfe7"
     },
     "source/apps/worker/src/kernelcat_worker/__init__.py": {
       "bytes": 81,
@@ -2380,16 +1668,16 @@
       "sha256": "e994d4e5c19f14a427cb16eb24dd4d38acb1c37b2a3ec8504007d59b2e3058b2"
     },
     "source/packages/executor/README.md": {
-      "bytes": 10933,
-      "sha256": "b8d95f897db59d043f7ff37a8414150125d3bc590b7ad161fb9cd40853a6e9db"
+      "bytes": 140,
+      "sha256": "0ba460b3c71275387706d8bb3a3363ead5a77f4f81d1b456d60505565bc9b1a6"
     },
     "source/packages/executor/native-resources.json": {
-      "bytes": 11227,
-      "sha256": "28402840b9080cbf351b8b0362fb6f831be06c48533c24f56967cb0dbffc9681"
+      "bytes": 8070,
+      "sha256": "82fbba64d2e04f4a429f7b2388c221a95f4050a86acde038b3c5f95f9e08e920"
     },
     "source/packages/executor/pyproject.toml": {
-      "bytes": 945,
-      "sha256": "e170fa4cb2cac1e9f586d8e61cebf20c6b77cc7a23a62ced6891e4a7d53d5744"
+      "bytes": 555,
+      "sha256": "e421664ea1447b17cac22b7e9b9626615d9fdd9d5d530ad375c48f8527c6b3d2"
     },
     "source/packages/executor/setup.py": {
       "bytes": 305,
@@ -2416,8 +1704,8 @@
       "sha256": "7a6f03d1364347aa71b4d4bfcacf3471a75fd4c0cae179ed27b8938324c0ab4e"
     },
     "source/packages/executor/src/kernelcat_executor/backends/ascend/backend.py": {
-      "bytes": 4538,
-      "sha256": "f3acfcf2af4491728d555b91ef9892c10f0334b4d585c9d6be40527307a9b45d"
+      "bytes": 3018,
+      "sha256": "0a2584f713f6ecafabd420c64cfdebc0cc50531f52220b370ae01633726ea97a"
     },
     "source/packages/executor/src/kernelcat_executor/backends/ascend/compiler.py": {
       "bytes": 18270,
@@ -2703,10 +1991,6 @@
       "bytes": 65,
       "sha256": "7a6f03d1364347aa71b4d4bfcacf3471a75fd4c0cae179ed27b8938324c0ab4e"
     },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/CONTROL_PLANE.md": {
-      "bytes": 1887,
-      "sha256": "718ba935b1917ee5ff71e9f8afa2cd4ce585bcbfefaa27c97752b104b3146a34"
-    },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/__init__.py": {
       "bytes": 255,
       "sha256": "cd1da2e5fe6a4a23a9132dc20ad33b426bdb119b5f346406c9a813111e90685f"
@@ -2776,16 +2060,16 @@
       "sha256": "307299fda7b77d22c64cb51430ec75e5f59d78e9c948786afb3b2544fe45e4b7"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/control_plane/cli.py": {
-      "bytes": 18253,
-      "sha256": "e33bdec639a2e3975e71fa268181673ce13add4af44d528dfc4a8850d3ec47d5"
+      "bytes": 18386,
+      "sha256": "70609562154bd4de940eb79ff6b01227de1459d42ab1fc5924c7ac421bbe78d0"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/control_plane/evidence.py": {
       "bytes": 15416,
       "sha256": "9dbb350a456515aa79d73de6a5773e26756effde8d37b148250febc0dc641d2d"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/control_plane/execution.py": {
-      "bytes": 13611,
-      "sha256": "a4c470c348237701b0363fb784486c6dfdaaeed6f72e1ba9b71bc3e218b7a2e7"
+      "bytes": 13944,
+      "sha256": "ecf1aca813f55c436eb5a5402a7aa8fe53141c4db4a8d1918deee9227f561f43"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/control_plane/formal.py": {
       "bytes": 7523,
@@ -2816,20 +2100,12 @@
       "sha256": "1cda29ccecd834812a46a20df6a79e01427b01ad314d6b86339903b515fa6b6f"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/_load_cann_env.py": {
-      "bytes": 1169,
-      "sha256": "5f7a685b54a39b5ee5144d4ec7d5f34a2a50c82b585657c522ff7c5c4201d67e"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/_submit_c3d_gap10.py": {
-      "bytes": 398,
-      "sha256": "1645e95768ae7ab937ea94e5aaa6fe32790e95c3dbbb18e4058b6be08bbea031"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab20_duration.py": {
-      "bytes": 22128,
-      "sha256": "ef64ea3462bfcd0f7789bc08c4855d63de24274f8e758032933f9e5c640bcd50"
+      "bytes": 1008,
+      "sha256": "9a75701162e7fa8e88f4f2e3a67d7acf8244693189e9938d285636948a8d60b6"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab910.sh": {
-      "bytes": 26365,
-      "sha256": "c561ff84c1873a45bbfc403a0f403e5150b983cb71c54883b74b0df2dcfe7ccf"
+      "bytes": 18868,
+      "sha256": "12ddb15d0c605440314146dfc143d1dda743b60a8327289fe0edfc1a53db4d6a"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/__init__.py": {
       "bytes": 796,
@@ -2839,45 +2115,41 @@
       "bytes": 48,
       "sha256": "935a1c1166b0c1ea35a82256345000bf2c73ded718d77773bc27a71ecce28f7d"
     },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/_drive_scan10.py": {
-      "bytes": 1167,
-      "sha256": "ab3ae9d65d28e870530ae26eb0ef1ad600ee63aa55632c132c58bd0987f986b0"
-    },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/cases.py": {
-      "bytes": 12520,
-      "sha256": "f73c6437b964b759f166a02a7326dcdc7a2814a25e4203289788d946a8b7ecc6"
+      "bytes": 12528,
+      "sha256": "91ac9ae54119c4f4c14ebd36da4908e972afefd0294db9d6da15d18373091191"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/cli.py": {
-      "bytes": 11682,
-      "sha256": "be1e5e937a00d57748d2b843c60b1b559745e723c28c4f233ef320497722228c"
+      "bytes": 11638,
+      "sha256": "efad3252e0c435a598a273dcdc17c78ecef1bde7a61ed08a7aa106707bae1dda"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/client.py": {
-      "bytes": 6376,
-      "sha256": "61b7d97387841b4426013c5bab136f0f7e46f71b2b456fa1ca2abfa3a7a0b449"
+      "bytes": 6566,
+      "sha256": "0681a16d74495b4d036a449acf67af6f2b2dfdd18dd6b3b9bf694474ef29050c"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/config.py": {
-      "bytes": 3747,
-      "sha256": "3a1dfc7ca8b9fae13c44023ef776f48740f66055e7c7322913db46de10994644"
+      "bytes": 4990,
+      "sha256": "39f54b211709876ecc9fcbd364eee102b8a7ce696d74bba62dcaaa036e6a6d15"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/demo1.py": {
-      "bytes": 5915,
-      "sha256": "0960bb7df7f4226079f3a22e6baecd2bc0d3e7c3b69373de4969c349a6e3d63f"
+      "bytes": 5640,
+      "sha256": "75baa9eacad2f2360b76dc8bd9a08218bb23a5d580a308463f5b7d3c86b89a6d"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/hosts.py": {
-      "bytes": 2281,
-      "sha256": "bacecea064684248554e0ebcf07587ce62518ad271f2d2f73ad88d0d0bb6f127"
+      "bytes": 2678,
+      "sha256": "689369758a833769cdf987a02d159b7572a36b4af8b57d6f72cf6286190ccfee"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/job.py": {
-      "bytes": 5069,
-      "sha256": "7697425ae2dcc3e3fa147afce5286c7c58c771fa0f271eaf33ec1b8ef26e0810"
+      "bytes": 5286,
+      "sha256": "6338552ef8f723aacd45bd2b334e375670214432f35fd8438277f9d55851619e"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/ktp.py": {
-      "bytes": 33415,
-      "sha256": "57bc5734441dd13f1e211ed1d908854be4ddc7c8e942721c373aefb1886c9e9f"
+      "bytes": 33764,
+      "sha256": "251822a9ff2e3e28bb3e4b163d92d33f05d1fdc640af04dafe809bbe84a06a00"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/layout.py": {
-      "bytes": 6118,
-      "sha256": "b70a2237da37911294ad92b7fa59c9c030849952baf09d4eb0decda80f95687e"
+      "bytes": 6414,
+      "sha256": "02941634187740a05f9beefce8a64b7954bb8089ec003bc3669eb9d9b8678555"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/parse.py": {
       "bytes": 3326,
@@ -2888,112 +2160,36 @@
       "sha256": "44e2ff7c69e5669f44f8950328afc1b377a654d04316898d0f707e2f8e2f2c12"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/ssh.py": {
-      "bytes": 9282,
-      "sha256": "b5af6894cf02aa769dee52787f079619d242cb38e5c2a91b86c7754bc7494410"
+      "bytes": 9130,
+      "sha256": "cd4710b58b60542164a10b050d6b38a31d9426714ac0db8a5c9bffc2d3663a66"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/abctl": {
-      "bytes": 329,
-      "sha256": "fddf1d87f4b82db612e9e3dd5c74b4889e8d74ffab5b81cdaeb651d7812cb053"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/abq.sh": {
-      "bytes": 1793,
-      "sha256": "b640cbfa09660951fb99eef007747ba9d71bf6a80f84b76813fc128130ccd056"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/abq2.sh": {
-      "bytes": 1799,
-      "sha256": "17a22349367d63f110d2600567749c43c07f12c7363fa61dd62ff0b2a3693474"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/abserial.sh": {
-      "bytes": 2475,
-      "sha256": "ce4e4afcb64c71af3ee550117b7d224ee52449e67f6ba239a701a02286ea0053"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/argmax_family_cases.sh": {
-      "bytes": 5954,
-      "sha256": "e41995c280635902f892dd280b395883056e8d046737974bd0f77b15680d8702"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/argmax_family_helper.py": {
-      "bytes": 5737,
-      "sha256": "5f1548cf8e173209bf9dd2866b2b5ed458a26e0868c604cfd5bf218bb64e989e"
+      "bytes": 337,
+      "sha256": "4ea2a72c49ab74ea76b840038836147d1610636de63615d013fc488b0a443418"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/arti910.py": {
-      "bytes": 5478,
-      "sha256": "374bb9a6db824bd5dae99bacda7a547597147fe03fe6ab79575bfdf73b9e9819"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/bench910.sh": {
-      "bytes": 2935,
-      "sha256": "d3712b531989e73ecb5f8c7934075c5a2288df9985eff58d8b2fc4e47c9ef250"
+      "bytes": 3698,
+      "sha256": "0023a6be3e8077822a3d31d7ad1020b8051965325f3f21c1949a1cd63b4eb41b"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/credits_total.py": {
-      "bytes": 1205,
-      "sha256": "a89cc9a4f8f33654bb1e28418d621e820a7f10279e83eec51191bd499a8b2806"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/cummin_dev_cases_win.sh": {
-      "bytes": 6058,
-      "sha256": "7a474d390ed550b8d3a8c37d63faf67fd7e6a2dd41a6151ead1e56f22ff5051a"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/cummin_family_cases.sh": {
-      "bytes": 5990,
-      "sha256": "02d21ec92259088ee660286391840d5b999a66cac8a1be4c7fc4c530c6ed1ede"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/cummin_family_helper.py": {
-      "bytes": 5896,
-      "sha256": "84ab2446c273e12a93ff37cba9adac9374950cdbee27522a92b23b1f24b99d6a"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/dil_family_cases.sh": {
-      "bytes": 5955,
-      "sha256": "311dbf84ff7749e2b8d9880ffbac56a3b15ab651e2c471df7a69eb9b90f4ccfe"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/dil_family_cases_win.sh": {
-      "bytes": 6045,
-      "sha256": "67a827e026f55433fca46f70fd0f335cae4b2974c2998f98517149824b0e8fc1"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/dil_family_helper.py": {
-      "bytes": 5972,
-      "sha256": "0f194fe2628614b3970851f07fa2928c98aa06487fdf23b5c8dca3cd6d0162cb"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/dilation_dev_cases.sh": {
-      "bytes": 5183,
-      "sha256": "5dfc3b9306b0fd8892592b16da52aa3ba67bfa3f514d274590424404830a391f"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/engram_dev_cases_win.sh": {
-      "bytes": 6545,
-      "sha256": "22c09b16b4faccf69a109d0908399d27d5933903e9c64606c93847e91accd1e4"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/engram_family_helper.py": {
-      "bytes": 5858,
-      "sha256": "85b26980c0bb8dd37a336dfb65f52fcd9c490f3a208df570d562d106c6c08e32"
+      "bytes": 982,
+      "sha256": "f82bb1481759a26cd2a248c09a355a683a1c33c2ce70b49672d8547e96da743d"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/fruit910.py": {
       "bytes": 4376,
       "sha256": "db34613e04a8880ed57836ed1363d26e8da2277eb7e2082270e26f2181cabc37"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/gap910c.py": {
-      "bytes": 3273,
-      "sha256": "2928689a01521ccbcca3dd685880ea5f414d769f1d8c80a126954ceeb88c1f9a"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/gcc_sort_probe.py": {
-      "bytes": 3465,
-      "sha256": "cdc0cf6b9dd1b81567dcfad0cdfdbfe81da2c45492fb5824144e3097a6a8e460"
+      "bytes": 3307,
+      "sha256": "0709c3f158e0c2196f21a1e23d2f823063ecdaf60e8d3f2b5672cebcf78d3683"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/gen_init.py": {
-      "bytes": 7767,
-      "sha256": "e9ff189330c3cc9b5a7c64e0d3636f441d8173e3ce9c0640b70a1630cab33acf"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/gqa_dev_cases.sh": {
-      "bytes": 10411,
-      "sha256": "fb39cfdc44bbddad1f759b69902c26014520b173fa8807af270e8ae7f925001f"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/gqa_family_helper.py": {
-      "bytes": 4659,
-      "sha256": "eae02e57e5b4c68ba82bf519198ef61ef5414a08cb4a304e05f934edb49809d8"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/gs3d_outq2_probe.py": {
-      "bytes": 15757,
-      "sha256": "f312e890df1b24c0e6e3f986d725250d25c948fba8863e7f55e87189e56a73c2"
+      "bytes": 6529,
+      "sha256": "35b6d555e46f74b3775a7d390036173d2b09bbd8759262d3b5b59c80b0902dee"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/hcode.py": {
-      "bytes": 7014,
-      "sha256": "57c31afbcdf3d0d8aa9cd8ecf40de96a4048a379eb810039523008a4578adf94"
+      "bytes": 4126,
+      "sha256": "4471140ccbfb202975ba45d1ac67db13391816bbb78b456253f0ccfd5c7c47b7"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/kernel_c_score.py": {
       "bytes": 3625,
@@ -3007,53 +2203,17 @@
       "bytes": 1167,
       "sha256": "9806e42ff7f8c68654b50592451facc1f2803b4039a110e729dd0c1980b99b43"
     },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/max_3case_probe.py": {
-      "bytes": 16615,
-      "sha256": "4e610226f31108d2f3ef5d5cb3383901c0cab33eda3e47705fd5cc5bc61648f4"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/max_family_cases.sh": {
-      "bytes": 5941,
-      "sha256": "49450653b0e416d60066a4c0491d64f50536f2d790bb7c78f8f1beac8684ca1d"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/max_family_cases_win.sh": {
-      "bytes": 6031,
-      "sha256": "17e7a71133f4d42b0beda0e2b3ed31076561e3c25edd21657e3f09f302ca0a74"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/max_family_helper.py": {
-      "bytes": 5908,
-      "sha256": "ff1325b7f362b67510d3bf438e24d14af9721e92084b8dd459c7c216e04d8147"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/max_schedbat_ab.py": {
-      "bytes": 10444,
-      "sha256": "c7c9e7f0f470154dd17b8b9a5168fcdce5041f49e97cbd10b303f1e5d37457cf"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/mgts_dev_smoke.sh": {
-      "bytes": 11971,
-      "sha256": "9bb44bc489422d7903c319f601e77d9dcd95ccb3a7123f5db4bbd424f55b540c"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/mla_family_cases_d2.sh": {
-      "bytes": 5698,
-      "sha256": "16e3e777a0979eb5278e6c01102d2d74d87d15108e68f79fd33a256b20bdaa7e"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/mla_family_helper.py": {
-      "bytes": 6149,
-      "sha256": "6c4b67347de5dc7433b35b048f5a24531ebcb3f2303dfd74e27d9e6b85eda175"
-    },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/percase910.py": {
-      "bytes": 20302,
-      "sha256": "d61b9e6bdcd6d724b8b81bc85106b811d39a5501c7b9604ae13cd4e90c0e4038"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/pickdev.sh": {
-      "bytes": 1013,
-      "sha256": "fce2554e14fee4f3de7b4f2e64b899e5de40e8b9de399c73f4b92c0a6585b680"
+      "bytes": 13488,
+      "sha256": "17357256a182c483b8d8eaaf7f60814a7b5ee1eba4294b355f44ff06363cdfd9"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/pipeprof.py": {
-      "bytes": 32792,
-      "sha256": "d2715be68a6aea58b16a0fabe7a2882581508c9aa1927cad3109bfd301dd04c1"
+      "bytes": 32426,
+      "sha256": "b32a7858cb7ee694d713c790749b761394b91360488ce706cc5e1410e8313a85"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/platform_verdict.py": {
-      "bytes": 8613,
-      "sha256": "9d2128a2ad7f19776093f59ccb389bfbb6905862fb73a3aba52b34aba5c67522"
+      "bytes": 6739,
+      "sha256": "13393076b8d58de0380c520b557263918b2426eb4a139149e15a1e594898bd37"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/preflight.py": {
       "bytes": 11960,
@@ -3080,8 +2240,8 @@
       "sha256": "62a0c38610275a446dda56e8c0e058db0e16fea6b6b12ace84e03d7c07a5093b"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/profiler_artifact_bundle.py": {
-      "bytes": 37341,
-      "sha256": "5521f6565cbc6956aa279cd775cfb20feff9b9d905a5f8bccfc164a8a7ca7877"
+      "bytes": 37016,
+      "sha256": "649188294cda4ed01a8fb3069cfddddd933e60e11229fdc975fc72deaa01555d"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/profiler_completion.py": {
       "bytes": 7399,
@@ -3172,12 +2332,12 @@
       "sha256": "9cc1d3bc22acde7cd9810890c49b5e4c04adbf3bf4d64c4ea4442d6fedf65583"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/profiler_run.py": {
-      "bytes": 3069,
-      "sha256": "510345d7b2b81625c10f89be2a055b3c094db15763a40082fbb4867eb88f7bd7"
+      "bytes": 3178,
+      "sha256": "9ff119bafd2444d87ae9c3258f555cf5d9c600cd504041a3f26066db90a060c9"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/profiler_run_core.py": {
-      "bytes": 44033,
-      "sha256": "fce25952277cc5bb89cabb11e731d447fdcfc53b70277c40a5af64f9bf11e177"
+      "bytes": 44054,
+      "sha256": "b21f56d10629f63e18d369d1f524b428f86510f01b0ed658379aa6fa0506d5d9"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/profiler_run_publish.py": {
       "bytes": 9179,
@@ -3196,20 +2356,12 @@
       "sha256": "d8baf5c2d091ba35424e781deaaba6498c4c43eb80e73011e8d49f07325f1a05"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/pull910src.py": {
-      "bytes": 5331,
-      "sha256": "1d13b3c5b1880e4c565fa9a6dd10137cb45708768fdf14ca860a1cf5e0481c6e"
+      "bytes": 3526,
+      "sha256": "5c2269d369cf7954f73d9ec567fefdd0f400a5c576b33e22b420757b3f08ef36"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/push910.py": {
-      "bytes": 29152,
-      "sha256": "2ec3a7d06a1ed3dbcd4283121708b71614efc5092fe7ae04a31448596f7cef3e"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/push_c3d_2op.py": {
-      "bytes": 5714,
-      "sha256": "25a646b26400bef8a0196f96761f335e10ab76133946cf8f7d65213cbf853bd1"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/push_c3d_4op.py": {
-      "bytes": 5449,
-      "sha256": "13a74c1a9b6ffa8d44a63c0718edc1446269a8d2644a570358b09742cfe3c596"
+      "bytes": 22294,
+      "sha256": "ebfc450699079db3601a92258d05ab30b2f877dd7c76b5d3944cd4523100729a"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/readreps.py": {
       "bytes": 1123,
@@ -3220,48 +2372,20 @@
       "sha256": "078e5b5a42dfab489bca8e1841f2ae6f4310260e2020cb4495adbda80e3f30f2"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/real_profiler_multi_event.py": {
-      "bytes": 24055,
-      "sha256": "de8466bfc9a696c47aef4680bd8167ab113c469c7e189dc2d5510284176d2545"
+      "bytes": 24076,
+      "sha256": "ecec11f3c5aa22a36fdbcf96c304a2bd267a4a2f800f31782c34eabb1410c001"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/rebuild_eval_env.sh": {
-      "bytes": 3542,
-      "sha256": "f419d61fa1af5b00375ae3579fa927f827da271c8e255ae64b12a6cf72219314"
+      "bytes": 3484,
+      "sha256": "22cc7e9a6e442f6e7ee94615aacf2a61ceff3526a7fd196ada3c50a1017f22f6"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/school_xfer.py": {
       "bytes": 1623,
       "sha256": "c18bb01af9159e6dad5a606266d23c4652dc9ed70a9a9125df863acf7fa5f81a"
     },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/topk_dev_cases.sh": {
-      "bytes": 3926,
-      "sha256": "43d59486b980fd3e7b9870465a286d9ca8b6456ce86c52ceab9baf51574dd96f"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/topk_dev_cases_win.sh": {
-      "bytes": 4027,
-      "sha256": "64775865b9221587f62cd4e4f42b619b457a26425aeb6ee1efbfac637649d8a7"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/topk_family_cases_win.sh": {
-      "bytes": 6479,
-      "sha256": "3cf81af710cae5a22bbbbce994ed6cff58813cc6a3ad1d6067c9db79f3831e2a"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/topk_family_helper.py": {
-      "bytes": 6039,
-      "sha256": "574062656bb440021a42a9ebcc02ecfebdbad323c4a6c23719ce254b4bdfa4ef"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/unique_family_cases.sh": {
-      "bytes": 5974,
-      "sha256": "9102c1dfcde82f65fb192c36246fc58be4f1ee9be9e5cff0152b56cbfbe88e7b"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/unique_family_helper.py": {
-      "bytes": 5956,
-      "sha256": "99efd7a3e76b74b728bc15e77397bc3b7663a4a07fa3fcce4857451caeabd7ee"
-    },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/wave.py": {
-      "bytes": 36562,
-      "sha256": "979f9b1efecae6b98746f18af112be5e18767244abce099878a1a30a9910c197"
-    },
-    "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/wqbm_dev_cases_win.sh": {
-      "bytes": 4190,
-      "sha256": "e28010fa6c6f29884e10a531d1732423ee9d2b3ef44e2f414772cff661be2132"
+      "bytes": 34220,
+      "sha256": "cc3ad1d4d67bc594ed466e809fa2732d8ec6a087090677e7ef0e01184c8078cc"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/six_source/__init__.py": {
       "bytes": 83,
@@ -3580,12 +2704,12 @@
       "sha256": "442a2e49dfb6077bb6086eaf3274f944abb75cb4ab14e8aec237c5f0767101b9"
     },
     "source/packages/ingestion/README.md": {
-      "bytes": 11685,
-      "sha256": "08c23d5b42ebd3d56814638599ce0b684a342fe181be064facff6396ecbb824a"
+      "bytes": 141,
+      "sha256": "73ca7e4bfcf61905cdaffbc667174af7ee7ce46d104aff9c9c8524503585bc76"
     },
     "source/packages/ingestion/pyproject.toml": {
-      "bytes": 896,
-      "sha256": "5f44ea924c4fd9af29cbec8e9e468830e99a4175d8ea6266de5734639a480466"
+      "bytes": 488,
+      "sha256": "82d45acdb29a54317d432c250d4740b68161fe8bd653f5fd3d1e41dabd071268"
     },
     "source/packages/ingestion/src/kernelcat_ingestion/__init__.py": {
       "bytes": 110,
@@ -3656,12 +2780,12 @@
       "sha256": "8824e640b75036fda175ce234b6ec907c81a17f42d75c00aad76b9be6ba73ebd"
     },
     "source/packages/knowledge/README.md": {
-      "bytes": 30658,
-      "sha256": "3cd98fd1d2af3b6928e83fbdc204ada316cc7263769a9ad4cbec401ccf0a7944"
+      "bytes": 141,
+      "sha256": "9d39f27c775f845e3807e81c90f43b1ae665d9250f37ab33ccf4ea94fdd6fb72"
     },
     "source/packages/knowledge/pyproject.toml": {
-      "bytes": 979,
-      "sha256": "ca598bc99490ebfd243f2c149fed3f15a695728be24e25a65d0454f9e29ce85b"
+      "bytes": 860,
+      "sha256": "9bea0c4d51a30e5f04e9d8960c3ac73852ca87a1f588e0e9ae1416e3b4763941"
     },
     "source/packages/knowledge/src/kernelcat_knowledge/__init__.py": {
       "bytes": 601,
@@ -4067,14 +3191,6 @@
       "bytes": 4074,
       "sha256": "af5c211c7f5db18fc842c76396d56333d8d768adced3f3e5922f81bfd4441c93"
     },
-    "source/packages/pi-lattice-trace/CHANGELOG.md": {
-      "bytes": 1675,
-      "sha256": "a378c77250c387446788caee2c5dd8db5460170bc67d704902db4c0cc0108dc3"
-    },
-    "source/packages/pi-lattice-trace/README.md": {
-      "bytes": 4707,
-      "sha256": "f211e3cf71777ff38a96fdea04076064817e1abad387561c1f30a75e81028912"
-    },
     "source/packages/pi-lattice-trace/bin/lattice-trace.ts": {
       "bytes": 3385,
       "sha256": "3f0dfd538527f413cb99aa4c89a91248a7ff245e6c57bc897b47efc1c78361b2"
@@ -4084,8 +3200,8 @@
       "sha256": "a4711fffb067aebd3ffbf5e0dc7067b26d2fbb396033757917d6188b167651e5"
     },
     "source/packages/pi-lattice-trace/package.json": {
-      "bytes": 651,
-      "sha256": "26c73d6ecaa812bc0a70fb4cc9caeddb4f77ccfe3240f34567f24fb76f559a4f"
+      "bytes": 614,
+      "sha256": "e18cfb590c700eb855d6ed13f3050119bcc498f38528b7ef5cab0cbb02697f53"
     },
     "source/packages/pi-lattice-trace/src/otlp.ts": {
       "bytes": 12112,
@@ -4111,10 +3227,6 @@
       "bytes": 6703,
       "sha256": "bf84215d630e571a398cbf1710ee6ae108f3e2ee0a3d482ee71178a12d377772"
     },
-    "source/packages/pi-lattice-trace/tsconfig.json": {
-      "bytes": 482,
-      "sha256": "6c9e54b367dd770ff9bcf0a9cd57ce51f77425a3c7898bcd43076219f07d7d7b"
-    },
     "source/packages/pi-lattice-trace/viewer/lattice-viewer.html": {
       "bytes": 879518,
       "sha256": "bc5e28f7fbc2c274a4b9e179cb5f64cc4031159bcc2ecd86ff2dd61c1466742e"
@@ -4124,720 +3236,15 @@
       "sha256": "0b9c1cbb7ca450b977072f57b49fcb90ed7a1ee23984f77581c51685c728794a"
     },
     "source/runtime-resources.json": {
-      "bytes": 58358,
-      "sha256": "3358c4c00254e681fef0bed80223d55b4f25f13b49ea5f2f542d859224b677e5"
-    },
-    "source/scripts/audit_operator_trial.py": {
-      "bytes": 8939,
-      "sha256": "58b3fad26c8e8f9fcf9f3f2b9002e56ef03a9570a0fb8f85ac81474dcfc46fe1"
-    },
-    "source/scripts/develop.py": {
-      "bytes": 1862,
-      "sha256": "afd46544b75ec37fd7d45ffc3511b687d6751a7e3db82e9485659df2fcf64836"
-    },
-    "source/scripts/generate_application_contracts.py": {
-      "bytes": 723,
-      "sha256": "5ae3b5a55a23ed16429fec27bbe9b3e008404cfc5b9957c7a3c7b0480eff4b39"
-    },
-    "source/scripts/generate_context_contract.py": {
-      "bytes": 3232,
-      "sha256": "01c26a906b3c0f7359abb1f382ee020024eb5a215f9f921d879a0e9adeb16113"
+      "bytes": 48441,
+      "sha256": "0ce4a361e123bda4870eee004dc8f6aebb9acd678c572bdf5305c0a996913b03"
     },
     "source/scripts/python_deployment.py": {
       "bytes": 17520,
       "sha256": "5808b8924a075a084abc3616c29b989f43a358fca43364aaf8e3aa97871c90e5"
-    },
-    "source/scripts/update_manifest.py": {
-      "bytes": 2940,
-      "sha256": "a3cd65f1d24cd90a5818f94f5680865b4a86978f2ea96a0d2b12f1e3a7787700"
-    },
-    "validation/ACCEPTANCE.md": {
-      "bytes": 1834,
-      "sha256": "41956a48a5c841497acc29d7af8b99cadb25a949762e6be6d1c3e68a4a248c15"
-    },
-    "validation/CODEGEN_WORKFLOW.md": {
-      "bytes": 2496,
-      "sha256": "34e5f758efd3f678109c4154e2c5fd723da4eda2488fbac076347c271436f19a"
-    },
-    "validation/DELIVERY_GUIDE.md": {
-      "bytes": 5183,
-      "sha256": "29ce7756f4c34834b8bff4e158ea944f3cff4a38fe586a7b487fdbe277588d77"
-    },
-    "validation/PERFORMANCE_EXAMPLES.md": {
-      "bytes": 1547,
-      "sha256": "cf37909cb5605a74cf8e28005732d42e2d2e1ba3b7517c6b2a4c73f31081f369"
-    },
-    "validation/VALIDATION_GUIDE.md": {
-      "bytes": 1979,
-      "sha256": "e86ae1d396244e0f628a90e32028f716b250bac2e852693a50dbc4b954d09f2b"
-    },
-    "validation/application-client.mjs": {
-      "bytes": 3044,
-      "sha256": "f877b60a2bc9993f73449254775d17f59c74f6ae3d3b5363f7390af000173da8"
-    },
-    "validation/bash-semantics.mjs": {
-      "bytes": 10531,
-      "sha256": "590e0683455e4de3d7c7f5b110016280032b6637d3df479cfa6721b78091a7e4"
-    },
-    "validation/business-tools.mjs": {
-      "bytes": 2339,
-      "sha256": "901f0d010ac915e7442f5ccf5df2964d3bf74963c4e582870f309b6ba5d1d72f"
-    },
-    "validation/cann-export.mjs": {
-      "bytes": 4142,
-      "sha256": "27fb121a56c52bd1bc8abcf6e98acb27c05571b444652955e069c44c6044f8ec"
-    },
-    "validation/cannbench_sigmoid_adapter.py": {
-      "bytes": 14233,
-      "sha256": "502ad724661e6d6609e7d2ead537db91c79247569e8c905791c9bff4dd8c7fef"
-    },
-    "validation/child-cancellation.mjs": {
-      "bytes": 5883,
-      "sha256": "590168096eec460f321b3b25a1abc136cdc59c57be42199b3bd41c04b61f029d"
-    },
-    "validation/codegen.mjs": {
-      "bytes": 5150,
-      "sha256": "033e4424c1d9fffe5d8215fbe1dd15fa0b937f6824ca214cac40f69a988a02e4"
-    },
-    "validation/context-system-prefix.mjs": {
-      "bytes": 10150,
-      "sha256": "951eb156600eb5b14aa6d483061ad73e664bae52470e79c545c94844c82d9a97"
-    },
-    "validation/environment.mjs": {
-      "bytes": 1202,
-      "sha256": "a7d5e69a00a217482c2f53f8126959464a43252b112b17e7998c044de0ca1b8d"
-    },
-    "validation/fixtures/aclnn_lifetime.cpp": {
-      "bytes": 3990,
-      "sha256": "e6f9354015d6f5ea779c576f0969eb4423c081026565d7e489880329903f7a21"
-    },
-    "validation/fixtures/ascend_add.py": {
-      "bytes": 2948,
-      "sha256": "f3592958eebff7abe6c17d4d261dd168bfb492ef2e1e55f568c4e72328cf5554"
-    },
-    "validation/fixtures/ascend_add_reference.py": {
-      "bytes": 180,
-      "sha256": "26208af8b3c65980c09cb115373b52871227009cd4aa9fc6b999c243d8c4651a"
-    },
-    "validation/fixtures/npu-job-handle.json": {
-      "bytes": 1165,
-      "sha256": "0366ce77579ebdd19713c3fef1701774dbcff7b9ddaa9868aec5b2a66cb74108"
-    },
-    "validation/fixtures/sigmoid_baseline.py": {
-      "bytes": 5740,
-      "sha256": "bf8490109e9ba9a0fba628e693d4ce124b0d2d785e2efdc87d7ce35646f60897"
-    },
-    "validation/goal-workflow.py": {
-      "bytes": 5417,
-      "sha256": "480a6584ca1b342399d5a7f98e96f713d17554e5d64d0b403b04ffe08f2b28d9"
-    },
-    "validation/live_agent.py": {
-      "bytes": 7898,
-      "sha256": "aa7a413e6e19f755553f6bf51d66348e9be3f4f650689e3f897597be27c5ee8c"
-    },
-    "validation/live_cpu_evaluator.py": {
-      "bytes": 1697,
-      "sha256": "4ad4dd3dfa1d32fe2c55f7625be9898b87528d96db1a9aeaca4b5e02974d357b"
-    },
-    "validation/native_rsi_adapter.py": {
-      "bytes": 12244,
-      "sha256": "c3a8342547836d399875744f29c3aef8a0a68da4d7d910e8bd81fa972103f86b"
-    },
-    "validation/npu_acceptance.py": {
-      "bytes": 3350,
-      "sha256": "f021d9c67f985705f288ade24c6a235baabd70591b00ad22223187cbb471c91f"
-    },
-    "validation/npu_isolation_fixture.py": {
-      "bytes": 9752,
-      "sha256": "489aa197c64d5d9ca7ca7bc5febc057590d58e8309496e365a77806753db5f25"
-    },
-    "validation/npu_pid_view_fixture.py": {
-      "bytes": 10548,
-      "sha256": "22c41eb49bf9fe31fc9cf571a69e63ebb089c9335483bd4e16a72e40fb2a90d5"
-    },
-    "validation/online-credentials.mjs": {
-      "bytes": 9243,
-      "sha256": "b80072c177157a89d16c5bc166e37801837a6021f2f8d21455053017df96245a"
-    },
-    "validation/operator-task.mjs": {
-      "bytes": 12901,
-      "sha256": "2fdddbcdb4b4b709f1c3f0d768c8b49550bf1080a2a4e154f6cd4dcc7f91ff61"
-    },
-    "validation/pending-effect.mjs": {
-      "bytes": 774,
-      "sha256": "a8f2f4c874d949c995a38b0ec8288d2351ee3d636f9d5d042c095a1be6299616"
-    },
-    "validation/pi-compatibility.mjs": {
-      "bytes": 5246,
-      "sha256": "b4afa66962bc6e8399a78d7c560c07520cbd3c6c4c2c204a914c96aa83ec7664"
-    },
-    "validation/portable-restore.mjs": {
-      "bytes": 5381,
-      "sha256": "3d748bf4bccf649f71433e68491916641bb9dd37e6c523f75f0dfeed1134eccd"
-    },
-    "validation/replay-context-retention.mjs": {
-      "bytes": 14751,
-      "sha256": "b253fef3318af5f3c55500ef519ea8aaa13113f0b5684397b5a73a1b9cfeecc4"
-    },
-    "validation/rsi-feedback.mjs": {
-      "bytes": 1139,
-      "sha256": "656f0de44deded05975685d693fcd5d511efda71c84719521350e42f3e77d098"
-    },
-    "validation/tensor-failure-feedback.mjs": {
-      "bytes": 5097,
-      "sha256": "29a1fe73a43378f20addd9f466a18b0e42dc4314898105e1be7e88544ee29a64"
-    },
-    "validation/test_aclnn_lifetime.py": {
-      "bytes": 1172,
-      "sha256": "201fefcf7781c926b56badc17854779d14c28e240f76e3558104433d4d865146"
-    },
-    "validation/test_application_control_recovery.py": {
-      "bytes": 10255,
-      "sha256": "ffc35ce8f69838c3166cb33a25277312d12781c781755014bf346f4c5ceff11b"
-    },
-    "validation/test_business_diagnostics.py": {
-      "bytes": 6980,
-      "sha256": "1f743ced561bfa08f9e20c9ab96f80d1bf454c85bd6bcc56ce27d044774d540f"
-    },
-    "validation/test_campaign_budget.py": {
-      "bytes": 4691,
-      "sha256": "4f02f8196f9c19dd36d5b7e1b7ee7a3a58b1cc646219d146326607dae161d4f5"
-    },
-    "validation/test_campaign_isolation.py": {
-      "bytes": 6935,
-      "sha256": "5d73929cd5566a72c0dff52738621afeef11f4b37f0dd774fe7fc34d5889b1b3"
-    },
-    "validation/test_candidate_retention.py": {
-      "bytes": 4828,
-      "sha256": "69807e88590ccf66664f524729ee24e6e3c830012a4bebd00c7dd8a9dcf9e1d6"
-    },
-    "validation/test_cann_acceptance.py": {
-      "bytes": 3964,
-      "sha256": "e8d264949e019bd5e138797ea28ab501e6bf9ef838f90b23ee63a8c72f2cc64a"
-    },
-    "validation/test_cann_delivery.py": {
-      "bytes": 3891,
-      "sha256": "ce4148f7338d16bca7b6bcbbcbd68510a9bb668e088f18b06a3a1dee4a0b1d35"
-    },
-    "validation/test_cann_examples.py": {
-      "bytes": 3464,
-      "sha256": "a583483a221783e1f1fb14ff1ba798e05a7e82adb1f6b862e007a77d717c8825"
-    },
-    "validation/test_cannbench_precision.py": {
-      "bytes": 1704,
-      "sha256": "4d3d6a35117047cb6f4cde366fcd734490c015361145433332d16cd1d573f9e0"
-    },
-    "validation/test_child_exit_fence.py": {
-      "bytes": 11074,
-      "sha256": "1c0bdaa28ac1736ccafaaf9ea24d2d62954ab3412c2580bd024a923cf44ab612"
-    },
-    "validation/test_child_instructions.py": {
-      "bytes": 24702,
-      "sha256": "329c7e821e10905cd868d416a90c078b9c5874a84ab4115b5eb1815c7ef30193"
-    },
-    "validation/test_correctness.py": {
-      "bytes": 4751,
-      "sha256": "90bf8e949b19e6522b03b745a9547a1d1d78fd24a761953b9586a38320827e21"
-    },
-    "validation/test_delegation_guidance.py": {
-      "bytes": 2111,
-      "sha256": "e935160de222223b3dbd3bcc360ffe86363c2f750e8a15db37e32e64a76b3fb6"
-    },
-    "validation/test_diagnostic_acceptance_envelope.py": {
-      "bytes": 13672,
-      "sha256": "daa764abb775c21baf863d1ae13cd31a886929f947e42e052fb64e8d9a204d26"
-    },
-    "validation/test_evaluate_acceptance.py": {
-      "bytes": 5529,
-      "sha256": "5ff25f37cdfa89384b42e8971ec5de22248012efb0aed1f11b2e429667849b2e"
-    },
-    "validation/test_evaluate_pipeline.py": {
-      "bytes": 16814,
-      "sha256": "bd3f412a8d01362bc41e8e9f3539006f78d6eeaffff2b850530658358bb4802c"
-    },
-    "validation/test_install.py": {
-      "bytes": 973,
-      "sha256": "8b9e574975c664631ceefccc327db99b784593821c65daf6334ce14cd62870e5"
-    },
-    "validation/test_ir_input_validation.py": {
-      "bytes": 15315,
-      "sha256": "4bc75e8acbe97e567aad46e439bec495075c40e1a6c855c16ca25ab7b3dcd193"
-    },
-    "validation/test_native_build_diagnostics.py": {
-      "bytes": 18827,
-      "sha256": "6443c25bc28f1cdcfeaaf79a1c83d98559a76f19b14f6f66c8e6b3aa17280a15"
-    },
-    "validation/test_native_build_feedback.py": {
-      "bytes": 12774,
-      "sha256": "9db183e3ef77176c75e6e734437d47a4ab92f03e858be1c8b8eaba394ccbb2a7"
-    },
-    "validation/test_native_compiler.py": {
-      "bytes": 4663,
-      "sha256": "81c9771f0253ab7b8020dc20e847d2a2f02d7a41465a71a976cb7a291c88da84"
-    },
-    "validation/test_native_failure.py": {
-      "bytes": 2403,
-      "sha256": "a6bedb63d4a10cc86ab923a6c73a69579759228f6711e7c71b86184402cd9c44"
-    },
-    "validation/test_native_include_contract.py": {
-      "bytes": 10808,
-      "sha256": "7c65e5631eeeae1fb60e32ff3a6cb7e625d7a8135158daef5afb388735611ccd"
-    },
-    "validation/test_native_interface.py": {
-      "bytes": 7995,
-      "sha256": "354d96814e4f96f677398926ad3da746368983d2ba577006f048a8b65dec72e5"
-    },
-    "validation/test_npu_build_phases.py": {
-      "bytes": 14405,
-      "sha256": "9fe6bdb3ee412eb6e6da78863d14a63cb35d7caaf90bf5ec5a8e5d99f7be30d3"
-    },
-    "validation/test_npu_diagnostic_projection.py": {
-      "bytes": 19472,
-      "sha256": "cfb528b2ce9bdd7e90f6420283709ff4de8952eb57f06cf7430e8fb52dba60db"
-    },
-    "validation/test_npu_diagnostics.py": {
-      "bytes": 11617,
-      "sha256": "b37b12763552f6525642be4e2d0c8d42c5fb68eef0c24a3329d4c71f6f24d867"
-    },
-    "validation/test_npu_events.py": {
-      "bytes": 1852,
-      "sha256": "495022aa03400f22f47e7705e84783674151e15802e3ebaee612bc634fe0531e"
-    },
-    "validation/test_npu_failed_receipt_replay.py": {
-      "bytes": 13138,
-      "sha256": "664c2c7fd4256b07be96287e849bc249c60b5637006429f5705d81d120defd33"
-    },
-    "validation/test_npu_isolation.py": {
-      "bytes": 15499,
-      "sha256": "0156b61fb6c48a4cb89355d3af7cc604f31c8e1601d98178d10a15ec6d60a3c5"
-    },
-    "validation/test_npu_isolation_adapter.py": {
-      "bytes": 15686,
-      "sha256": "aa6230653348fd8cd4ad3eecbb0f72c246b324b572935edb94c30b882d80849d"
-    },
-    "validation/test_npu_isolation_supervisor.py": {
-      "bytes": 11587,
-      "sha256": "c150db98afe03753fa8c05e1452531c339b02205e7bf739af89c2f26e6d734b7"
-    },
-    "validation/test_npu_job_supervisor.py": {
-      "bytes": 17667,
-      "sha256": "0a9fb7675e72aaad6b610740ea09cff5d422075ddbc667a112a1b7c3448bd39e"
-    },
-    "validation/test_npu_observation_fence.py": {
-      "bytes": 15267,
-      "sha256": "d2fc6cf1ce6b85d437d2038bc0dddceab008ccea81c4de19f359c5dc775ed2dd"
-    },
-    "validation/test_npu_pid_view.py": {
-      "bytes": 14573,
-      "sha256": "e28f11f008abff028b720ca22029b100c9a4d8305cea5cad355d0a29f29c1d98"
-    },
-    "validation/test_npu_pipeline_driver.py": {
-      "bytes": 21407,
-      "sha256": "d6090bb3d443939cb418f1f8f05325e54b279a634cd6003df782a836877f4ed4"
-    },
-    "validation/test_npu_run_log.py": {
-      "bytes": 18089,
-      "sha256": "dd70135761ad73936a166bcb8f6c2f49986c5417412e54fb13f25e26c7c2ccd4"
-    },
-    "validation/test_npu_supervised_trial.py": {
-      "bytes": 22797,
-      "sha256": "ab504cdbbf0cdb66418d5b33674ca45d711edef862c360e4091090d8fdefbab8"
-    },
-    "validation/test_npu_trial.py": {
-      "bytes": 8052,
-      "sha256": "0ef1f5c54135f4234405055104a07032de4f53ec5b621c83d02fe79b7207e8dc"
-    },
-    "validation/test_observation_paging.py": {
-      "bytes": 26822,
-      "sha256": "56f8f3165c90e9ffff3a08e7f62577a5d9cae53f9a4d8b68c830e4effcaba8e0"
-    },
-    "validation/test_online_research.py": {
-      "bytes": 24973,
-      "sha256": "7a8483e7d4f284ef702538cd8dd25976816676f855143f6fd285397624aec15e"
-    },
-    "validation/test_online_search_provenance.py": {
-      "bytes": 13144,
-      "sha256": "24f048eed5fcefdbb43682083803970882fbb11380786d7e12ba5ac5b4bd8cb4"
-    },
-    "validation/test_operator_application.py": {
-      "bytes": 20769,
-      "sha256": "233da28f05b60329a83baee8e9f3d7659600b69002aefa8afd2e755bb2ed3af9"
-    },
-    "validation/test_operator_guidance.py": {
-      "bytes": 6173,
-      "sha256": "ef847f457521fda76c5f2e70377fee23f22ea817e549bc603da9a05967e876eb"
-    },
-    "validation/test_operator_infra.py": {
-      "bytes": 10830,
-      "sha256": "9d02621065b00b7680186a229c87a9796077df4e5f402f1384c2ca2b90cacf26"
-    },
-    "validation/test_operator_pipeline.py": {
-      "bytes": 28423,
-      "sha256": "6f76f013fcc1bdb18d4d162da7c188e46c81d01a2588ebacf8a7da560b68dfd3"
-    },
-    "validation/test_operator_qualification.py": {
-      "bytes": 16925,
-      "sha256": "d7b3a7cb21c1f00119be9df68668bc2cbee8e6defdcd4c7c5af478be77af2d11"
-    },
-    "validation/test_operator_scratch.py": {
-      "bytes": 10469,
-      "sha256": "b8e9479a7d943dd9be3b2cda8cc25c7667821452eccc325e0d683d9982c9bf39"
-    },
-    "validation/test_operator_trial_audit.py": {
-      "bytes": 4277,
-      "sha256": "16239b8af7d02d3b9fd1d3199137279a8117dfb1e8fe3d02a49a972b3b7e28a6"
-    },
-    "validation/test_pending_observation.py": {
-      "bytes": 44687,
-      "sha256": "1b8f052810d118b870fb16a355a912e6927a134999a2570a6faabce66a6d9fe8"
-    },
-    "validation/test_pipeline_declared_contract.py": {
-      "bytes": 18254,
-      "sha256": "df6b20f007622955700c21ab30e2173ec14059250b1ba20930fb39ae62e017b0"
-    },
-    "validation/test_pipeline_isolation_acceptance.py": {
-      "bytes": 17630,
-      "sha256": "8ca33aaf6a6aecf615103aeed48dc7749cf54f55c52eaf4ebc43fd3975117ae4"
-    },
-    "validation/test_pipeline_native_admission.py": {
-      "bytes": 25528,
-      "sha256": "37ed6d11b4f233e12e8510a3e56581898a3a9d82d607a0a6bcd1aa54eaada822"
-    },
-    "validation/test_portable_environment.py": {
-      "bytes": 9916,
-      "sha256": "a428a6d4cd96a972c32a81c5ef8c723a6f3ad6241f0ee90df519669d71c448a0"
-    },
-    "validation/test_portable_replay.py": {
-      "bytes": 3880,
-      "sha256": "a78aa7cd57d3d17d0da212125175720cc4d26c2e7fe0aa82d98aa80fa7e82acc"
-    },
-    "validation/test_prepare_npu_isolation.py": {
-      "bytes": 12880,
-      "sha256": "6868cddf7d124be9d03f705c30bb09f3c94790dcff82b45b5e4a4475795e5900"
-    },
-    "validation/test_process_isolation.py": {
-      "bytes": 27370,
-      "sha256": "e92a4480d26ab18d23d9c233c0fba5d3cf49c3d1d8dd04b37a3aabaf748c5524"
-    },
-    "validation/test_propose_stress.py": {
-      "bytes": 13999,
-      "sha256": "25b66d747dfc83a2c3f689972a5140bdd3edc17c880cd911841b475a10360fa2"
-    },
-    "validation/test_provider_evidence.py": {
-      "bytes": 26750,
-      "sha256": "0a4291cba0925f6eeaca3468d3210885bfe67eabd54efce710eaa05fe9c94cff"
-    },
-    "validation/test_rsi_proposal.py": {
-      "bytes": 5920,
-      "sha256": "79e45efd612c47635951aca06e74bb6e0d8a14b78509473cf3464703e258d2c1"
-    },
-    "validation/test_rsi_snapshot.py": {
-      "bytes": 2147,
-      "sha256": "7377fcee13d08aaec3cfd4f7978cadb83dfb7bcf58ef5537731e17ea6ea332e5"
-    },
-    "validation/test_runtime.py": {
-      "bytes": 10151,
-      "sha256": "c5bb4b7aaefefe59301d034c3ba577f92a3d82fd60909d58da82476e412c3c1c"
-    },
-    "validation/test_scatter_torch.py": {
-      "bytes": 3966,
-      "sha256": "37e902068810a229da04df565f052cb31c599e2ecd1052db80bf0100efda5cd8"
-    },
-    "validation/test_subagent_recovery.py": {
-      "bytes": 19545,
-      "sha256": "b91dd08f855876ad5ab1efe7f23bb2807f6cd0c8bbca75613ee998f7748d8299"
-    },
-    "validation/test_subagents.py": {
-      "bytes": 22233,
-      "sha256": "62147c6762f561ad093c6f726533438508e8f24e7ec3fd072c89e53fa8d3af99"
-    },
-    "validation/test_tensor_failure_feedback.py": {
-      "bytes": 18527,
-      "sha256": "21fa969167312b894bfd8cdb382c288e85a8e895fe39b4011d8db3572fd9eddf"
-    },
-    "validation/test_terminal_error_excerpt.py": {
-      "bytes": 11749,
-      "sha256": "ad30939f549eb93d1fae4fc63764ffed6eb0f95e488bceb0f1d7f440a33f4677"
-    },
-    "validation/test_terminal_job_feedback.py": {
-      "bytes": 30154,
-      "sha256": "aad50966b9ca8b3bc7bc635c6cfac494c73a7db3998730deaad49c07d4f93694"
-    },
-    "validation/test_workspace_discovery.py": {
-      "bytes": 2746,
-      "sha256": "bd97e3f6a936b9ae25ca1631304067bff13671367985c85823e77a0a4611c0e7"
-    },
-    "validation/tui/ACCEPTANCE.md": {
-      "bytes": 83318,
-      "sha256": "9e69b1789e2d5e082b2d1c6c4c7ebb47440235e0354e497a32aff9216cdd8eeb"
-    },
-    "validation/tui/README.md": {
-      "bytes": 9510,
-      "sha256": "533c2fce57e862a8c0a2bba852b026c20b60e5c36a3d748a8d713ae81d9dd0e5"
-    },
-    "validation/tui/admission-scenario.mjs": {
-      "bytes": 3510,
-      "sha256": "074569982c626175499c7d98ab6783cbea654a9291f2f90fbb0af0347cfc3da7"
-    },
-    "validation/tui/advanced_scenario.py": {
-      "bytes": 15539,
-      "sha256": "2e067f09b141fa304b6ebd9b838a05cda72992546645051702ecef68778a56d6"
-    },
-    "validation/tui/agents-panel.mjs": {
-      "bytes": 1785,
-      "sha256": "3d2777bdc7be2415ccc5ea731c0f9f027ef284807c5ad6078d2b6c7c80651297"
-    },
-    "validation/tui/codegen_demo.py": {
-      "bytes": 3904,
-      "sha256": "ac49540faaddd1689b50f67792c0b8baaf6a2ffb1249711bcc69032195d83af8"
-    },
-    "validation/tui/codegen_edges.py": {
-      "bytes": 7442,
-      "sha256": "84301fc6e574cafd09f0d61218dedeaa2a40533360801da21e07b7a2398a8f91"
-    },
-    "validation/tui/codegen_fixture.py": {
-      "bytes": 2730,
-      "sha256": "63a72346d7026db499d2fb3c80fc26e0f9143d11c49fdfc5d2da87890f49e9f2"
-    },
-    "validation/tui/codegen_scenario.py": {
-      "bytes": 12127,
-      "sha256": "e215e0f487d7a09ad4e1df79cc201c3730b5253aacee216683695f05cd44d075"
-    },
-    "validation/tui/compatibility.mjs": {
-      "bytes": 2724,
-      "sha256": "c78a15de9bc28ae4eeea7fce54a47e37d6b4f05f0a20829ded54d8176b02a00a"
-    },
-    "validation/tui/deepseek_live.py": {
-      "bytes": 5993,
-      "sha256": "8f609a020f2a8be1a38108a4f75c596e216ff10d94e4d314a59071b1737fd9a0"
-    },
-    "validation/tui/demo.py": {
-      "bytes": 4918,
-      "sha256": "fd383d28423e79ba65ade438b2b6bcb9cd881bb2c73d369f737a434e546fa0ab"
-    },
-    "validation/tui/evaluator.py": {
-      "bytes": 810,
-      "sha256": "80ddab32fc6f8a89927929889915b62653aff1835dd62254595b0d1dfa8fa3ed"
-    },
-    "validation/tui/fork-scenario.mjs": {
-      "bytes": 2840,
-      "sha256": "897fc2c94c61e75d99b91bfe0314f00d06bac5edac3864bb827059d93631d67e"
-    },
-    "validation/tui/goal_blocker_scenario.py": {
-      "bytes": 11681,
-      "sha256": "284c7449358ddd5148c244e7af935d3f45b6b3cf35ed0363f44d2b250d37d444"
-    },
-    "validation/tui/goal_review_scenario.py": {
-      "bytes": 5111,
-      "sha256": "9a05611e156a59badb0638d6dfc211aed03761c65996f53b626cd2c87d8c8da5"
-    },
-    "validation/tui/input-settlement.mjs": {
-      "bytes": 27625,
-      "sha256": "af827b4fdd6ca8fe661b8c47bf377e5d3019c8e5c2a4820efdbac5dd7dd14fa0"
-    },
-    "validation/tui/interaction.mjs": {
-      "bytes": 8090,
-      "sha256": "263da9d0ab08d7e906198783657fe0f0b3851453ccb603a24e6ae8b4bc3b41aa"
-    },
-    "validation/tui/interaction_scenario.py": {
-      "bytes": 12748,
-      "sha256": "79cf8047783102471efbad1b543b8a9abde9fcb2ab66763a1979d8cc57a3acad"
-    },
-    "validation/tui/lifecycle-scenario.mjs": {
-      "bytes": 4466,
-      "sha256": "196124040facb62b18c616860b0e8dc8cc0391d2ababac9dc89187c4121acee7"
-    },
-    "validation/tui/long-scenario.mjs": {
-      "bytes": 3060,
-      "sha256": "76de8bf2ed1533fc18d9188540843b7a3c0cd163bdbfd859d0a26fd0ca1a1335"
-    },
-    "validation/tui/model-delta-isolation.mjs": {
-      "bytes": 8923,
-      "sha256": "f767cf3d82e045ef3e3778fabed49aa1be5516c94404ecd48d24ae3eb79aed25"
-    },
-    "validation/tui/operator-workflow-driver.py": {
-      "bytes": 1659,
-      "sha256": "2c0df25fdb546323618aba569df410f10c9776ba1bd7d73fa5fdc2f87632d33f"
-    },
-    "validation/tui/operator-workflow-scenario.mjs": {
-      "bytes": 2294,
-      "sha256": "a7a1e56c0605ffa2f27ce2be9a9535f8c9f17ca884acfa17153f61ebc2551c92"
-    },
-    "validation/tui/operator-workflow-scenario.py": {
-      "bytes": 13273,
-      "sha256": "df9a491f20af396068228ee4cdd6175358412ceb8ef47fd2ff08ad58e078eab2"
-    },
-    "validation/tui/operator-workflow-state.py": {
-      "bytes": 6601,
-      "sha256": "72ba9a2f6d1a9a4943f5729b7353b83a0b5ab41360ec940be98a3c3fbe287ff7"
-    },
-    "validation/tui/operator_profile_smoke.py": {
-      "bytes": 2671,
-      "sha256": "ca7a8401c6d0095519924c3c8f3f3b8305069feab437c6ecd74468bfb808d750"
-    },
-    "validation/tui/plan-presentation.mjs": {
-      "bytes": 8931,
-      "sha256": "5f003239a5dacf74e43a60080104c7deb690efa1e5a6dadb3708367e38d8892c"
-    },
-    "validation/tui/product_scenario.py": {
-      "bytes": 9232,
-      "sha256": "89caaec76ced611fa43531f62bc6a3c2363a4b07f898c0024914bdeb8a2ca320"
-    },
-    "validation/tui/pty_scenario.py": {
-      "bytes": 8712,
-      "sha256": "ee054970a65f5b2e7da00400b93eaded9b7db4b38d075190df62a0e0a448b7ab"
-    },
-    "validation/tui/recovery-scenario.mjs": {
-      "bytes": 5841,
-      "sha256": "36560ad8735692a97beddc3d0f3e4d39ea0d2b6b0d4bb331bf98ea5ba86f8d9e"
-    },
-    "validation/tui/requirements-ui.txt": {
-      "bytes": 28,
-      "sha256": "55da52a8f32c282353c7051789e1e81ff723eed766b5f850cc7272a8668c3182"
-    },
-    "validation/tui/results/codegen-20261110.json": {
-      "bytes": 43320,
-      "sha256": "4c5a7409a7416d922a0fb3b6e181a08aaea90ca9f0529b820580bab32bd03698"
-    },
-    "validation/tui/results/goal-review-20261110.json": {
-      "bytes": 2608,
-      "sha256": "a235c9eb70f98916bc6d3f76c886e8b2224e394f3e0229935ed434961d945501"
-    },
-    "validation/tui/results/installation-20261110.json": {
-      "bytes": 6589,
-      "sha256": "7c11909fe223f4c26028849e679ecacb198b8056ec7455829c43b44886ecc601"
-    },
-    "validation/tui/results/local-20261110.json": {
-      "bytes": 8013,
-      "sha256": "bd7aa66a9d37d4346277f94f2f529ab015c6a6e905af5451a0c201e7c3da420f"
-    },
-    "validation/tui/results/native-pi-deepseek-20261110.json": {
-      "bytes": 48252,
-      "sha256": "e7426e20d6fcb106a68be75d47ac8ee64343cc9fe3b9074e735602420e738849"
-    },
-    "validation/tui/results/operators-20261110.json": {
-      "bytes": 16434,
-      "sha256": "07d1b1f92f0e8cae1ca7120dbb2ae25d887a73aef9e61f872f969804f1bc1562"
-    },
-    "validation/tui/results/resume-20261110.json": {
-      "bytes": 2145,
-      "sha256": "87dd8b5c8706b7f7c6887475dcec92c7db017b49c9d731a7d579047ffb13a4b5"
-    },
-    "validation/tui/results/ui-20261110.json": {
-      "bytes": 24593,
-      "sha256": "f99adc54bc77e63b89c03055068101d7cbdbbb959f9fcbe7460a6f336755f099"
-    },
-    "validation/tui/resume_default_home.py": {
-      "bytes": 8587,
-      "sha256": "fcde4206b234bc41e2ecaf6526e4bacc2cad47d19b488a73de09a5cf086b4ee8"
-    },
-    "validation/tui/run.py": {
-      "bytes": 8881,
-      "sha256": "273a9cecd57110ab568a1bfe1f0b7b204de33645d73c3e87e7661d927384801b"
-    },
-    "validation/tui/sdk-scenario.mjs": {
-      "bytes": 2153,
-      "sha256": "1de315561f87938223f33fe6305758899c71220479599d39fd3e6600ac3bea12"
-    },
-    "validation/tui/session-discovery.mjs": {
-      "bytes": 6648,
-      "sha256": "bb47b498c9b1c8ad3c959d9db0532625e808c0ff43b3f1019e8ea3b7e59dd2c5"
-    },
-    "validation/tui/steering-scenario.mjs": {
-      "bytes": 2575,
-      "sha256": "0d05865a1b3f213e2bba52ddbf98810ab6fc69cc4905a089e62b32641d7740e0"
-    },
-    "validation/tui/subagent-presentation.mjs": {
-      "bytes": 12786,
-      "sha256": "c1f00e117d1fa2d3a288f39b05c4cde2ca785b5b270629e1e1a7b6898cbe3269"
-    },
-    "validation/tui/subagent_cancel_scenario.py": {
-      "bytes": 3380,
-      "sha256": "051af5dec3579c8d152f683a541a5331baa27ddf6bf66cafda5dbcdc46475a21"
-    },
-    "validation/tui/subagent_live.py": {
-      "bytes": 11321,
-      "sha256": "cdf671b5ab692ad94ea865ecfc570bbf0f16071e85c477e82e6e354b89c9ad78"
-    },
-    "validation/tui/subagent_live_resume.py": {
-      "bytes": 7819,
-      "sha256": "0043410dce90d88cbfae2b7c213e972555069696123c4fc88f746ef49d6bcae0"
-    },
-    "validation/tui/subagent_panel_scenario.py": {
-      "bytes": 10144,
-      "sha256": "ade849aa302d2f6d7da7f664dfe1bc602575dc5eea253e4c0b6413bd1bb59532"
-    },
-    "validation/tui/subagent_parallel.py": {
-      "bytes": 15925,
-      "sha256": "92e4cd84c17f9a9b156a63112a3e9a7cb792ca95278954e709dd7e57c12e4760"
-    },
-    "validation/tui/subagent_stop_scenario.py": {
-      "bytes": 4655,
-      "sha256": "859b9882b20c44daa9ca53f2c990d58fe3e87c986cbd55072e9ef6a30d8ed717"
-    },
-    "validation/tui/test_authority.py": {
-      "bytes": 18302,
-      "sha256": "aa09146ca43f9a32e2a5c969154eb0e0d90953e3294253fea46e19a15eaba44e"
-    },
-    "validation/tui/test_codegen.py": {
-      "bytes": 4498,
-      "sha256": "0adb66d4fe85fed3c6c94d0fb8a84c4dbcd4976d21ab5536508ffc5c285e192c"
-    },
-    "validation/tui/test_context_system_prefix.py": {
-      "bytes": 18311,
-      "sha256": "e36e620401552278e9d72ea9f4472e2621f653ccdf987c3050afcb30d87699fd"
-    },
-    "validation/tui/test_continuation_information.py": {
-      "bytes": 23962,
-      "sha256": "882965d2255d1ec0d14fb2c2476d6579689a41a99e667f4a90faf15bf43828de"
-    },
-    "validation/tui/test_goal_blocker_review.py": {
-      "bytes": 26984,
-      "sha256": "d501bdb30838cf3c1a4bde9d2704cf82fd1c6679378a2fc1db3900fa467fe1a9"
-    },
-    "validation/tui/test_goal_budget_projection.py": {
-      "bytes": 8174,
-      "sha256": "026674c57001436497ca83a638d341b4987fc946c3ae5d91766469fe2aef997a"
-    },
-    "validation/tui/test_goal_continuation.py": {
-      "bytes": 11504,
-      "sha256": "52092e4001ebd6ef47d4b3afc34d0aaa0f19751493552f0036c2632dcdca507a"
-    },
-    "validation/tui/test_goal_progress.py": {
-      "bytes": 8727,
-      "sha256": "f1cb9166297903811edd1752f16cb8bc7d6abc5f6dab4c43a535f9f99a90479c"
-    },
-    "validation/tui/test_goal_progress_context.py": {
-      "bytes": 33669,
-      "sha256": "6a0c48bb9982974c0e08236d70db67e0864c8833bdbcebc2625bf6a5315925a5"
-    },
-    "validation/tui/test_goal_review.py": {
-      "bytes": 5859,
-      "sha256": "61d56cd00d1ac78e395780136b58366a9a392577d373996a582f12369365c7ee"
-    },
-    "validation/tui/transport-scenario.mjs": {
-      "bytes": 1647,
-      "sha256": "9c8aae5b0550cbcbed325993744860c42ec7a42ef4c1f125b986fba894c3d97a"
-    },
-    "validation/usage.mjs": {
-      "bytes": 789,
-      "sha256": "5adf0aa797a111920956fca2bcfa29e62c971420f52788ac4137d139d3081c95"
-    },
-    "validation/workspace-tools.mjs": {
-      "bytes": 14876,
-      "sha256": "9a94a24e5342ea61b06eb638d51b4774a56d847c227d44ebd18f010f38b484a6"
     }
   },
-  "installation": "required-online",
-  "resource_selection": "docs/customer/runtime-resources.json",
-  "schema_version": "kernelcat.customer-source/v1",
   "source": {
-    "commit": "d28bf3837ac925813fb9b5b3a97e74b259eb82d5",
-    "selected_source_sha256": "8bf9f2e46880924e3e82fcf8709dd44ecf1e13aacf66e22b49bb7e43a6237253",
-    "worktree_dirty": false
-  },
-  "tools": {
-    "node": "v22.22.3",
-    "python": "3.12.12"
+    "commit": "91d0f6a6569cbc3b91244817655b92cd3c2a8c62"
   }
 }

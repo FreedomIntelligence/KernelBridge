@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     parser = argparse.ArgumentParser(
         prog="ab_sdk",
-        description="32-card demo1+demo2 A/B and KTP job submit SDK",
+        description="Configured-host A/B and KTP job submit SDK",
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -65,9 +65,9 @@ def main(argv: list[str] | None = None) -> int:
         "--backend",
         choices=("auto", "ktp", "demo1", "demo2"),
         default="auto",
-        help="auto: idle 16-card host (demo1 then demo2); KTP if both busy",
+        help="auto: a configured idle host, then configured KTP",
     )
-    p_ab.add_argument("--devs", default="", help="host cards, e.g. 10,11")
+    p_ab.add_argument("--devs", default="", help="logical device IDs, e.g. 0,1")
     p_ab.add_argument("--detach", action="store_true", default=True)
     p_ab.add_argument("--no-detach", action="store_false", dest="detach")
     p_ab.add_argument("--no-sync", action="store_true")
@@ -112,12 +112,12 @@ def main(argv: list[str] | None = None) -> int:
 
     p_cases = sub.add_parser("cases", help="public catalog + per-case A/B / official job")
     p_cases.add_argument("op", nargs="?", help="operator (catalog if no --run/--job)")
-    p_cases.add_argument("--run", help="share run tag, e.g. mgts-incap2")
+    p_cases.add_argument("--run", help="share run tag")
     p_cases.add_argument("--job", help="official job_id")
     p_cases.add_argument("--file", action="append", default=[],
                          help="arm=path/to/cann_final_eval.json, repeatable")
 
-    p_cap = sub.add_parser("capacity", help="32-card + KTP fields (live KE/queue)")
+    p_cap = sub.add_parser("capacity", help="configured host + KTP fields (live KE/queue)")
     p_cap.add_argument("--offline", action="store_true")
     p_plan = sub.add_parser("plan", help="fill Job fields for N operators")
     p_plan.add_argument("-n", type=int, default=1)
@@ -130,12 +130,12 @@ def main(argv: list[str] | None = None) -> int:
         "--parallel",
         type=int,
         default=None,
-        help="KTP submit-wave size (default 1; 8 is the cmake-safe 7750 path)",
+        help="KTP submit-wave size (default 1)",
     )
-    p_fleet = sub.add_parser("fleet", help="32-card hosts + remaining ops on KTP npu=2")
+    p_fleet = sub.add_parser("fleet", help="configured hosts + remaining operators on KTP")
     p_fleet.add_argument("-n", type=int, default=4)
     p_fleet.add_argument("--parallel", type=int, default=None)
-    p_host = sub.add_parser("host", help="probe / bootstrap 16-card hosts")
+    p_host = sub.add_parser("host", help="probe / bootstrap configured hosts")
     p_host.add_argument("action", choices=("probe", "bootstrap"))
     p_host.add_argument("name", nargs="?", default="demo2")
     p_warm = sub.add_parser("warmup", help="one SSH inventory + stamp-skip sync")

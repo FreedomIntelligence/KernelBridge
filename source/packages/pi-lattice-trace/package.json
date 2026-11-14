@@ -19,9 +19,7 @@
     "extensions/",
     "src/",
     "bin/",
-    "viewer/",
-    "README.md",
-    "CHANGELOG.md"
+    "viewer/"
   ],
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"

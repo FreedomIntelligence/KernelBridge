@@ -1,28 +1,5 @@
 #!/usr/bin/env python3
-"""从 op_plugin 的 TORCH_LIBRARY schema 生成 `cann_bench/__init__.py`。
-
-🔴 为什么需要这个（2026-08-05，烧了 9 发才查出来）：
-
-模板里的 `cann_bench/__init__.py` **写死了 `add` / `sqrt` 两个占位算子**，
-换算子提交时从来没同步过。计分 runner 会**扫描已安装 cann_bench 的 Python 接口**：
-
-    扫描到的 cann_bench 接口:
-      1. add(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor
-      2. sqrt(x: torch.Tensor) -> torch.Tensor
-    [WARN] 未匹配到tasks 中的算子
-    [INFO] TaskUnit 数: 106, 用例数: 1060      ← **回落到跑全部 53 个算子**
-
-⇒ 一个都匹配不上 ⇒ runner **回落成跑整个 benchmark**，
-   其余 52 个算子报「无法找到算子 Exp」，结果里于是有 53 个算子。
-   2026-08-05 03:57 平台上线 archive 校验「结果不能含未声明算子」后，这直接变成
-   `infra_error / invalid_evaluation_results`，**9 发全拒**。
-
-算子本身一直是好的（同一份日志里 `level2/arg_max` 20/20 通过、有真实加速比）——
-分发走的是 `torch.ops.cann_bench.<op>`，由 plugin 在 C++ 层注册，与这个文件无关。
-所以 03:57 之前 archive 不校验时能照常计分，**这个缺陷被完整地掩盖了几个月**。
-
-⇒ 单一真值源是 plugin 里的 `m.def("...")` schema，本文件从它生成，不手工维护。
-"""
+'Generate cann_bench Python interfaces from op_plugin TORCH_LIBRARY schemas.\n\nThe exported interfaces must match the operators declared by the candidate.'
 import re
 import pathlib
 import sys

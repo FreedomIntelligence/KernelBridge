@@ -1,25 +1,8 @@
 #!/usr/bin/env bash
-# 910c 真机 A/B：多臂 × 多重复，4 路并发，带计时覆盖率闸门。零 CANN credit。
-#
-#   ./ab910.sh <算子CamelName> <重复次数> <臂名>:<源码目录> [<臂名>:<源码目录> ...]
-#
-#   例：./ab910.sh ForeachNorm 2 base:../cann_submit/candidates/foreach_norm \
-#                              fix:/tmp/fn_fix/foreach_norm
-#
-# ── 为什么是这些参数（2026-08-02 实测标定）──────────────────────────────
-# **并发上限 4。** 8 路会静默丢计时（实测 12/20、17/20），而 status 仍是 success、
-# 不报错、分数看似合理 —— 最危险的失效。根因是 msprof export 的 30 秒硬超时
-# （perf_eval.py），超时即无 CSV ⇒ 该 case elapsed_us=0、perf 记 0。
-#   串行 x10 -> 20/20 全干净 ；2 路 -> 20/20 ；4 路 -> 20/20 散布 0.38 ；8 路 -> 12/20、17/20 ❌
-#
-# **唯一有效的健康判据是逐 case 计时覆盖率**，不是分数散布 ——
-# 8 个槽负载相同会一起丢同样的 case、彼此吻合得很漂亮。本脚本对每次运行检查
-# timed==total，不满足就标 ⚠ 并排除出统计。
-#
-# **噪声底 sigma ~ 0.48 分（同源码 8 次干净读数），判定门槛 2sigma ~ 1.0 分。**
-# 效应 < 1.0 分一律按 null 处理。
-#
-# ⚠ 这台机 sshd 对任何命令都返回 255，退出码不可信；scp 不要加 -q。
+# Run source-bound A/B measurements on an explicitly configured Ascend host.
+# Usage: ab910.sh OP REPEATS ARM:SOURCE [ARM:SOURCE ...]
+# Set AB_LOCAL=1 for local execution, otherwise set AB_SSH_HOST and optionally
+# AB_SSH_USER / AB_SSH_PORT. CANN_BENCH_HOME is required in both modes.
 
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,20 +16,16 @@ bytes_of() {
     stat -f %z "$1"
   fi
 }
-# -o ServerAliveInterval=5 -o ServerAliveCountMax=4：这台机会"握手成功然后永远不回话"，
-#   没有探活的 ssh 会无限挂死（2026-08-14 预检查僵尸那条挂了 6 分钟）。20s 无响应即断，交给重试。
-# BindInterface=en0 is Mac-only. Nested ssh from demo1/KTP with it fails:
-#   ssh: connect to host 10.1.30.201 port 31222: failure
 SSH_IFACE_OPTS=()
-if [ -e /sys/class/net/en0 ] || ifconfig en0 >/dev/null 2>&1; then
-  SSH_IFACE_OPTS=(-o BindInterface=en0)
+if [ -n "${AB_SSH_INTERFACE:-}" ]; then
+  SSH_IFACE_OPTS=(-o "BindInterface=${AB_SSH_INTERFACE}")
 fi
-AB_SSH_USER="${AB_SSH_USER:-demo1}"
-AB_SSH_HOST="${AB_SSH_HOST:-10.1.30.201}"
-AB_SSH_PORT="${AB_SSH_PORT:-31222}"
-AB_SSH="${AB_SSH_USER}@${AB_SSH_HOST}"
-DEV=(ssh "${SSH_IFACE_OPTS[@]}" -o BatchMode=yes -o UpdateHostKeys=no \
-  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+AB_SSH_USER="${AB_SSH_USER:-}"
+AB_SSH_HOST="${AB_SSH_HOST:-}"
+AB_SSH_PORT="${AB_SSH_PORT:-22}"
+AB_SSH="${AB_SSH_HOST}"
+if [ -n "$AB_SSH_USER" ]; then AB_SSH="${AB_SSH_USER}@${AB_SSH_HOST}"; fi
+DEV=(ssh "${SSH_IFACE_OPTS[@]}" -o BatchMode=yes \
   -o ServerAliveInterval=5 -o ServerAliveCountMax=4 \
   -o ConnectTimeout=20 -p "${AB_SSH_PORT}" "${AB_SSH}")
 
@@ -62,34 +41,19 @@ OP="${1:?用法: ab910.sh <算子> <重复次数> <臂名>:<源码目录>...}"; 
 REP="${1:?缺重复次数}"; shift
 [ $# -ge 1 ] || { echo "至少给一个臂" >&2; exit 2; }
 
-# AB_LOCAL=1：本机就是评测机（KTP 容器 remap 卡 0,1）。不要再 ssh 回 demo1，
-# 否则会和 demo1 上别人的 kernel_eval 抢闸门，也会把 Job 变成「容器 ssh 回宿主机」。
-# CANN_BENCH_HOME 默认仍是 codeserver 路径；KTP 必须指到共享盘副本。
 AB_LOCAL="${AB_LOCAL:-0}"
-CANN_BENCH_HOME="${CANN_BENCH_HOME:-/home/demo1/cann-bench-20260722}"
+CANN_BENCH_HOME="${CANN_BENCH_HOME:?Set CANN_BENCH_HOME to the benchmark root}"
 AB_OUT="${AB_OUT:-}"
-# Already on demo1/demo2: never nest ssh back to 10.1.30.201:31222.
-if [ "$AB_LOCAL" != "1" ] && [ -d /home/demo1/cann-bench-20260722 ]; then
-  AB_LOCAL=1
-  CANN_BENCH_HOME="${CANN_BENCH_HOME:-/home/demo1/cann-bench-20260722}"
-  echo "AB_LOCAL auto=1 (on demo1; skip nested ssh)"
-fi
-if [ "$AB_LOCAL" != "1" ] && [ -d /home/demo2/cann-bench-20260722 ]; then
-  AB_LOCAL=1
-  CANN_BENCH_HOME="${CANN_BENCH_HOME:-/home/demo2/cann-bench-20260722}"
-  echo "AB_LOCAL auto=1 (on demo2; skip nested ssh)"
+if [ "$AB_LOCAL" != "1" ] && [ -z "$AB_SSH_HOST" ]; then
+  echo "Set AB_SSH_HOST for remote execution, or AB_LOCAL=1 for local execution" >&2
+  exit 2
 fi
 if [ "$AB_LOCAL" = "1" ] && [ -z "${AB_DEVS:-}" ]; then
   AB_DEVS="0 1"
 fi
 
-# ── 前置：机器必须干净 ─────────────────────────────────────────────────
-# 2026-08-02 踩过：6 个 kernel_eval.cli eval-child 僵尸挂了 8 小时占着 6 张卡，
-# 结果**连未改动的基线臂都 0/20**。而且 `pkill -f run_evaluation` 杀不掉它们
-# —— 真正占卡的是 kernel_eval.staged_eval / kernel_eval.cli，命令行里没有
-# run_evaluation 字样，杀了外壳它还会继续拉起新子进程。
 if [ "$AB_LOCAL" = "1" ]; then
-  echo "AB_LOCAL=1  CANN_BENCH_HOME=${CANN_BENCH_HOME}  卡 ${AB_DEVS:-0 1}"
+  echo "AB_LOCAL=1  CANN_BENCH_HOME=${CANN_BENCH_HOME:?missing benchmark root}  卡 ${AB_DEVS:-0 1}"
   # KTP Job 独占 remap 后的 0,1，demo1 上别人的 kernel_eval 不在这个 PID 命名空间。
   LEFT=$(ps -eo command 2>/dev/null | grep -c "[k]ernel_eval" || true)
   LEFT=$(echo "${LEFT:-0}" | tr -d " \r")
@@ -129,24 +93,17 @@ for spec in "$@"; do
 done
 find "$STAGE" -name "._*" -delete 2>/dev/null
 ( cd "$STAGE" && tar czf arms.tgz $(ls -d arm_*) )
-# 2026-08-14：不再单独开推包连接（scp/stdin 管道在这台机的瞬断窗口里都会静默丢包，
-# 且退出码不可信 —— sshd 成功也返 255、scp 成功也常返 1）。改为把 arms.tgz base64
-# 进主 exec 流：一轮波次总共 2 次握手（preflight + 主脚本），exec 通道一直是稳的。
-# 包大小与解码后字节数在远端逐位对账，不看任何退出码。
 LSZ=$(bytes_of "$STAGE/arms.tgz")
 ARMS_B64_FILE="$STAGE/arms.b64"
 base64 < "$STAGE/arms.tgz" > "$ARMS_B64_FILE"
 
 echo "算子 ${OP}   臂 ${ARMS[*]}   每臂 ${REP} 次   并发 ${AB_CONC:-4}  起始卡 ${AB_DEV0:-0}"
 
-# 参数写进远端脚本头部，正文用引号 heredoc 防止本地展开。
-# arms 包以 base64 heredoc 内嵌在同一条 exec 流里（bash -s 顺序消费 stdin，
-# heredoc 正文不会被当命令执行）——见上方 2026-08-14 注释。
 {
   printf 'OP=%q\nREP=%q\nARMS=%q\nAB_CONC=%q\nAB_DEV0=%q\nAB_TAG=%q\nAB_CANN=%q\nAB_DEVS=%q\nLSZ=%q\nCANN_BUILD_JOBS=%q\nCANN_BENCH_HOME=%q\nAB_OUT=%q\n' \
          "$OP" "$REP" "${ARMS[*]}" "${AB_CONC:-4}" "${AB_DEV0:-0}" "${AB_TAG:-0}" "${AB_CANN:-}" \
          "${AB_DEVS:-}" "$LSZ" "${CANN_BUILD_JOBS:-16}" \
-         "${CANN_BENCH_HOME:-/home/demo1/cann-bench-20260722}" "${AB_OUT:-}"
+         "${CANN_BENCH_HOME}" "${AB_OUT:-}"
   printf 'base64 -d > /tmp/ab_arms_${AB_TAG}.tgz <<'\''__ARMS_B64__'\''\n'
   cat "$ARMS_B64_FILE"
   printf '\n__ARMS_B64__\n'
@@ -159,7 +116,7 @@ if [ "$RSZ" != "$LSZ" ]; then
   exit 4
 fi
 echo "arms 包对账 ✓ ${RSZ}B"
-CANN_BENCH_HOME=${CANN_BENCH_HOME:-/home/demo1/cann-bench-20260722}
+CANN_BENCH_HOME=${CANN_BENCH_HOME:?missing benchmark root}
 cd "$CANN_BENCH_HOME" || { echo "⛔ CANN_BENCH_HOME 不存在: $CANN_BENCH_HOME" >&2; exit 4; }
 AB=/tmp/ab_${AB_TAG}
 rm -rf $AB && mkdir -p $AB && tar xzf /tmp/ab_arms_${AB_TAG}.tgz -C $AB
@@ -181,15 +138,6 @@ find $AB -name "._*" -delete 2>/dev/null
 #   cann_final_eval*.json"的修法退回成了 `*eval*.json` glob。
 if [ -n "${AB_CANN:-}" ]; then
   C9=/usr/local/Ascend/cann-9.0.0
-  # 🔴 KTP 容器坑（2026-08-19 定案）：镜像 sglang:...-cann9.0.0-a3 里**只有
-  #    cann-9.0.0，没有 ascend-toolkit/latest 那棵 8.3 树**，而 cann-9.0.0 自己
-  #    缺 runtime/version.info。旧代码三候选全落空 ⇒ 走 `printf '9.0.0\n'` 薄桩
-  #    ⇒ torch_npu 的 _get_cann_version 读不出 required_package_opp_version ⇒
-  #    ASCEND_OPP_PATH 回退到容器里不存在的 ascend-toolkit/latest/opp ⇒
-  #    cann_bench_utils 编译失败 ⇒ **所有臂"无 final 报告"**（登录节点上有 8.3 树
-  #    所以本地/on-codeserver 跑不复现，只有容器里炸）。
-  #    修法：把真实 8.3 version.info 内容**内嵌成 heredoc**当兜底，容器里没有源文件
-  #    也能写出合法的；并且守卫改成"缺 opp 版本行就重建"（识别旧薄桩）。
   VI_OK=0
   [ -f /tmp/cann9_ab/runtime/version.info ] && \
     grep -q 'required_package_opp_version' /tmp/cann9_ab/runtime/version.info && VI_OK=1
@@ -270,23 +218,6 @@ for job in $JOBS; do
   work=$AB/run_${a}_${r}
   rm -rf "$work" && cp -r $AB/arm_${a} "$work"
   (
-    # ⛔ 不卸载会静默量错东西。harness 装 wheel 时 pip 只比版本号，而每个臂编出来的
-    #    wheel 版本号都是 1.0.0 —— pip 打印
-    #      "cann-bench is already installed with the same version as the provided wheel"
-    #    然后**跳过安装**，于是本次运行加载的是这个 venv 里上一次留下的 cann_bench。
-    #    表现分两种：(a) 该 venv 从没装过这个算子 -> 每个 case 报
-    #    "AI算子加载失败: 无法找到算子 X"，0/20，两个臂一起 0（这个还看得出来）；
-    #    (b) 装过 -> **安静地拿旧代码跑出一个漂亮的分数**，A/B 两臂测的是同一份二进制。
-    #    (b) 是致命的：它会让任何改动都读出 "无提升"。
-    #    2026-08-02 补：上面那句 uninstall **不够**。venv 是
-    #    `--system-site-packages` 建的（pyvenv.cfg: include-system-site-packages=true），
-    #    所以卸掉 venv 里那份之后，pip 仍然**透过系统 site-packages 看到同版本的
-    #    cann_bench**，照样打印 "already installed ... same version" 并跳过安装，
-    #    `import cann_bench` 解析到 /usr/local/python3.11.15/.../cann_bench。
-    #    那份系统包在某次拿裸模板跑评测时被覆盖成了只有 add/sqrt 的残废版
-    #    ⇒ **所有臂、所有算子一律 0/20 "无法找到算子 X"**，包括未改动的基线臂。
-    #    修法：PIP_FORCE_REINSTALL=1（pip 认 PIP_* 环境变量），强制装进 venv 自己的
-    #    site-packages，从而遮蔽系统那份。**不要去卸系统包**——那是共享环境。
     if [ ! -x /tmp/venv_${d}/bin/python ]; then
       echo "venv /tmp/venv_${d} 不存在，python3 -m venv --system-site-packages"
       python3 -m venv --system-site-packages /tmp/venv_${d} || {
@@ -295,10 +226,6 @@ for job in $JOBS; do
       }
     fi
     /tmp/venv_${d}/bin/pip uninstall -y cann-bench cann_bench >/dev/null 2>&1
-    # 🔴 KTP 并发竞态修复(2026-08-19)：每个 venv 用独立的 cann_bench_utils 副本，
-    #    避免多容器同时编译共享 CANN_BENCH_HOME/src/cann_bench_utils 造成 cmake
-    #    文件系统冲突(Device or resource busy)。setup.py 硬编码 build_dir=cwd/build，
-    #    所以必须给每个 job 一个私有 cwd。只在首次创建 venv 时拷贝，后续复用。
     if [ -n "${CANN_BENCH_UTILS_BUILD_DIR:-}" ]; then
       PRIVATE_BENCH="${CANN_BENCH_UTILS_BUILD_DIR}/dev${d}"
     else
@@ -421,16 +348,8 @@ if [ "${AB_LOCAL:-0}" = "1" ]; then
 fi
 
 if [ "${AB_DETACH:-0}" = "1" ]; then
-  # ── 脱管模式（2026-08-14）：链路今晚反复瞬断，波次决不能绑在一条活 ssh 上。
-  # 脚本（含内嵌 arms 包）先落远端文件、按字节对账，再 nohup 自治执行；
-  # 输出写远端 /tmp/ab_out_${AB_TAG}.log，用低频 ssh 轮询收数。
   SSZ=$(bytes_of "$STAGE/script.sh")
   PUSHED=0
-  # 2026-08-14 下午：exec 流 stdin 推送在这台机的瞬断窗口里会**静默截断**（c3dsb6 的
-  # 1.07MB 脚本三次都断在 12,285B，且管道挂死不退）。scp -O 同窗口实测健康
-  # （家族跑 3×200KB 全过），改走 scp + 字节对账。
-  # win（Git Bash 无 en0/直连路由）：AB_SCP_USE_CONFIG=1 时去掉 -F /dev/null，
-  # 让 scp 读 ~/.ssh/config 的 ProxyCommand（school SLAI SOCKS）。
   if [ -n "${AB_SCP_USE_CONFIG:-}" ]; then
     SCP_PUSH=(scp -O -o BatchMode=yes \
       -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
@@ -452,11 +371,6 @@ if [ "${AB_DETACH:-0}" = "1" ]; then
     sleep $((_try * 10))
   done
   [ "$PUSHED" = "1" ] || { echo "⛔ 脚本推送对账失败 3 次：本地 ${SSZ}B vs 远端 ${RSZ2:-0}B" >&2; exit 4; }
-  # ⚠ 必须 setsid（2026-08-14 血泪）：这台机 sshd 在会话关闭时会干掉整个进程组，
-  # 裸 nohup 的驱动秒死（c3dsb6 第一发：脚本推齐 1MB、日志 0 字节、工作目录空）。
-  # ⚠⚠ setsid 本身在瞬断窗口也有竞态（2026-08-14 两次实测：PID 回显了、进程死了、
-  # 日志不存在）——子进程建立新会话前 sshd 就把进程组杀了。发射后驻留 8s 再断，
-  # 并且调用方必须回读 /tmp/ab_out_$TAG.log 增长后才算发射成功。
   "${DEV[@]}" "setsid nohup bash /tmp/ab_script_${AB_TAG:-0}.sh > /tmp/ab_out_${AB_TAG:-0}.log 2>&1 < /dev/null & echo AB_DETACHED_PID=\$!; sleep 8" 2>/dev/null
   echo "已脱管：远端日志 /tmp/ab_out_${AB_TAG:-0}.log（本地 ssh 掉线不影响波次）"
 else

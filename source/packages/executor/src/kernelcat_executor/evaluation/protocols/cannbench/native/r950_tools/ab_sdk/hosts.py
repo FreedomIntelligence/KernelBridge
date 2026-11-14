@@ -1,7 +1,8 @@
-"""16+16 host helpers: probe, bootstrap demo2 from demo1."""
+"""Probe and bootstrap configured evaluation hosts."""
 from __future__ import annotations
 
-from .config import SHARE_BENCH, Config
+import shlex
+from .config import Config
 from .ssh import ssh
 
 
@@ -13,8 +14,8 @@ def probe_host(name: str, cfg: Config | None = None) -> dict:
         "echo HOME=$HOME; "
         "python3 -V 2>/dev/null; "
         "python3 -c 'import torch,torch_npu; print(\"npu_count=%s\" % torch.npu.device_count())' 2>/dev/null; "
-        f"echo BENCH=$([ -d {spec.bench} ] && echo 1 || echo 0); "
-        f"echo SHARE_BENCH=$([ -d {SHARE_BENCH}/scripts ] && echo 1 || echo 0); "
+        f"echo BENCH=$([ -d {shlex.quote(spec.bench)} ] && echo 1 || echo 0); "
+        f"echo SHARE_BENCH=$([ -d {shlex.quote(cfg.share_bench + '/scripts')} ] && echo 1 || echo 0); "
         "echo DAVINCI=$(ls /dev/davinci[0-9]* 2>/dev/null | wc -l); "
         "echo KE=$(ps -eo command 2>/dev/null | grep -c '[k]ernel_eval' || true); "
         "echo PROBE_OK",
@@ -31,16 +32,12 @@ def probe_host(name: str, cfg: Config | None = None) -> dict:
 
 
 def bootstrap_demo2(cfg: Config | None = None) -> dict:
-    """Rebuild demo2 eval stack from the known-good torch_npu pack."""
+    """Rebuild the secondary host using its configured package archive."""
     return rebuild_eval_env("demo2", cfg)
 
 
 def rebuild_eval_env(name: str, cfg: Config | None = None) -> dict:
-    """Reinstall torch 2.10 + torch_npu 2.10, AUTOLOAD=0, share bench symlink.
-
-    Pack: /models/share/ka/ext/torch_npu_py311.tgz (torch 2.10.0+cpu + npu 2.10.0.post2).
-    Do not pack from a dirty 2.13+cu130 host.
-    """
+    """Reinstall an explicitly supplied package archive on a configured host."""
     from pathlib import Path
     from .ssh import scp_to
 
@@ -50,10 +47,21 @@ def rebuild_eval_env(name: str, cfg: Config | None = None) -> dict:
     script = here / "rebuild_eval_env.sh"
     if not script.is_file():
         raise FileNotFoundError(script)
-    remote = f"/tmp/rebuild_eval_env_{name}.sh"
+    pack = cfg.extra_env.get("CANN_REBUILD_PACK")
+    if not pack or not spec.bench:
+        raise ValueError("Rebuild requires CANN_REBUILD_PACK in Config.extra_env and HostSpec.bench")
+    import uuid
+    remote = f"/tmp/rebuild_eval_env_{uuid.uuid4().hex}.sh"
     scp_to(script, remote, cfg, host=spec.ssh)
+    overrides = {
+        **cfg.extra_env,
+        "CANN_REBUILD_PACK": pack,
+        "CANN_BENCH_SOURCE": cfg.share_bench,
+        "CANN_BENCH_HOME": spec.bench,
+    }
+    command = "env " + " ".join(shlex.quote(f"{k}={v}") for k, v in overrides.items())
     r = ssh(
-        f"bash {remote} {name}; echo REBUILD_RC=$?",
+        f"{command} bash {shlex.quote(remote)} {shlex.quote(name)}; echo REBUILD_RC=$?",
         cfg,
         timeout=300,
         host=spec.ssh,

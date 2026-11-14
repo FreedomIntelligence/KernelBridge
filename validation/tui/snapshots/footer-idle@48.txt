@@ -1,2 +1,0 @@
-● deepseek-v4 · 等待输入
-/home/dev/projects/kernel-bridge (main)    /help

@@ -690,13 +690,7 @@ def main(argv=None):
         print("[pipeprof] refusing existing JSON output: %s" % json_out, file=sys.stderr)
         return 2
 
-    # ⚠ 不能用 os.path.expanduser("~")：脚本常以 root 跑而 harness 在 /home/demo1
-    #    （现场：解析成 /root/cann-bench-20260722 -> FileNotFoundError）
-    bench = args.bench
-    if not bench:
-        for cand in ("/home/demo1/cann-bench-20260722", "/root/cann-bench-20260722",
-                      os.path.expanduser("~/cann-bench-20260722")):
-            if os.path.isdir(cand): bench = cand; break
+    bench = args.bench or os.environ.get("CANN_BENCH_HOME")
     if not bench or not os.path.isdir(bench):
         print("[pipeprof] 找不到 harness 目录，用 --bench 指定", file=sys.stderr)
         return 2

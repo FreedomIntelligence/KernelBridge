@@ -1,48 +1,5 @@
 #!/usr/bin/env python3
-"""hcode.py —— 按**代码身份**（而不是时间戳）补发 hidden。零 credit、零新提交。
-
-    python3 hcode.py --dry     # 只列
-    python3 hcode.py           # 补发
-    python3 hcode.py --md5     # 额外下载两边源码比 md5（慢，但能说清哪些是真不同代码）
-
-## 为什么必须有这个，`hstale.py` 不够
-
-`hstale.py` 的判据是 **`standard.updated_at − hidden.updated_at ≥ 3h`**。
-它假设「hidden 落后 = hidden 的时间戳更旧」。**这个假设被 depthwise_conv_2d 反证：**
-
-    standard 60.93  sub_8ae79674936d  07-31 04:54   ← 新代码（= livesrc910，逐字节核过）
-    hidden   62.87  sub_a530b1f5d2cc  08-03 06:40   ← **旧代码**
-    ⇒ 时间差 −73.8h：hidden 的时间戳**更新** 73.8 小时，跑的代码却**更旧**
-
-成因：08-02 那批 `reclaim910/` 的 22-tag 回收**把 pre-champion 的旧代码又交了一遍**，
-那些提交跑了 hidden 并以 62.87 赢下 hidden 行，而 standard 行仍由 07-31 的新代码持有。
-⇒ **时间戳新 ≠ 代码新。** 判据必须换成**代码身份**。
-
-实测这一行的头寸：新代码对旧代码 bf16 **3.09×** / fp16 **2.287×**（fp32 按设计不变），
-hidden 的 dtype 构成是 fp16 35 / bf16 22 / fp32 23 ⇒ **hidden perf +2.7 ~ +7.5，零 kernel 工作。**
-
-全榜扫下来：53 个算子里 **28 个** 两行的 `submission_id` 不同，其中 **18 个**时间差 < 3h
-⇒ **`hstale.py` 一个都报不出来**。
-
-## 安全性
-
-* 聚合是 **best-per-(算子, case_set)** ⇒ 跑出来更差，行分停在原值，**不会下行**。
-* 🔴 **`rerun-hidden` 每发扣 1 个 CANN credit。**（本行原来写"零 credit",是错的。）
-  **判据是受控单发测试**：停掉 autopush、确认 forever.sh 已死之后，读 T0=270 →
-  对 `sub_25819a8d760d` POST 一次 rerun-hidden（200，`job_a8fe64e62f10` queued）→ T1=269。
-  同一 submission 第二次返回 409,**409 不扣**。
-  ⇒ 一次全量 sweep（23 行）是 **~20 credit 的下注**,不是免费期权。按期望值筛再发：
-  「hidden 在跑**旧代码**」（本脚本的代码身份判据）是正期望（depthwise 单行 +2.7~+7.5）；
-  「用新代码盖已经不错的 hidden 行」历史是 **1 胜 7 负**（ForeachNorm −35 / Softmax −27，
-  反解是通过率掉不是性能）。**所以不要无脑全发。**
-  ⚠ 别再用"sweep 前后 credit 差值"去判断扣不扣费 —— 我为此翻车两次（一次错怪 autopush，
-  一次错信旧笔记里"credit=0 时打出 25 发"的记载）。**只有受控单发测试算数。**
-* ⚠ 唯一已实测的下行是**平台 bug**：perf 跑太长 → runner 重放 → 终态被错盖
-  （08-02 `GroupedMatmulSwigluQuant|hidden 72.46 → 68.03`，见 `ROWDROP`）。
-  ⇒ 补发后必须盯 `ROWDROP` / `wave.py total`，有行下降立刻 `touch STOP`。
-
-⚠ 不读写 ledger.json / wavestate.json / forever.sh / cann.env。
-"""
+'Compare source identities for completed standard and hidden evaluation jobs.'
 import collections, hashlib, io, os, pathlib, re, sys, zipfile
 import concurrent.futures as cf
 from datetime import datetime

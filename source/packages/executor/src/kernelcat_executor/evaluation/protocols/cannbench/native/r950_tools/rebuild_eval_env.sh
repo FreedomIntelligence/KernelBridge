@@ -1,25 +1,22 @@
 #!/usr/bin/env bash
-# Rebuild one 16-card eval host (demo1 or demo2) to the known-good 910C stack:
-#   Python 3.11.15 + torch 2.10.0+cpu + torch_npu 2.10.0.post2
-#   CANN 9.0.0, cann-bench from /models/share/ka, TORCH_DEVICE_BACKEND_AUTOLOAD=0
-#
-# usage (on the host, as root via demo1/demo2 ssh):
-#   bash rebuild_eval_env.sh demo1|demo2
-set -u
-NAME="${1:?usage: rebuild_eval_env.sh demo1|demo2}"
-SP=/usr/local/python3.11.15/lib/python3.11/site-packages
-STDLIB=/usr/local/python3.11.15/lib/python3.11
-TAR=/models/share/ka/ext/torch_npu_py311.tgz
-SHARE_BENCH=/models/share/ka/cann-bench-20260722
-HOME_BENCH="/home/${NAME}/cann-bench-20260722"
-PIP_IDX="${PIP_IDX:-https://repo.huaweicloud.com/repository/pypi/simple}"
+# Rebuild an explicitly selected evaluation environment from an operator-supplied
+# package archive. Run on the intended host after stopping its owned jobs.
+set -eu
+NAME="${1:-configured-host}"
+PYTHON="${CANN_REBUILD_PYTHON:-python3}"
+SP="$("$PYTHON" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+STDLIB="$("$PYTHON" -c 'import sysconfig; print(sysconfig.get_paths()["stdlib"])')"
+TAR="${CANN_REBUILD_PACK:?Set CANN_REBUILD_PACK to the prepared package archive}"
+SHARE_BENCH="${CANN_BENCH_SOURCE:?Set CANN_BENCH_SOURCE to the benchmark source}"
+HOME_BENCH="${CANN_BENCH_HOME:?Set CANN_BENCH_HOME to the destination benchmark path}"
+PIP_IDX="${PIP_IDX:-https://pypi.org/simple}"
+export SP
 
 echo "MARK host=$NAME $(date -u +%Y%m%dT%H%M%SZ)"
-echo "MARK stop leftover kernel_eval"
-pkill -9 -f '[k]ernel_eval' >/dev/null 2>&1 || true
-pkill -9 -f 'staged_eval' >/dev/null 2>&1 || true
-sleep 2
-echo "KE=$(ps -eo command 2>/dev/null | grep -c '[k]ernel_eval' || true)"
+if pgrep -f '[k]ernel_eval|[s]taged_eval' >/dev/null; then
+  echo "Evaluation processes are running; stop their owned jobs before rebuilding" >&2
+  exit 3
+fi
 
 [[ -s "$TAR" ]] || { echo "⛔ missing pack $TAR"; exit 2; }
 [[ -d "$SHARE_BENCH/scripts" ]] || { echo "⛔ missing share bench $SHARE_BENCH"; exit 2; }
@@ -36,9 +33,10 @@ echo "MARK extract pack $(stat -c %s "$TAR")B"
 tar xzf "$TAR" -C "$SP" || { echo "⛔ tar extract failed"; exit 3; }
 
 echo "MARK functorch shim from torch._functorch"
-python3 - <<'PY'
+"$PYTHON" - <<'PY'
 from pathlib import Path
-p = Path("/usr/local/python3.11.15/lib/python3.11/site-packages/functorch")
+import os
+p = Path(os.environ["SP"]) / "functorch"
 p.mkdir(exist_ok=True)
 (p / "compile.py").write_text(
     "from torch._functorch.compilers import *\n"
@@ -59,19 +57,19 @@ mkdir -p "$SHARE_BENCH/src"
 printf '%s\n' "$SC" > "$SHARE_BENCH/src/sitecustomize.py"
 
 echo "MARK pip build/wheel/setuptools"
-python3 -m pip install -q -i "$PIP_IDX" build wheel setuptools >/dev/null 2>&1 \
-  || python3 -m pip install -i "$PIP_IDX" build wheel setuptools || true
-python3 -c "import build,wheel,setuptools; print('BUILD_OK', build.__file__)" \
+"$PYTHON" -m pip install -q -i "$PIP_IDX" build wheel setuptools >/dev/null 2>&1 \
+  || "$PYTHON" -m pip install -i "$PIP_IDX" build wheel setuptools || true
+"$PYTHON" -c "import build,wheel,setuptools; print('BUILD_OK', build.__file__)" \
   || echo "⚠ python -m build still missing (venv must pip install it)"
 
 echo "MARK bench symlink $HOME_BENCH -> $SHARE_BENCH"
-mkdir -p "/home/${NAME}"
+mkdir -p "$(dirname "$HOME_BENCH")"
 ln -sfn "$SHARE_BENCH" "$HOME_BENCH"
 ls -ld "$HOME_BENCH"
 
 echo "MARK verify"
 export TORCH_DEVICE_BACKEND_AUTOLOAD=0
-python3 - <<'PY'
+"$PYTHON" - <<'PY'
 import os, sys
 os.environ["TORCH_DEVICE_BACKEND_AUTOLOAD"] = "0"
 import sitecustomize

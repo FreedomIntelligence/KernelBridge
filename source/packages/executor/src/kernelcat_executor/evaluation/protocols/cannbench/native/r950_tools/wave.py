@@ -1,18 +1,5 @@
 #!/usr/bin/env python3
-"""r950 reroll wave engine.
-
-Established facts this rests on:
-  * aggregation is per-operator BEST (47/47 historical slots, re-confirmed live) -> a
-    submission can never lower a row; downside is exactly zero.
-  * measured speed is dominated by which runner the job lands on; multi-1 is ~13.7x
-    slower than multi-0/multi-2 on a paired within-operator comparison.
-So each submission is a free lottery ticket on runner assignment.
-
-  wave.py plan            show per-row current score, owning runner, and roll priority
-  wave.py run [N]         fire one wave of at most N rolls (default: fill all capacity)
-  wave.py poll            update ledger from platform, print gains
-  wave.py total           live solution total from the leaderboard
-"""
+'CANNBench API operations, source packages, receipts and configured account selection.'
 import os, sys, json, io, time, pathlib, ssl, shutil, socket, zipfile, urllib.request, urllib.error, subprocess
 
 SP = pathlib.Path(__file__).resolve().parent
@@ -21,28 +8,13 @@ try:
 except Exception:
     CTX = ssl.create_default_context()
 URL = "https://cannbench.com"
-SOL = "sol_5c69f0e9e8972e34"
-# 两个榜的提交参数。默认 950pr；设 CANN_BOARD=910c 切到 910c 榜。
-# 910c 的 aggregation_token / submission_tag 取自现役 910c job（job_7e0435c58735）。
-# ⚠ 此前这行写死 950pr，导致 cann.env 里的 CANN_HW=910c 完全失效，
-#   2026-08-02 之前所有提交都打到了 950pr。
-# 🔴 2026-08-05：**默认值害人两次**。忘了设 CANN_BOARD 就静默读到 950pr，
-#    而 950pr 的行分/job_id 看起来完全合理 —— 我和一个 agent 各栽一次：
-#    `RmsNorm|standard` 在 950pr 是 64.17 / job_6c9f09c37fbd / 07-31，
-#    在 910c 是 71.25 / job_d43fbb09691f / 08-02。agent 据此报「榜面在跑更慢的
-#    rms_norm，重交可回收 +6.5」——15 个账号复核后确认那笔钱不存在。
-#    ⇒ 每次 import 都往 stderr 报一行口径，并标明是显式设的还是默认的。
-#    （只写 stderr，不改任何返回值/stdout，解析输出的脚本不受影响。）
-_BOARD = os.environ.get("CANN_BOARD", "950pr")
-if "CANN_BOARD" not in os.environ:
-    print(f"⚠ wave.py: CANN_BOARD 未设，默认读 **950pr** 榜。"
-          f"要 910c 请 `CANN_BOARD=910c`。", file=sys.stderr)
-if _BOARD == "910c":
-    HW, TAG, AGG, SLUG = "910c", "SLAI-CUHKSZ-KernelCAT", "u_gc_142e4ad422d9e02b", "official-tasks"
-    SOL = "sol_1b232feac1c6a392"
-else:
-    HW, TAG, AGG, SLUG = "950pr", "FIBER", "fiber-950pr-solution-v1", "official-tasks"
-# 见 credits_total.py 同名注释：加账号要同步改这里，否则新账号永不被选。
+# Deployment/account identities are supplied by the caller, never baked into a release.
+SOL = os.environ.get("CANN_SOLUTION_ID", "")
+_BOARD = os.environ.get("CANN_BOARD", os.environ.get("CANN_HW", "950pr"))
+HW = _BOARD
+TAG = os.environ.get("CANN_SUBMISSION_TAG", "")
+AGG = os.environ.get("CANN_AGGREGATION_TOKEN", "")
+SLUG = os.environ.get("CANN_BENCHMARK_SLUG", "official-tasks")
 ACCTS = ["GITCODE_TOKEN"] + [f"GITCODE_TOKEN_{i}" for i in range(2, 20)]
 TERM = {"succeeded", "validation_failed", "prepare_failed", "compile_failed",
         "correctness_failed", "performance_failed", "archive_failed", "timed_out",
@@ -175,6 +147,8 @@ def ledger_add(rec):
 
 
 def components(tok):
+    if not SOL:
+        raise ValueError("Set CANN_SOLUTION_ID before reading solution components")
     s, d = api(f"/api/leaderboard/solution/{SOL}/components", tok)
     return d["components"] if s == 200 and isinstance(d, dict) else []
 
@@ -211,6 +185,8 @@ def perturb(src_zip, dst_zip, nonce):
 
 
 def submit_zip(zpath, ops, tok, tokvar=None):
+    if not TAG or not AGG:
+        raise ValueError("Set CANN_SUBMISSION_TAG and CANN_AGGREGATION_TOKEN before submission")
     # Keep this low-level helper safe for callers such as sweep.py as well as
     # the command handlers below.  In-tree callers pass the final variable
     # explicitly; legacy callers are accepted only when the token maps to one
@@ -286,10 +262,6 @@ def build_plan():
             j2t.setdefault(jid, "GITCODE_TOKEN_5")
         sp = SPEED.get(rn, 0.7)
         cases = allres.get(row, {}).get("cases") or []
-        # expected headroom if this row were re-measured on a fast runner.
-        # Uses the exact evaluator formula (SOL-Score, FINDINGS-009): the old s/(1+s)
-        # approximation is superseded and ranks rows in the wrong order.
-        #   score_i = (B - H) / ((C - H) + (B - H)),  B=baseline, C=elapsed, H=t_hw
         def rescore(boost):
             if not cases: return None
             n = len(cases); tot = 0.0; npass = 0; ncomp = 0
@@ -352,6 +324,8 @@ def cmd_plan():
 
 
 def cmd_run(limit=None):
+    if not SOL or not TAG or not AGG:
+        raise ValueError("Set CANN_SOLUTION_ID, CANN_SUBMISSION_TAG and CANN_AGGREGATION_TOKEN before starting a submission wave")
     plan = jload("plan.json", []) or build_plan()
     st = jload("wavestate.json", {"rolls": {}})
     cap = capacity()
@@ -624,13 +598,6 @@ def cmd_shipcand(args):
         with zipfile.ZipFile(z) as zf:
             if not any(n.endswith(f"csrc/ops/{snake}/CMakeLists.txt") for n in zf.namelist()):
                 print(f"  {snake:28s} SKIP (zip 里没有 {snake}/CMakeLists.txt)"); continue
-        # Skip gate-reserved accounts *while picking* rather than after.  The old
-        # code took the first account with capacity and, if that account happened
-        # to be reserved, bailed out of the whole candidate -- so a single reserved
-        # account sitting at the head of `cap` silently blocked every shipcand.
-        # (Hit 2026-08-02: GITCODE_TOKEN_3 was reserved for the WQBM gate chain and
-        # nothing could be shipped at all.)  The reservation itself is still honoured
-        # by final_submission_allowed() below, which stays as the last-moment guard.
         try:
             _reserved = reserved_accounts()
         except Exception:

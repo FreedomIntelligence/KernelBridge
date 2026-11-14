@@ -9,13 +9,8 @@ they reference remains in ``raw/`` with a SHA-256 in ``manifest.json``.
 
 Example::
 
-    python profiler_artifact_bundle.py \
-        --artifact-root D:\\desktop\\CANNBench\\_910C\\profiler_ab_20260824T1405 \
-        --artifact-root D:\\desktop\\CANNBench\\_910C\\profiler_ab_20260824T1405_event2 \
-        --artifact-root D:\\desktop\\CANNBench\\_910C\\profiler_ab_20260824T1405_event3 \
-        --unified-feedback D:\\desktop\\CANNBench\\_910C\\unified_feedback_20260824T1405.json \
-        --include-archives \
-        --output-dir docs\\experiments\\2026-08-24-profiler-ab-raw
+    python profiler_artifact_bundle.py --artifact-root /path/to/completed-capture \
+        --unified-feedback /path/to/unified_feedback.json --output-dir /path/to/export
 
 ``--output-dir`` must not exist.  This prevents an export from silently
 overwriting or mixing evidence from two runs.

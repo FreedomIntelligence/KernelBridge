@@ -267,6 +267,8 @@ def render_yaml(
     max_runtime: int,
     replicas: int = 1,
 ) -> str:
+    if not image:
+        raise ValueError("Configure KB_KTP_IMAGE (or Config.ktp_image) before submitting a job")
     cmd = " ".join(command.split())
 
     def scalar(value: object) -> str:
@@ -383,6 +385,8 @@ class KtpBackend:
         max_runtime: int | None = None,
         stamp_name: bool = False,
     ) -> AbLaunch:
+        if not self.cfg.ktp_image:
+            raise ValueError("Configure KB_KTP_IMAGE before submitting A/B jobs")
         npu_n = guard_npu(npu if npu is not None else spec.npu, allow_wide=allow_wide)
         runtime = max_runtime if max_runtime is not None else spec.max_runtime
         claim = None if dry_run else _acquire_ab_claim(spec)
@@ -492,6 +496,8 @@ class KtpBackend:
         cmake is isolated under /tmp (private src + tasks symlink). Concurrent
         Running Jobs are cmake-safe. `parallel` is submit-wave size, not NPU.
         """
+        if not self.cfg.ktp_image:
+            raise ValueError("Configure KB_KTP_IMAGE before submitting A/B jobs")
         if parallel < 1:
             raise ValueError("parallel >= 1")
         launches: List[AbLaunch] = []

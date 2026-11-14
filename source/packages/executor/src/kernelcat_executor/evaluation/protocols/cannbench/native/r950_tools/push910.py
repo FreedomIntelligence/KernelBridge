@@ -1,27 +1,5 @@
 #!/usr/bin/env python3
-"""910c 推进器：轮换账号提交 → 等 standard 落地 → 自动补 rerun-hidden → 记录榜面差。
-
-为什么要有它（2026-08-02 手工做了一整天之后的总结）：
-  * 额度是**按账号**的，手工挑账号必然踩空（TOKEN_4 一天被打光三次）。
-  * `rerun-hidden` 只认**属主** token。属主没额度时，正确做法是换个有额度的账号
-    重交一份 standard —— 新 submission 归新账号，再对它打 hidden。
-    19 个账号聚合进同一个 solution，换账号不影响归属。
-  * standard 改好之后 hidden **不会自动跟上**，必须显式补一发，否则它一直跑旧代码
-    （见 memory cann-hidden-staleness-sweep，一轮补回 +33.3）。
-  * 榜面涨了多少要能对回是哪一次改动带来的，否则下次没法判断该往哪投。
-
-用法：
-    python3 push910.py <op_snake>:<源码目录>[:<备注>] ...
-    python3 push910.py --check-gate <op_snake>:<源码目录>[:<备注>]
-    PUSH_REQUIRE_GATE=1 python3 push910.py <op_snake>:<源码目录>[:<备注>] ...
-    python3 push910.py --log            # 只看轨迹
-    python3 push910.py --sync           # 只刷新榜面快照并记一行
-
-若源码臂旁存在 GATE.json，无论环境变量如何都会校验；陈旧/失败 gate 拒绝提交。
-`PUSH_REQUIRE_GATE=1` 进一步要求 gate 必须存在，适用于所有新性能臂。
-
-⚠ 不读写 ledger.json / wavestate.json / forever.sh（那是并行工作流的）。
-"""
+'Submit source packages with owner-bound receipts and optional promotion gates.\n\nUsage: push910.py OP:SOURCE[:NOTE] ...; --check-gate validates without submitting.\nExisting GATE.json is always validated. PUSH_REQUIRE_GATE=1 also requires it.'
 import os, sys, json, time, subprocess, shutil, tempfile, pathlib, hashlib, re, zipfile
 import concurrent.futures as cf
 
@@ -258,23 +236,7 @@ def capacity():
 
 
 def pick(cap):
-    """挑一个既有 credit 又有空 job 槽、且**未被 gate 链预留**的账号，并就地扣减。
-
-    2026-08-02 踩到：预留账号（gate_reservations.json）恰好是额度最多的那几个
-    （TOKEN_3/6/7 共 42 credit），pick 按额度降序必然先选中它们，然后
-    `W.final_submission_allowed()` 在 POST 前一刻返回 423
-    "is reserved or reservation state is unreadable" ⇒ **12 次回收提交挂了 9 次**。
-    423 不扣 credit，但整批白跑。这里提前把预留账号滤掉。
-    读 gate_reservations.json 是只读，不动 forever.sh 的任何状态。
-
-    2026-08-05 又踩到：排序键是 `-min(rem, slots)`，而 slots 上限就是 3，
-    所以额度充裕时**所有账号都并列 3**，排序退化成原始顺序 ⇒ 永远先挑
-    `GITCODE_TOKEN`。它连吃了 5 发之后返回 **http=429**（限流，**不扣 credit**，
-    实测总额度 324 前后不变），而 pick 下一次还会挑它。
-    ⇒ 现已按剩余额度排序，并在同一批中把刚选账号移到队尾做轮转；
-      `PUSH_SKIP_ACCTS`（逗号分隔）仍可排掉刚限流的账号，`PUSH_ACCT`
-      可直接指定一个账号（用来判 429 是按账号还是按用户）。
-    """
+    '挑一个既有 credit 又有空 job 槽、且**未被 gate 链预留**的账号，并就地扣减。'
     force = os.environ.get("PUSH_ACCT", "").strip()
     if force:
         print(f"  PUSH_ACCT 指定账号 {force}")
@@ -299,18 +261,7 @@ def pick(cap):
 
 # ── 提交 ──────────────────────────────────────────────────────────────────
 def canon_op(op):
-    """snake -> 平台规范算子名（CamelCase）。
-
-    ⚠ 2026-08-02 花了大半天才发现的坑：`selected_operators` 传 snake 名时
-    **平台不按单算子裁剪**，直接跑满 1060 个 case（53 算子 × 20）。我们包里
-    只有 1 个算子，其余 1040 个必挂 ⇒ `correctness_failed`，整发白交。
-    失败信息长这样：`correctness check failed: 20/1060 cases passed`
-    —— 那个 20 恰好是本算子自己的 20 个 case 全过，非常容易误读成"差一点"。
-
-    对照证据：同一个算子、同一条提交路径
-      operator_names=['MoeReRouting']    -> succeeded
-      operator_names=['moe_re_routing']  -> correctness_failed 20/1060
-    """
+    'snake -> 平台规范算子名（CamelCase）。'
     import re as _re
     _norm = lambda s: _re.sub(r"[^a-z0-9]", "", s.lower())
     try:
@@ -325,38 +276,7 @@ def canon_op(op):
 
 
 def declared_ops(op):
-    """决定 `selected_operators` 里放什么。
-
-    🔴 2026-08-05 03:57 起平台上线了一道新校验：**评测结果里出现
-    `selected_operators` 之外的算子就整发判 `hard_failure`**，
-    `error_code=invalid_evaluation_results`、`error_message` 逐个列出
-    "evaluation result contains unselected operator: Exp; …"。
-
-    而 runner **一直都跑满 53 个算子**（我们包里只有 1 个，其余 52 个必挂）——
-    03:57 之前这是被接受的常态（终态 `case_failures`，220 发），之后 7 发 7 拒。
-
-    确认过不是我们的问题也不是平台宕机：
-      * 同期有 6 个别的用户落地了 solution，其中一个就在我们那 25 分钟评测**中间**
-      * 被拒 job 的 `error_message` 里**不含它自己**（selected 那个被正确排除）
-      * `selected_operators` 显示 snake 是**平台自己的规范化**（我们送的是
-        `op_canon.json` 里的 CamelCase），是症状不是原因
-
-    🔴🔴 但"全声明"这条修法**已被否决,不要再打开**（2026-08-05 定案，两条独立理由）：
-
-    1. **买不起。** credit 是按 `selected_operators` 的**个数**收费的 ——
-       服务端原话：`429 insufficient credits: 53 needed but only 30/31 remaining`。
-       而单账号 `effective_limit` 只有 ~33、`daily_max` 30 ⇒ 53 个声明在任何账号上都发不出去。
-       （我一度把这个 429 误读成"用户级限流"，还换账号"验证"了一次 —— 那两发**都是**
-       declare-53，变量根本没控住。见 memory cann-credit-priced-per-declared-operator。）
-    2. **不需要。** `job_9c927b02f1b3-compile.log` 证明我们的包是对的：
-       `-- Adding op directory: cross_entropy_loss` 只有一个、只编了它的 kernel+plugin、
-       `Successfully built ...whl` 零错误。⇒ 那串 "unselected operator" **不来自我们的包**，
-       是评测阶段把 benchmark 全部 53 个任务都列进结果、而新校验只允许声明过的算子，
-       两者互相矛盾 ⇒ **平台侧不一致，我们这边无可修。**
-
-    ⇒ 默认恢复成**单算子声明（1 credit，官方支持的主路径）**；
-      `PUSH_DECLARE_ALL=1` 仅保留给"平台改了行为、需要再验一次"的场合。
-    """
+    '决定 `selected_operators` 里放什么。'
     if os.environ.get("PUSH_DECLARE_ALL") != "1":
         return [canon_op(op)]
     try:
@@ -394,25 +314,9 @@ def stage_package(srcdir):
 
 
 def submit(op, srcdir, tokvar):
-    """打包一个算子的源码目录并提交（F17：一个 zip 一个算子）。
-
-    返回 `(job_id, submission_id, http)`。
-
-    ⚠ 2026-08-02 的坑：`W.submit_zip()` 返回的是 `(status, data)` **元组**，
-    这里原来写成 `jid = W.submit_zip(...)`，把整个元组当 job_id 记进了
-    TRAJECTORY.jsonl ⇒ 事后要查"某个算子出分了没"只能拿正则从那坨
-    原始响应里抠 `job_[0-9a-f]+`，而且 acct/src 全丢。
-    现在显式拆开，两个 id 都结构化落盘（见 status910.py）。
-    """
+    '打包一个算子的源码目录并提交（F17：一个 zip 一个算子）。'
     stage, pkg, op_dir = stage_package(srcdir)
 
-    # 🔴 必须同步 cann_bench/__init__.py —— 模板里写死的是占位算子 add/sqrt。
-    # runner 扫描这里导出的**函数名**去匹配 benchmark task；一个都匹配不上就
-    # **回落成评测全部 53 个算子**（日志原文：`[WARN] 未匹配到tasks 中的算子` →
-    # `TaskUnit 数: 106, 用例数: 1060`），结果里于是含 53 个算子，
-    # 2026-08-05 03:57 上线的 archive 校验就判 invalid_evaluation_results。
-    # 这个缺陷被掩盖了几个月：分发走 torch.ops.cann_bench（C++ plugin 注册），
-    # 所以算子本身一直正常计分，只是顺带把整个 benchmark 也跑了一遍。
     import gen_init
     exported = gen_init.sync(pkg)          # 解析不出 schema 会抛异常 —— 宁可不发
     want = op_dir
@@ -592,8 +496,6 @@ def main():
                 if not sub:
                     print(f"  {op:26s} {st}  无 submission，不补 hidden")
                     continue
-                # 🔴 2026-08-14：standard 没 succeeded 就不补 hidden。同一份错代码
-                # 重跑 hidden 必挂，只会烧 credit。
                 if st != "succeeded":
                     rec(kind="HIDDEN_SKIP", op=op, note=note,
                         detail=f"standard status={st}，不补 hidden")
@@ -609,9 +511,6 @@ def main():
                     rec(kind="HIDDEN_FAIL", op=op, note=note, detail=str(err))
                     print(f"  {op:26s} {st:20s} hidden 失败 {err}")
 
-    # 🔴 2026-08-14：hidden 必须等到终态并把 pass/score 落盘。此前只记"打出去了"，
-    # 三发 hidden 全 correctness_failed（44/80，6×RT507035+30×SKIP）却没人知道，
-    # 榜面 hidden 行在 72.90 上躺了 9 天。
     if fired:
         print("\n等 hidden 终态 …")
         with cf.ThreadPoolExecutor(max_workers=len(fired)) as ex:

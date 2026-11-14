@@ -214,7 +214,7 @@ print(json.dumps(out))
 
 
 def pull_share_run(tag: str, cfg: Config | None = None) -> dict:
-    """One SSH: dump every cann_final_eval under /models/share/ka/runs/<tag>."""
+    """One SSH: dump every cann_final_eval under the configured share runs directory."""
     from .ssh import ssh
     cfg = cfg or Config()
     root = f"{cfg.share_runs}/{tag}"

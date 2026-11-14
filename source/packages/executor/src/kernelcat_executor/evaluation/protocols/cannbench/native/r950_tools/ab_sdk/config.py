@@ -1,6 +1,7 @@
-"""Paths and hard constraints for demo1+demo2 32-card A/B and KTP jobs."""
+"""Portable A/B host and KTP settings. Remote targets require explicit configuration."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -9,24 +10,28 @@ CAMPAIGN = TOOLS.parent
 AB910 = TOOLS / "ab910.sh"
 TEMPLATE = CAMPAIGN / "cann_submit" / "template"
 LIVESRC = TOOLS / "livesrc910"
-CANON_PATH = TOOLS / "op_canon.json"
+CANON_PATH = Path(os.environ.get("KB_AB_OPERATOR_CATALOG", str(TOOLS / "op_canon.json")))
 
-DEMO1_HOST = "demo1@10.1.30.201"
-DEMO1_PORT = 31222
-DEMO1_BENCH = "/home/demo1/cann-bench-20260722"
-DEMO2_HOST = "demo2@10.1.30.201"
-DEMO2_PORT = 31222
-DEMO2_BENCH = "/home/demo2/cann-bench-20260722"
+# Keep the public demo1/demo2 backend names for compatibility; they are slots,
+# not deployment addresses. Configure them through Config or these variables.
+DEMO1_HOST = os.environ.get("KB_AB_HOST", os.environ.get("AB_SSH_HOST", ""))
+if DEMO1_HOST and "@" not in DEMO1_HOST and os.environ.get("AB_SSH_USER"):
+    DEMO1_HOST = f"{os.environ['AB_SSH_USER']}@{DEMO1_HOST}"
+DEMO1_PORT = int(os.environ.get("KB_AB_PORT", os.environ.get("AB_SSH_PORT", "22")))
+DEMO1_BENCH = os.environ.get("KB_AB_BENCH", os.environ.get("CANN_BENCH_HOME", ""))
+DEMO2_HOST = os.environ.get("KB_AB_SECONDARY_HOST", "")
+DEMO2_PORT = int(os.environ.get("KB_AB_SECONDARY_PORT", "22"))
+DEMO2_BENCH = os.environ.get("KB_AB_SECONDARY_BENCH", "")
 
-SHARE_ROOT = "/models/share/ka"
-SHARE_BENCH = f"{SHARE_ROOT}/cann-bench-20260722"
+SHARE_ROOT = os.environ.get("KB_AB_SHARE_ROOT", "/models/share/kernelbridge")
+SHARE_BENCH = os.environ.get("KB_AB_SHARE_BENCH", f"{SHARE_ROOT}/cann-bench")
 SHARE_CAMPAIGN = f"{SHARE_ROOT}/cann_campaign"
 SHARE_RUNS = f"{SHARE_ROOT}/runs"
 SHARE_JOBS = f"{SHARE_ROOT}/ktp_jobs"
 SHARE_BIN = f"{SHARE_ROOT}/bin"
-HOST_MODEL = "/mnt/host-model"
+HOST_MODEL = os.environ.get("KB_AB_HOST_MODEL", "/mnt/host-model")
 
-KTP_IMAGE = "10.1.30.201:31443/user-cdy-normal/sglang:v0.5.15-cann9.0.0-a3"
+KTP_IMAGE = os.environ.get("KB_KTP_IMAGE", "")
 KTP_BIN = "ktp"
 KTP_FRAMEWORK = "PyTorch"
 KTP_JOB_TYPE = "acjob"
@@ -36,26 +41,19 @@ KTP_NPU = 2
 KTP_MAX_RUNTIME = 180
 KTP_REPLICAS = 1
 
-# demo1 logical devices to never use (dirty HBM / compile-fail slot).
-SKIP_DEVS = (0, 12)
-PREFER_DEVS = (10, 11, 13, 15)
-# demo2 is a separate 16-NPU box; do not copy demo1's dirty-card skip.
-DEMO2_SKIP_DEVS: tuple[int, ...] = ()
-DEMO2_PREFER_DEVS = (10, 11, 13, 15)
 
-FORBIDDEN_PREFIXES = (
-    "/mnt/persistent",
-    "/mnt/demo1-workspace",
-    "/data_volume",
-    "/home/demo1/workspace",
-)
+def _devices(name: str, default: str = "") -> tuple[int, ...]:
+    return tuple(int(value) for value in os.environ.get(name, default).replace(",", " ").split())
+
+
+SKIP_DEVS = _devices("KB_AB_SKIP_DEVS")
+PREFER_DEVS = _devices("KB_AB_DEVS", "0")
+DEMO2_SKIP_DEVS = _devices("KB_AB_SECONDARY_SKIP_DEVS")
+DEMO2_PREFER_DEVS = _devices("KB_AB_SECONDARY_DEVS", "0")
+FORBIDDEN_PREFIXES = tuple(filter(None, os.environ.get("KB_AB_FORBIDDEN_PATHS", "").split(os.pathsep)))
 
 SSH_OPTS = (
-    "-o", "BindInterface=en0",
     "-o", "BatchMode=yes",
-    "-o", "UpdateHostKeys=no",
-    "-o", "StrictHostKeyChecking=no",
-    "-o", "UserKnownHostsFile=/dev/null",
     "-o", "ServerAliveInterval=5",
     "-o", "ServerAliveCountMax=4",
     "-o", "ConnectTimeout=20",
@@ -66,16 +64,16 @@ SSH_OPTS = (
 class HostSpec:
     name: str
     ssh: str
-    port: int = 31222
+    port: int = 22
     bench: str = DEMO1_BENCH
     skip_devs: tuple[int, ...] = SKIP_DEVS
     prefer_devs: tuple[int, ...] = PREFER_DEVS
-    logical_npu: int = 16
+    logical_npu: int = 1
     max_ab910: int = 1
 
     @property
     def user(self) -> str:
-        return self.ssh.split("@", 1)[0]
+        return self.ssh.split("@", 1)[0] if "@" in self.ssh else ""
 
     @property
     def hostname(self) -> str:
@@ -111,7 +109,7 @@ class Config:
     demo2_host: str = DEMO2_HOST
     demo2_port: int = DEMO2_PORT
     demo2_bench: str = DEMO2_BENCH
-    hosts: dict[str, HostSpec] = field(default_factory=default_hosts)
+    hosts: dict[str, HostSpec] = field(default_factory=dict)
     share_root: str = SHARE_ROOT
     share_bench: str = SHARE_BENCH
     share_campaign: str = SHARE_CAMPAIGN
@@ -126,6 +124,17 @@ class Config:
     prefer_devs: tuple[int, ...] = PREFER_DEVS
     forbidden: tuple[str, ...] = FORBIDDEN_PREFIXES
     extra_env: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.hosts:
+            self.hosts = {
+                "demo1": HostSpec("demo1", self.demo1_host, self.demo1_port,
+                                  self.demo1_bench, self.skip_devs, self.prefer_devs,
+                                  logical_npu=int(os.environ.get("KB_AB_NPU_COUNT", "1"))),
+                "demo2": HostSpec("demo2", self.demo2_host, self.demo2_port,
+                                  self.demo2_bench, DEMO2_SKIP_DEVS, DEMO2_PREFER_DEVS,
+                                  logical_npu=int(os.environ.get("KB_AB_SECONDARY_NPU_COUNT", "1"))),
+            }
 
     def host(self, name: str) -> HostSpec:
         if name not in self.hosts:

@@ -1,5 +1,7 @@
-"""Facade: 32-card (demo1+demo2) A/B and KTP jobs behind one client."""
+"""Facade for configured-host A/B and KTP jobs."""
 from __future__ import annotations
+
+import os
 
 from .config import Config
 from .demo1 import Demo1Backend, Demo2Backend, HostBackend
@@ -23,17 +25,17 @@ class AbClient:
         self.share = Share(self.cfg)
 
     def pick_backend(self) -> str:
-        """Prefer an idle 16-card host; KTP if both have kernel_eval."""
-        ke1 = self.demo1.kernel_eval_count()
-        if ke1 == 0:
-            return "demo1"
-        ke2 = self.demo2.kernel_eval_count()
-        if ke2 == 0:
-            return "demo2"
-        return "ktp"
+        """Prefer a configured idle host; use KTP when a deployment image is set."""
+        for name, host in self.hosts.items():
+            has_target = bool(host.spec.ssh) or os.environ.get("AB_LOCAL") == "1"
+            if has_target and host.spec.bench and host.kernel_eval_count() == 0:
+                return name
+        if self.cfg.ktp_image:
+            return "ktp"
+        raise ValueError("Configure an A/B host or KB_KTP_IMAGE before selecting a backend")
 
     def layout(self) -> dict:
-        """Stable 16-card + KTP field table. No SSH."""
+        """Configured host + KTP field table. No SSH."""
         return layout(self.cfg)
 
     def capacity(self, *, live: bool = True) -> dict:
@@ -130,7 +132,7 @@ class AbClient:
         return [s.__dict__ for s in cases_mod.catalog(op)]
 
     def pull_run(self, tag: str, *, analyze: bool = True) -> dict:
-        """Per-case numbers from a KTP/share A/B tag under /models/share/ka/runs/<tag>."""
+        """Per-case numbers from a KTP/share A/B tag under the configured share runs directory."""
         raw = cases_mod.pull_share_run(tag, self.cfg)
         if analyze and raw.get("op"):
             raw["analysis"] = cases_mod.analyze_arms(raw.get("arms") or {}, raw.get("op"))
