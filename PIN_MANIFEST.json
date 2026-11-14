@@ -611,6 +611,10 @@
       "bytes": 129,
       "sha256": "8deb59f1a8202b7d50b8b77304206ab8ac2d05d3a81566796870c5ba5f8ee60c"
     },
+    "AGENTS.md": {
+      "bytes": 2944,
+      "sha256": "daff13438bd42b981014d5013a80c6206d9b4d4a8a18cc697fb2f1804c984e27"
+    },
     "README.md": {
       "bytes": 10052,
       "sha256": "8b753b3f64fefda655c88dd4fb8605d86174a8ee69db59b093780df1ef766336"
@@ -626,6 +630,10 @@
     "docs/architecture/operator-guidance-alignment.md": {
       "bytes": 6691,
       "sha256": "b91082e5c5fe0b787545c79e7f2c33478875810d934037900864c338eb37109f"
+    },
+    "docs/architecture/release-workflow.md": {
+      "bytes": 5287,
+      "sha256": "fe04819a86328012cf36fa26aa28b3517053210f8fcb1664a1049a7150fb215e"
     },
     "docs/architecture/tui-implementation-plan.md": {
       "bytes": 44715,
@@ -650,6 +658,14 @@
     "examples/cann/README.md": {
       "bytes": 10939,
       "sha256": "263d4daecc60eb83bbe2fce418bcdab1d50ffdc575a0ecb2196228b8386c9779"
+    },
+    "examples/cann/adapters/cannbench_sigmoid_adapter.py": {
+      "bytes": 14233,
+      "sha256": "566727bacbbca02acbb6bcc069af9940398bfd953111c82b0e531afdcbdfc0fa"
+    },
+    "examples/cann/adapters/native_rsi_adapter.py": {
+      "bytes": 12212,
+      "sha256": "b228a58e1a077add3cdb1a91914885a07c81aa679cd45dc0acb8c3d0c48103ad"
     },
     "examples/cann/application.mjs": {
       "bytes": 1186,
@@ -748,8 +764,8 @@
       "sha256": "1bdfabb237af7aa248fcd3c08cd1273a9e574d11e0127fe788b4fd37a6b1450f"
     },
     "examples/cann/goal_inputs.py": {
-      "bytes": 5718,
-      "sha256": "01042f6853f9618d5ff8b26aceac5538e6d835cda890257cc04576b5783f9bb5"
+      "bytes": 5742,
+      "sha256": "511e3842951e339d939a6ccfaa063b771ac44a3b3e48f546a754410f5f91b67a"
     },
     "examples/cann/instructions/AGENTS.md": {
       "bytes": 15334,
@@ -792,8 +808,8 @@
       "sha256": "7414c2114d89610c418202c49644b2cbca8d1964e0b1dc9b5b3fcbeb7caa46be"
     },
     "examples/cann/rsi_local.py": {
-      "bytes": 2907,
-      "sha256": "11209a8e570a32622d42f44602ad990f16f5898922b8aff30ddd328ab6494b99"
+      "bytes": 2917,
+      "sha256": "0b613dfcc51d3938fb3a2f116fbdd04231371d8397d2cf8aef51825f4045b166"
     },
     "examples/cann/run-legacy.mjs": {
       "bytes": 4079,
@@ -964,8 +980,8 @@
       "sha256": "c87a053a49e73f68417af9471799c96a8cb6025e1733cbe877f4ec4848f06b3f"
     },
     "examples/cann/sigmoid-optimization/task.json": {
-      "bytes": 32106,
-      "sha256": "749c66cdc0e245e55ba399ab6c9b518936ef317eed21c57988e9a5b76ee6d33b"
+      "bytes": 30645,
+      "sha256": "e85f46715953b7a87c6bbd7d9fdfbfdc8c3be30d070aa317d844f24c0f50f910"
     },
     "examples/cann/task_bundle.py": {
       "bytes": 4584,
@@ -1312,8 +1328,8 @@
       "sha256": "9d520dc5f3913003756852735f10e85b2516c02e95d96c15a19b6493ebde6e05"
     },
     "install.py": {
-      "bytes": 11308,
-      "sha256": "3118143c3bb4a423dd810ae4724d0607b25cc27c88479e6ed0dc46cde8b0f944"
+      "bytes": 11305,
+      "sha256": "7878155efb8b9df267367f3ff8a25df3e2680f5f7b8e7ebf34be2a0f977412cf"
     },
     "kernelagent": {
       "bytes": 2391,
@@ -1636,8 +1652,8 @@
       "sha256": "a674b9dcbf48e9cbee132c41094c34344f576231cdbe08b5cfd741cee64d9cad"
     },
     "source/apps/agent/src/harness/pi/delegation-prompt.mjs": {
-      "bytes": 3764,
-      "sha256": "fc6fb453f8aa90b82a9912b32fa63b39905b7cacb8915064b097889ab4e2e015"
+      "bytes": 3731,
+      "sha256": "202f4e9fafcef2478d3a641ad9cb759d62be3ab7a5964774415629a6624d63e8"
     },
     "source/apps/agent/src/harness/pi/environment.mjs": {
       "bytes": 1079,
@@ -2776,16 +2792,16 @@
       "sha256": "307299fda7b77d22c64cb51430ec75e5f59d78e9c948786afb3b2544fe45e4b7"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/control_plane/cli.py": {
-      "bytes": 18253,
-      "sha256": "e33bdec639a2e3975e71fa268181673ce13add4af44d528dfc4a8850d3ec47d5"
+      "bytes": 18386,
+      "sha256": "70609562154bd4de940eb79ff6b01227de1459d42ab1fc5924c7ac421bbe78d0"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/control_plane/evidence.py": {
       "bytes": 15416,
       "sha256": "9dbb350a456515aa79d73de6a5773e26756effde8d37b148250febc0dc641d2d"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/control_plane/execution.py": {
-      "bytes": 13611,
-      "sha256": "a4c470c348237701b0363fb784486c6dfdaaeed6f72e1ba9b71bc3e218b7a2e7"
+      "bytes": 13944,
+      "sha256": "ecf1aca813f55c436eb5a5402a7aa8fe53141c4db4a8d1918deee9227f561f43"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/control_plane/formal.py": {
       "bytes": 7523,
@@ -2816,8 +2832,8 @@
       "sha256": "1cda29ccecd834812a46a20df6a79e01427b01ad314d6b86339903b515fa6b6f"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/_load_cann_env.py": {
-      "bytes": 1169,
-      "sha256": "5f7a685b54a39b5ee5144d4ec7d5f34a2a50c82b585657c522ff7c5c4201d67e"
+      "bytes": 1008,
+      "sha256": "9a75701162e7fa8e88f4f2e3a67d7acf8244693189e9938d285636948a8d60b6"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/_submit_c3d_gap10.py": {
       "bytes": 398,
@@ -2828,8 +2844,8 @@
       "sha256": "ef64ea3462bfcd0f7789bc08c4855d63de24274f8e758032933f9e5c640bcd50"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab910.sh": {
-      "bytes": 26365,
-      "sha256": "c561ff84c1873a45bbfc403a0f403e5150b983cb71c54883b74b0df2dcfe7ccf"
+      "bytes": 18868,
+      "sha256": "12ddb15d0c605440314146dfc143d1dda743b60a8327289fe0edfc1a53db4d6a"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/__init__.py": {
       "bytes": 796,
@@ -2844,40 +2860,40 @@
       "sha256": "ab3ae9d65d28e870530ae26eb0ef1ad600ee63aa55632c132c58bd0987f986b0"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/cases.py": {
-      "bytes": 12520,
-      "sha256": "f73c6437b964b759f166a02a7326dcdc7a2814a25e4203289788d946a8b7ecc6"
+      "bytes": 12528,
+      "sha256": "91ac9ae54119c4f4c14ebd36da4908e972afefd0294db9d6da15d18373091191"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/cli.py": {
-      "bytes": 11682,
-      "sha256": "be1e5e937a00d57748d2b843c60b1b559745e723c28c4f233ef320497722228c"
+      "bytes": 11638,
+      "sha256": "efad3252e0c435a598a273dcdc17c78ecef1bde7a61ed08a7aa106707bae1dda"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/client.py": {
-      "bytes": 6376,
-      "sha256": "61b7d97387841b4426013c5bab136f0f7e46f71b2b456fa1ca2abfa3a7a0b449"
+      "bytes": 6566,
+      "sha256": "0681a16d74495b4d036a449acf67af6f2b2dfdd18dd6b3b9bf694474ef29050c"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/config.py": {
-      "bytes": 3747,
-      "sha256": "3a1dfc7ca8b9fae13c44023ef776f48740f66055e7c7322913db46de10994644"
+      "bytes": 4990,
+      "sha256": "39f54b211709876ecc9fcbd364eee102b8a7ce696d74bba62dcaaa036e6a6d15"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/demo1.py": {
-      "bytes": 5915,
-      "sha256": "0960bb7df7f4226079f3a22e6baecd2bc0d3e7c3b69373de4969c349a6e3d63f"
+      "bytes": 5640,
+      "sha256": "75baa9eacad2f2360b76dc8bd9a08218bb23a5d580a308463f5b7d3c86b89a6d"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/hosts.py": {
-      "bytes": 2281,
-      "sha256": "bacecea064684248554e0ebcf07587ce62518ad271f2d2f73ad88d0d0bb6f127"
+      "bytes": 2678,
+      "sha256": "689369758a833769cdf987a02d159b7572a36b4af8b57d6f72cf6286190ccfee"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/job.py": {
-      "bytes": 5069,
-      "sha256": "7697425ae2dcc3e3fa147afce5286c7c58c771fa0f271eaf33ec1b8ef26e0810"
+      "bytes": 5286,
+      "sha256": "6338552ef8f723aacd45bd2b334e375670214432f35fd8438277f9d55851619e"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/ktp.py": {
-      "bytes": 33415,
-      "sha256": "57bc5734441dd13f1e211ed1d908854be4ddc7c8e942721c373aefb1886c9e9f"
+      "bytes": 33764,
+      "sha256": "251822a9ff2e3e28bb3e4b163d92d33f05d1fdc640af04dafe809bbe84a06a00"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/layout.py": {
-      "bytes": 6118,
-      "sha256": "b70a2237da37911294ad92b7fa59c9c030849952baf09d4eb0decda80f95687e"
+      "bytes": 6414,
+      "sha256": "02941634187740a05f9beefce8a64b7954bb8089ec003bc3669eb9d9b8678555"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/parse.py": {
       "bytes": 3326,
@@ -2888,12 +2904,12 @@
       "sha256": "44e2ff7c69e5669f44f8950328afc1b377a654d04316898d0f707e2f8e2f2c12"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/ab_sdk/ssh.py": {
-      "bytes": 9282,
-      "sha256": "b5af6894cf02aa769dee52787f079619d242cb38e5c2a91b86c7754bc7494410"
+      "bytes": 9130,
+      "sha256": "cd4710b58b60542164a10b050d6b38a31d9426714ac0db8a5c9bffc2d3663a66"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/abctl": {
-      "bytes": 329,
-      "sha256": "fddf1d87f4b82db612e9e3dd5c74b4889e8d74ffab5b81cdaeb651d7812cb053"
+      "bytes": 337,
+      "sha256": "4ea2a72c49ab74ea76b840038836147d1610636de63615d013fc488b0a443418"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/abq.sh": {
       "bytes": 1793,
@@ -2916,16 +2932,16 @@
       "sha256": "5f1548cf8e173209bf9dd2866b2b5ed458a26e0868c604cfd5bf218bb64e989e"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/arti910.py": {
-      "bytes": 5478,
-      "sha256": "374bb9a6db824bd5dae99bacda7a547597147fe03fe6ab79575bfdf73b9e9819"
+      "bytes": 3698,
+      "sha256": "0023a6be3e8077822a3d31d7ad1020b8051965325f3f21c1949a1cd63b4eb41b"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/bench910.sh": {
       "bytes": 2935,
       "sha256": "d3712b531989e73ecb5f8c7934075c5a2288df9985eff58d8b2fc4e47c9ef250"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/credits_total.py": {
-      "bytes": 1205,
-      "sha256": "a89cc9a4f8f33654bb1e28418d621e820a7f10279e83eec51191bd499a8b2806"
+      "bytes": 982,
+      "sha256": "f82bb1481759a26cd2a248c09a355a683a1c33c2ce70b49672d8547e96da743d"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/cummin_dev_cases_win.sh": {
       "bytes": 6058,
@@ -2968,16 +2984,16 @@
       "sha256": "db34613e04a8880ed57836ed1363d26e8da2277eb7e2082270e26f2181cabc37"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/gap910c.py": {
-      "bytes": 3273,
-      "sha256": "2928689a01521ccbcca3dd685880ea5f414d769f1d8c80a126954ceeb88c1f9a"
+      "bytes": 3307,
+      "sha256": "0709c3f158e0c2196f21a1e23d2f823063ecdaf60e8d3f2b5672cebcf78d3683"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/gcc_sort_probe.py": {
       "bytes": 3465,
       "sha256": "cdc0cf6b9dd1b81567dcfad0cdfdbfe81da2c45492fb5824144e3097a6a8e460"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/gen_init.py": {
-      "bytes": 7767,
-      "sha256": "e9ff189330c3cc9b5a7c64e0d3636f441d8173e3ce9c0640b70a1630cab33acf"
+      "bytes": 6529,
+      "sha256": "35b6d555e46f74b3775a7d390036173d2b09bbd8759262d3b5b59c80b0902dee"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/gqa_dev_cases.sh": {
       "bytes": 10411,
@@ -2992,8 +3008,8 @@
       "sha256": "f312e890df1b24c0e6e3f986d725250d25c948fba8863e7f55e87189e56a73c2"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/hcode.py": {
-      "bytes": 7014,
-      "sha256": "57c31afbcdf3d0d8aa9cd8ecf40de96a4048a379eb810039523008a4578adf94"
+      "bytes": 4126,
+      "sha256": "4471140ccbfb202975ba45d1ac67db13391816bbb78b456253f0ccfd5c7c47b7"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/kernel_c_score.py": {
       "bytes": 3625,
@@ -3040,20 +3056,20 @@
       "sha256": "6c4b67347de5dc7433b35b048f5a24531ebcb3f2303dfd74e27d9e6b85eda175"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/percase910.py": {
-      "bytes": 20302,
-      "sha256": "d61b9e6bdcd6d724b8b81bc85106b811d39a5501c7b9604ae13cd4e90c0e4038"
+      "bytes": 13488,
+      "sha256": "17357256a182c483b8d8eaaf7f60814a7b5ee1eba4294b355f44ff06363cdfd9"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/pickdev.sh": {
       "bytes": 1013,
       "sha256": "fce2554e14fee4f3de7b4f2e64b899e5de40e8b9de399c73f4b92c0a6585b680"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/pipeprof.py": {
-      "bytes": 32792,
-      "sha256": "d2715be68a6aea58b16a0fabe7a2882581508c9aa1927cad3109bfd301dd04c1"
+      "bytes": 32426,
+      "sha256": "b32a7858cb7ee694d713c790749b761394b91360488ce706cc5e1410e8313a85"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/platform_verdict.py": {
-      "bytes": 8613,
-      "sha256": "9d2128a2ad7f19776093f59ccb389bfbb6905862fb73a3aba52b34aba5c67522"
+      "bytes": 6739,
+      "sha256": "13393076b8d58de0380c520b557263918b2426eb4a139149e15a1e594898bd37"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/preflight.py": {
       "bytes": 11960,
@@ -3080,8 +3096,8 @@
       "sha256": "62a0c38610275a446dda56e8c0e058db0e16fea6b6b12ace84e03d7c07a5093b"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/profiler_artifact_bundle.py": {
-      "bytes": 37341,
-      "sha256": "5521f6565cbc6956aa279cd775cfb20feff9b9d905a5f8bccfc164a8a7ca7877"
+      "bytes": 37016,
+      "sha256": "649188294cda4ed01a8fb3069cfddddd933e60e11229fdc975fc72deaa01555d"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/profiler_completion.py": {
       "bytes": 7399,
@@ -3172,12 +3188,12 @@
       "sha256": "9cc1d3bc22acde7cd9810890c49b5e4c04adbf3bf4d64c4ea4442d6fedf65583"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/profiler_run.py": {
-      "bytes": 3069,
-      "sha256": "510345d7b2b81625c10f89be2a055b3c094db15763a40082fbb4867eb88f7bd7"
+      "bytes": 3178,
+      "sha256": "9ff119bafd2444d87ae9c3258f555cf5d9c600cd504041a3f26066db90a060c9"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/profiler_run_core.py": {
-      "bytes": 44033,
-      "sha256": "fce25952277cc5bb89cabb11e731d447fdcfc53b70277c40a5af64f9bf11e177"
+      "bytes": 44054,
+      "sha256": "b21f56d10629f63e18d369d1f524b428f86510f01b0ed658379aa6fa0506d5d9"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/profiler_run_publish.py": {
       "bytes": 9179,
@@ -3196,12 +3212,12 @@
       "sha256": "d8baf5c2d091ba35424e781deaaba6498c4c43eb80e73011e8d49f07325f1a05"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/pull910src.py": {
-      "bytes": 5331,
-      "sha256": "1d13b3c5b1880e4c565fa9a6dd10137cb45708768fdf14ca860a1cf5e0481c6e"
+      "bytes": 3526,
+      "sha256": "5c2269d369cf7954f73d9ec567fefdd0f400a5c576b33e22b420757b3f08ef36"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/push910.py": {
-      "bytes": 29152,
-      "sha256": "2ec3a7d06a1ed3dbcd4283121708b71614efc5092fe7ae04a31448596f7cef3e"
+      "bytes": 22294,
+      "sha256": "ebfc450699079db3601a92258d05ab30b2f877dd7c76b5d3944cd4523100729a"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/push_c3d_2op.py": {
       "bytes": 5714,
@@ -3220,12 +3236,12 @@
       "sha256": "078e5b5a42dfab489bca8e1841f2ae6f4310260e2020cb4495adbda80e3f30f2"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/real_profiler_multi_event.py": {
-      "bytes": 24055,
-      "sha256": "de8466bfc9a696c47aef4680bd8167ab113c469c7e189dc2d5510284176d2545"
+      "bytes": 24076,
+      "sha256": "ecec11f3c5aa22a36fdbcf96c304a2bd267a4a2f800f31782c34eabb1410c001"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/rebuild_eval_env.sh": {
-      "bytes": 3542,
-      "sha256": "f419d61fa1af5b00375ae3579fa927f827da271c8e255ae64b12a6cf72219314"
+      "bytes": 3484,
+      "sha256": "22cc7e9a6e442f6e7ee94615aacf2a61ceff3526a7fd196ada3c50a1017f22f6"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/school_xfer.py": {
       "bytes": 1623,
@@ -3256,8 +3272,8 @@
       "sha256": "99efd7a3e76b74b728bc15e77397bc3b7663a4a07fa3fcce4857451caeabd7ee"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/wave.py": {
-      "bytes": 36562,
-      "sha256": "979f9b1efecae6b98746f18af112be5e18767244abce099878a1a30a9910c197"
+      "bytes": 34220,
+      "sha256": "cc3ad1d4d67bc594ed466e809fa2732d8ec6a087090677e7ef0e01184c8078cc"
     },
     "source/packages/executor/src/kernelcat_executor/evaluation/protocols/cannbench/native/r950_tools/wqbm_dev_cases_win.sh": {
       "bytes": 4190,
@@ -4135,6 +4151,10 @@
       "bytes": 1862,
       "sha256": "afd46544b75ec37fd7d45ffc3511b687d6751a7e3db82e9485659df2fcf64836"
     },
+    "source/scripts/export_release.py": {
+      "bytes": 11189,
+      "sha256": "51f99e502548a2f8c30f6ea3be7b9dc3db191587b19b3d2ec97049d5247477aa"
+    },
     "source/scripts/generate_application_contracts.py": {
       "bytes": 723,
       "sha256": "5ae3b5a55a23ed16429fec27bbe9b3e008404cfc5b9957c7a3c7b0480eff4b39"
@@ -4147,9 +4167,41 @@
       "bytes": 17520,
       "sha256": "5808b8924a075a084abc3616c29b989f43a358fca43364aaf8e3aa97871c90e5"
     },
+    "source/scripts/release/rules.json": {
+      "bytes": 7439,
+      "sha256": "04361172c8c538e31b4de88bb17f4e8fe259b9500544c2ab78f6a401bccc8433"
+    },
+    "source/scripts/release/templates/README.md": {
+      "bytes": 2911,
+      "sha256": "53de103e216ad58d83cb80f08bcbcafbba7ea2f43e9362451bbe827e991d5f97"
+    },
+    "source/scripts/release/templates/kernelagent": {
+      "bytes": 1846,
+      "sha256": "6d24d4cbe538aecb8e247e34ff163b273a406ec538609f9114e4b348abc3544a"
+    },
+    "source/scripts/release/templates/source/apps/worker/README.md": {
+      "bytes": 138,
+      "sha256": "3c8459ce8f06d8cbfab8ae9d8309316746ed6c86d17965fa1c369f790fa3516a"
+    },
+    "source/scripts/release/templates/source/packages/executor/README.md": {
+      "bytes": 140,
+      "sha256": "0ba460b3c71275387706d8bb3a3363ead5a77f4f81d1b456d60505565bc9b1a6"
+    },
+    "source/scripts/release/templates/source/packages/executor/src/kernelcat_executor/backends/ascend/backend.py": {
+      "bytes": 3018,
+      "sha256": "0a2584f713f6ecafabd420c64cfdebc0cc50531f52220b370ae01633726ea97a"
+    },
+    "source/scripts/release/templates/source/packages/ingestion/README.md": {
+      "bytes": 141,
+      "sha256": "73ca7e4bfcf61905cdaffbc667174af7ee7ce46d104aff9c9c8524503585bc76"
+    },
+    "source/scripts/release/templates/source/packages/knowledge/README.md": {
+      "bytes": 141,
+      "sha256": "9d39f27c775f845e3807e81c90f43b1ae665d9250f37ab33ccf4ea94fdd6fb72"
+    },
     "source/scripts/update_manifest.py": {
-      "bytes": 2940,
-      "sha256": "a3cd65f1d24cd90a5818f94f5680865b4a86978f2ea96a0d2b12f1e3a7787700"
+      "bytes": 4494,
+      "sha256": "a32878508cdaaf66b74a68ae32be10f94f61f8df96a730d366af53995e0845b1"
     },
     "validation/ACCEPTANCE.md": {
       "bytes": 1834,
@@ -4186,10 +4238,6 @@
     "validation/cann-export.mjs": {
       "bytes": 4142,
       "sha256": "27fb121a56c52bd1bc8abcf6e98acb27c05571b444652955e069c44c6044f8ec"
-    },
-    "validation/cannbench_sigmoid_adapter.py": {
-      "bytes": 14233,
-      "sha256": "502ad724661e6d6609e7d2ead537db91c79247569e8c905791c9bff4dd8c7fef"
     },
     "validation/child-cancellation.mjs": {
       "bytes": 5883,
@@ -4238,10 +4286,6 @@
     "validation/live_cpu_evaluator.py": {
       "bytes": 1697,
       "sha256": "4ad4dd3dfa1d32fe2c55f7625be9898b87528d96db1a9aeaca4b5e02974d357b"
-    },
-    "validation/native_rsi_adapter.py": {
-      "bytes": 12244,
-      "sha256": "c3a8342547836d399875744f29c3aef8a0a68da4d7d910e8bd81fa972103f86b"
     },
     "validation/npu_acceptance.py": {
       "bytes": 3350,
@@ -4324,8 +4368,8 @@
       "sha256": "a583483a221783e1f1fb14ff1ba798e05a7e82adb1f6b862e007a77d717c8825"
     },
     "validation/test_cannbench_precision.py": {
-      "bytes": 1704,
-      "sha256": "4d3d6a35117047cb6f4cde366fcd734490c015361145433332d16cd1d573f9e0"
+      "bytes": 1804,
+      "sha256": "8f2cc368b5e7f44d887b1d9d8d97ebf0b8132029f353b4d2e80810f72d7d39e2"
     },
     "validation/test_child_exit_fence.py": {
       "bytes": 11074,
@@ -4527,6 +4571,10 @@
       "bytes": 26750,
       "sha256": "0a4291cba0925f6eeaca3468d3210885bfe67eabd54efce710eaa05fe9c94cff"
     },
+    "validation/test_release_export.py": {
+      "bytes": 10040,
+      "sha256": "694f8c2c5c34ddc745fcc0a19f03dcd89dda95fc12bf056d0201cef620e5c68e"
+    },
     "validation/test_rsi_proposal.py": {
       "bytes": 5920,
       "sha256": "79e45efd612c47635951aca06e74bb6e0d8a14b78509473cf3464703e258d2c1"
@@ -4538,6 +4586,10 @@
     "validation/test_runtime.py": {
       "bytes": 10151,
       "sha256": "c5bb4b7aaefefe59301d034c3ba577f92a3d82fd60909d58da82476e412c3c1c"
+    },
+    "validation/test_runtime_portable_config.py": {
+      "bytes": 16567,
+      "sha256": "2d6d1195c5b6ca977cff2fa0fee8710e017bc758501802027c5dd7a3c9e8edea"
     },
     "validation/test_scatter_torch.py": {
       "bytes": 3966,

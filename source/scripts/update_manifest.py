@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import fcntl
+import argparse
 import json
 import os
 import sys
@@ -17,6 +18,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SKIPPED_DIRECTORIES = {"__pycache__"}
+RELEASE_ROOT_FILES = {
+    ".gitignore", "README.md", "install.py", "kernelagent", "requirements.lock",
+    "restore.py", "restore.sh",
+}
 
 
 def entry(relative: str) -> dict:
@@ -36,9 +41,16 @@ def inventory() -> set[str]:
     return found
 
 
-def refresh(extras: list[str]) -> int:
+def refresh(extras: list[str], *, release: bool = False, source_commit: str | None = None) -> int:
     path = ROOT / "PIN_MANIFEST.json"
-    manifest = json.loads(path.read_text())
+    manifest = ({
+        "schema_version": "kernelcat.customer-source/v1",
+        "installation": "required-online",
+        "resource_selection": "source/runtime-resources.json",
+        "files": {},
+    } if release else json.loads(path.read_text()))
+    if source_commit is not None:
+        manifest["source"] = {"commit": source_commit}
     files = manifest["files"]
     present = inventory()
     changes = []
@@ -49,7 +61,8 @@ def refresh(extras: list[str]) -> int:
         elif files[relative] != entry(relative):
             files[relative] = entry(relative)
             changes.append("~ " + relative)
-    for relative in sorted(present | set(extras)):
+    roots = RELEASE_ROOT_FILES if release else set()
+    for relative in sorted(present | roots | set(extras)):
         if relative not in files:
             files[relative] = entry(relative)
             changes.append("+ " + relative)
@@ -67,15 +80,31 @@ def refresh(extras: list[str]) -> int:
     return 0
 
 
-def main(extras: list[str]) -> int:
+def main(extras: list[str], *, release: bool = False, source_commit: str | None = None) -> int:
     # Serialize the entire read/scan/replace operation. Atomic replacement alone
     # lets an earlier scan overwrite a newer writer's manifest with stale hashes.
+    if release:
+        # Lock the directory without creating development state in a release.
+        descriptor = os.open(ROOT, os.O_RDONLY)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            return refresh(extras, release=True, source_commit=source_commit)
+        finally:
+            os.close(descriptor)
     state = ROOT / '.development'
     state.mkdir(exist_ok=True)
     with (state / 'manifest.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        return refresh(extras)
+        return refresh(extras, source_commit=source_commit)
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, help="refresh a separate source bundle")
+    parser.add_argument("--release", action="store_true", help="rebuild publication metadata without development history")
+    parser.add_argument("--source-commit", help="record the exact source commit")
+    parser.add_argument("extras", nargs="*")
+    args = parser.parse_args()
+    if args.root is not None:
+        ROOT = args.root.resolve(strict=True)
+    sys.exit(main(args.extras, release=args.release, source_commit=args.source_commit))

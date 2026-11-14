@@ -1,4 +1,4 @@
-// Capability-specific adaptation; sources and deliberate differences: docs/prompt-migration.md.
+// Delegation guidance for the tools available in this runtime.
 export function delegationPrompt(tools) {
   const delegate = tools.find(tool => tool.name === 'delegate');
   if (!delegate) return '';

@@ -1,9 +1,9 @@
-"""Stable 32-card (demo1+demo2) geometry and KTP job fill. Agents read this; they do not invent counts."""
+"""Configured host geometry and KTP job fields."""
 from __future__ import annotations
 
 from .config import Config, KTP_IMAGE, KTP_CPU, KTP_MEMORY, KTP_NPU, KTP_MAX_RUNTIME
 
-DEMO1_LOGICAL_NPU = 16
+DEMO1_LOGICAL_NPU = 1
 DEMO1_MAX_AB910 = 1  # kernel_eval gate: never two ab910 on the SAME host
 # cmake is isolated per Job (/tmp private src+scripts, tasks symlink). Concurrent
 # Running KTP Jobs are cmake-safe. Default plan() stays sequential so a lone
@@ -15,10 +15,11 @@ KTP_CMAKE_ISOLATED = True
 
 
 def _host_layout(spec) -> dict:
-    devices = list(range(spec.logical_npu))
+    configured = bool(spec.ssh)
+    devices = list(range(spec.logical_npu)) if configured else []
     skip = list(spec.skip_devs)
     usable = [d for d in devices if d not in skip]
-    prefer = [d for d in spec.prefer_devs if d not in skip][:2]
+    prefer = [d for d in spec.prefer_devs if d in usable][:2]
     if len(prefer) < 2:
         prefer = usable[:2]
     return {
@@ -26,13 +27,13 @@ def _host_layout(spec) -> dict:
         "ssh": spec.ssh,
         "port": spec.port,
         "bench": spec.bench,
-        "logical_npu": spec.logical_npu,
+        "logical_npu": spec.logical_npu if configured else 0,
         "devices": devices,
         "skip": skip,
         "usable": usable,
         "prefer": prefer,
-        "ab_conc": 2,
-        "max_ab910": spec.max_ab910,
+        "ab_conc": len(prefer),
+        "max_ab910": spec.max_ab910 if configured else 0,
     }
 
 
@@ -120,10 +121,13 @@ def fill_fleet(
     if n_ops < 1:
         raise ValueError("n_ops >= 1")
     lay = layout(cfg)
-    host_names = ["demo1", "demo2"]
+    host_names = [name for name, host in lay["hosts"].items()
+                  if host["max_ab910"] > 0 and host["ab_conc"] > 0]
     host_slots = min(len(host_names), n_ops)
     hosts = [fill_host_ab(host_names[i], cfg) for i in range(host_slots)]
     ktp_ops = n_ops - host_slots
+    if ktp_ops and not lay["ktp"]["image"]:
+        raise ValueError("Insufficient configured host slots; configure KB_KTP_IMAGE for remaining operators")
     wave = KTP_SAFE_PARALLEL if ktp_parallel is None else int(ktp_parallel)
     ktp = fill_ktp_job(ktp_ops, cfg, parallel=wave) if ktp_ops else None
     return {

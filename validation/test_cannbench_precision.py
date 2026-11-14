@@ -1,8 +1,11 @@
 """Controls for the full-output CANNBench precision adapter."""
 import unittest
 import tempfile
+import sys
 from pathlib import Path
 import torch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples/cann/adapters"))
 from cannbench_sigmoid_adapter import compare, failure_feedback
 
 class CannbenchPrecision(unittest.TestCase):

@@ -1,38 +1,5 @@
 #!/usr/bin/env python3
-"""arti910.py —— 按 job_id 拉取评测产物日志（compile / correctness / performance / RESULT.html）。
-
-🔴 为什么必须有它（2026-08-05，这条教训烧了 9 发提交 + 大半天）：
-
-`invalid_evaluation_results` 连拒 9 发，我对着 `error_code` / `stage_summary` /
-`selected_operators` 反解了几个小时，**连续判错六次**：
-    ① results 空 ⇒「从未评测」        ④ 只读端点 503 ⇒「后端宕机」
-    ② has_results=True ⇒「改包」      ⑤ 429         ⇒「用户级限流」
-    ③ snake 名 ⇒「体例错」            ⑥ 结构 diff 一致 ⇒「平台 bug，我们无可修」
-**答案一直明文写在 `correctness.log` 第 30 行**（模板的 `cann_bench/__init__.py` 写死了
-占位算子 `add`/`sqrt`，runner 扫不到本算子就回落成评测全部 53 个）。
-
-⇒ **规则：拿到任何失败 job，第一步是把它的日志读完，再做任何机制推断。**
-   比读任何结构化字段都便宜、都直接。
-
-## 另一个它解决的问题：老 job 的 `results` 是空的
-
-`job_meta()` 对新 job 带完整逐 case 数据，但**老 job（实测 07-24 的）`results` 是 `[]`**。
-要拿老行的逐 case 失败原因，只能走这里的 `correctness.log`。
-
-## 权限：artifacts 认属主 token，不是任意 token
-
-非属主一律 `403 access denied`。本模块用 `.owner_map.json`（`user_id -> GITCODE_TOKEN_N`）
-自动解析属主；映射不存在时会现场重建（每账号一次 `/api/jobs?limit=1`，零 credit）。
-
-用法：
-    python3 arti910.py <job_id>                 # 列出可用产物
-    python3 arti910.py <job_id> correctness     # 打印某个日志（子串匹配）
-    python3 arti910.py <job_id> correctness 80  # 只打印前 80 行
-
-    import arti910; arti910.fetch("job_xxx", "correctness")   # -> 文本
-
-⚠ 只读，零 credit，不写 ledger.json / wavestate.json。
-"""
+'Download completed-job artifacts using owner credentials.\n\nUsage: arti910.py JOB_ID [LOG_FILTER [MAX_LINES]]. Read-only; preserves raw logs.'
 import os
 import sys
 import json

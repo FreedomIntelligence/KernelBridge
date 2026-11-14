@@ -418,7 +418,7 @@ def _main_impl(argv: list[str] | None = None) -> int:
     parser.add_argument("--level", default="level2")
     parser.add_argument("--snake", default="")
     parser.add_argument("--case-id", action="append", type=int, default=None)
-    parser.add_argument("--bench", default="/home/demo2/cann-bench-20260722")
+    parser.add_argument("--bench", required=True, help="CANN benchmark root on the selected host")
     parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--repeat", type=int, default=15)
     parser.add_argument("--inner-repeat", type=int, default=1)

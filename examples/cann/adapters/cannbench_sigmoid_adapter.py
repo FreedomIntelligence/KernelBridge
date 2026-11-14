@@ -17,7 +17,7 @@ import signal
 import subprocess
 import sys
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'source/packages/executor/src'))
 from native_rsi_adapter import canonical, digest, source, complexity
 

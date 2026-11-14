@@ -1,8 +1,4 @@
-"""16-card A/B on demo1 or demo2: run ab910.sh and SSH to that host.
-
-Never two ab910 on the SAME host (kernel_eval gate). demo1 and demo2 may
-each run one ab910 at a time (32 logical NPUs total).
-"""
+"""A/B execution on a configured host; only one measurement job per host."""
 from __future__ import annotations
 
 import os
@@ -78,6 +74,10 @@ class HostBackend:
                     "host": self.name,
                 },
             )
+        if not self.spec.bench:
+            raise ValueError("Configure the host bench path (KB_AB_BENCH or HostSpec.bench)")
+        if not self.spec.ssh and os.environ.get("AB_LOCAL") != "1":
+            raise ValueError("Configure the host SSH target before launching A/B")
         ke = self.kernel_eval_count()
         if ke > 0 and not force:
             raise RuntimeError(
@@ -96,14 +96,9 @@ class HostBackend:
         env["AB_SSH_USER"] = self.spec.user
         env["AB_SSH_HOST"] = self.spec.hostname
         env["AB_SSH_PORT"] = str(self.spec.port)
-        # demo2 与 demo1 的 bench 路径不同（/home/demo2 vs /home/demo1）；不把本
-        # 机 bench 显式传给 ab910.sh，它的默认 demo1 路径会让 demo2 波次
-        # “CANN_BENCH_HOME 不存在”直接全灭（2026-08-20 demo2 烟测实锤）。
-        env.setdefault("CANN_BENCH_HOME", self.spec.bench)
-        # Already on this host: ab910.sh must not ssh back to 10.1.30.201:31222.
+        env["CANN_BENCH_HOME"] = self.spec.bench
         if current_host_name() == self.name:
             env["AB_LOCAL"] = "1"
-            env.setdefault("CANN_BENCH_HOME", self.spec.bench)
         if force:
             env["AB_FORCE"] = "1"
         wait = timeout if timeout is not None else (0 if detach else 7200)

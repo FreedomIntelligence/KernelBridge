@@ -1,33 +1,5 @@
 #!/usr/bin/env python3
-"""platform_verdict.py —— 读**平台 job** 的判据闸门（不是 demo1 的 A/B 日志）。
-
-## 为什么需要它（2026-08-09 差点误判）
-
-WQBMM 门 90000 那一发的 hidden 读数：
-    pass **76/80**（比上一发的 74 **更多**）      而 score **低 9.21**
-我差点把它读成"机制退化"。真因是 **42/80 个 case 丢了计时**：
-`elapsed_us=None`、`status='success'`、`error_msg=None` ⇒ `speedup=0.0` ⇒ perf 记 0。
-`ab910.sh:14-19` 早标定过这个失效模式（msprof export 30 秒硬超时，超时即无 CSV，
-而 status 仍 success、不报错 —— 那里的原话是"最危险的失效"），
-但那道闸门只加在 demo1 的 A/B 上，**平台 job 我没设**。
-
-⭐ 识别信号：**pass_rate 升了而 score 降了** —— 这个自相矛盾只可能来自丢计时，
-   因为 function 单调依赖 pass_rate。
-
-## 判据（按顺序，前者不过则后者无意义）
-
-0. job 必须**终态**且能读到逐 case（`results` 只有属主 token 可见）。
-   未终态 ⇒ 报"等它跑完"，**不要判成作废** —— "还没跑完"与"丢了计时"是两回事。
-1. **通过的 case 是否都有计时**（分母是 `passed`，**不是 `total`**）。
-   精度失败的 case 本来就进不到 perf 阶段、无计时是正常的。不满足 ⇒ 该发作废、重跑。
-2. pass_rate 与失败集（对比现役/上一发，看是否引入**新**失败）。
-3. perf / score 才是最后看的。
-
-用法：
-    python3 platform_verdict.py <job_id> [<对照 job_id>]
-    （token 从 cann.env；正确咏唱见 PITFALLS E3b：
-      cd cann_campaign && set -a && source ./cann.env && set +a && cd r950_tools）
-"""
+'Inspect source-bound completed-job correctness and timing coverage.\n\nRequire terminal state and owner-readable per-case results before comparing\ncorrectness and performance. A passed case without timing is incomplete evidence.'
 import os, sys, json
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -36,13 +8,7 @@ import wave as W
 
 
 def load(jid):
-    """找一个能看到 `results` 的 token。
-
-    🔴 2026-08-09 踩到：`results`（含逐 case `elapsed_us`）**只有属主 token 能看到**，
-    非属主拿到的 job_meta 有 status 但 `results` 为空。第一版在拿到 status 就 return，
-    于是对照那发被读成 `计时 0/0`、`失败集 []` —— **看起来像"对照也丢计时"，
-    实际是我用错了 token**。⇒ 必须优先要 results 非空的那个 token。
-    """
+    '找一个能看到 `results` 的 token。'
     fallback = None
     last = None
     for tv in W.ACCTS:

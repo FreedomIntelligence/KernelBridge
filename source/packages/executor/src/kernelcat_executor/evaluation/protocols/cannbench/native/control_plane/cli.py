@@ -312,6 +312,7 @@ def command_shadow_profiler(args: argparse.Namespace) -> dict[str, Any]:
         metric_groups=metrics,
         action_cell=args.action_cell,
         school_env=args.school_env,
+        bench=args.bench,
     )
     return {"ok": True, "plan": adapter.shadow_plan(request)}
 
@@ -420,6 +421,7 @@ def build_parser() -> argparse.ArgumentParser:
     shadow_profiler.add_argument("--metric", action="append", default=[])
     shadow_profiler.add_argument("--action-cell", default="")
     shadow_profiler.add_argument("--school-env")
+    shadow_profiler.add_argument("--bench", help="benchmark root on the target host (or CANN_BENCH_HOME)")
     shadow_profiler.set_defaults(func=command_shadow_profiler)
 
     shadow_submit = sub.add_parser("shadow-submit", help="render, but never execute, an official submission")

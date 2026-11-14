@@ -25,7 +25,12 @@ _ALIASES = {
 def load_canon() -> dict[str, str]:
     global _CANON
     if _CANON is None:
-        _CANON = json.loads(CANON_PATH.read_text())
+        if CANON_PATH.is_file():
+            _CANON = json.loads(CANON_PATH.read_text())
+        elif os.environ.get("KB_AB_OPERATOR_CATALOG"):
+            raise FileNotFoundError(CANON_PATH)
+        else:
+            _CANON = {}
     return _CANON
 
 
@@ -41,7 +46,7 @@ def canon_op(name: str) -> str:
         return canon[key]
     if re.fullmatch(r"[A-Z][A-Za-z0-9]+", raw):
         return raw
-    raise KeyError(f"unknown operator {name!r}; add it to op_canon.json")
+    raise KeyError(f"unknown operator {name!r}; use the canonical CamelCase name or set KB_AB_OPERATOR_CATALOG")
 
 
 def livesrc_dir(op: str) -> Path:

@@ -62,14 +62,14 @@ def local_rsi(profile, output, request, kind='native'):
     text = json.dumps(cfg, indent=2) + '\n'
     path = output / 'inputs' / profile.get('_config_name', 'rsi.json')
     python = Path(npu_python).resolve()
-    pin_paths = [python, ROOT / 'examples/cann/rsi_local.py', ROOT / 'validation/native_rsi_adapter.py']
+    pin_paths = [python, ROOT / 'examples/cann/rsi_local.py', ROOT / 'examples/cann/adapters/native_rsi_adapter.py']
     if profile.get('_config_name') == 'diagnostics.json':
         pin_paths += sorted(p for p in (ROOT / 'examples/cann/tools').rglob('*') if p.is_file() and '__pycache__' not in p.parts)
     venv_configuration = Path(npu_python).parent.parent / 'pyvenv.cfg'
     if venv_configuration.is_file():
         pin_paths.append(venv_configuration.resolve())
     if kind == 'sigmoid':
-        pin_paths += [ROOT / 'validation/cannbench_sigmoid_adapter.py', *sorted(p for p in Path(cfg['suite']).rglob('*') if p.is_file())]
+        pin_paths += [ROOT / 'examples/cann/adapters/cannbench_sigmoid_adapter.py', *sorted(p for p in Path(cfg['suite']).rglob('*') if p.is_file())]
     pins = [{'path': str(p), 'sha256': sha(p.read_bytes())} for p in pin_paths]
     pins.append({'path': str(path), 'sha256': sha(text.encode())})
     if kind != 'sigmoid': pins.append({'path': request['reference'], 'sha256': sha(profile['_reference'].encode())})

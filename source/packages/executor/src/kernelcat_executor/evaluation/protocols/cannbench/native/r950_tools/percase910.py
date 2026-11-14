@@ -1,82 +1,5 @@
 #!/usr/bin/env python3
-"""percase910.py —— 逐 case 归因：把「这行差多少分」换算成「哪个 case 差多少微秒」。
-
-## 为什么要有它
-
-行分 = `20·compile + 30·pass_rate + 50·mean(perf_score_i)`，**均值**意味着
-**一个极慢的 case 能吃掉半行**。我们一整天都在优化"平均加速比"，从没查过
-"哪 1–2 个 case 把行拖下来"。这个工具零 credit 就能回答。
-
-## 数据源（2026-08-03 发现）
-
-`job_meta(jid)` 返回的 `job.results` 里**本来就有完整逐 case 数据**，不需要额外端点：
-
-    results.operators[i].cases[j] = {
-        case_id, status, elapsed_us,          # C：我们的耗时
-        baseline_perf_us,                     # B：官方 baseline
-        t_hw_us, hardware_limit_us,           # H：roofline（评分用 t_hw_us）
-        speedup, speedup_vs_hw, perf_score,   # perf_score 就是 s_i
-        op_times.device_kernels{名字: 微秒},   # 逐 kernel 耗时
-        accuracy{mismatch_count, mere, mare, threshold, ...}
-    }
-
-**评分公式已用真实数据逐位核对**（ForeachAddcdivScalar case_1）：
-
-    s_i = (B − H) / ((C − H) + (B − H))          H = t_hw_us
-
-    B=36.86  C=37.76  H=13.11 → (23.75)/(24.65+23.75) = 0.4907 = 平台给的 perf_score ✓
-    （用 hardware_limit_us=15.345 代入得 0.4898，**不对** —— 评分用的是 t_hw_us）
-
-⇒ 单个 case 的边际价值（n = 该算子 case 数）：
-
-    dScore/dC_i = −(50/n) · (B−H) / ((C−H)+(B−H))²
-
-    把 case i 提速到 C' 值多少分： (50/n)·(s_i' − s_i)
-    该 case 的**理论上限**（C→H）：s_i → 1.0，值 (50/n)·(1 − s_i)
-
-## 🔴 跨 job 统计的两个坑（都踩过）
-
-1. `/api/jobs?limit=200` **混着三个榜**（950pr@1.1.0 / 910c@1.0.0 / 910c@1.1.0）。
-   不按 `benchmark_slug` + `benchmark_version` + `target_hardware` 过滤，
-   会把 950pr 的 runner 抽签（13.7×）当成 910c 的现象。
-2. `submission_download_url` 里嵌的是 **job id 不是 submission id**
-   （`/api/jobs/job_xxx/submission/download`）。`submission_id` 只在 `job_meta` 里有。
-
-## 🔴 逐 case 归因的第一个结论是**否定的**（省得你再投）
-
-「一个极慢的 case 吃掉整行」**结构上不可能**：`s_i ∈ [0,1]`，任何单 case 最多占 `50/n`
-（n=20 时 5%）。实测 88 行，"最烂 case 占该行上限"全部落在 1–8% —— **头寸均匀铺开，
-没有单点富矿**。所以本工具的价值不是找"那个拖后腿的 case"，是给出
-**逐行的倍率→分数换算**和**C/H（离硬件下界几倍）这个可行性刻度**。
-
-## C/H 把行分成两类，打法完全不同
-
-| | C/H | 行数 | 1.3× 值 | 2× 值 | 20× 值 |
-|---|---|---|---|---|---|
-| **调优型** | <20 | 43 | **+143.9** | +392.2 | — |
-| 结构型 | >100 | 18 | +7.7 | — | +183.9 |
-
-结构型行（Scatter 159×、UnsortedSegmentSum 161×、SparseFlashAttention 873×、
-GroupedMatmul 2381×、TopK 12922×）**不是慢，是算法错了**；对它们做 1.3× 等于白干
-（全 18 行加起来才 +7.7）。调优型才是主战场。
-
-## B/H 不是恒等于 10
-
-`H = max(真 roofline, B/10)`，那个 cap 对 **2921/3647 = 80%** 的 case 生效，
-但剩下 20% 的 B/H 低到 1.86–5，**它们的 2× 值 +19 而不是 +9.5**（边际价值不是平的）。
-B/H 小 ⇒ baseline 本来就贴着 roofline ⇒ 值钱但也最难赚。
-低 B/H 的行：MlaProlog 1.86、QuantMatmul 2.05、Sigmoid 2.63、ForeachAddcdivScalar 2.74、Gelu 3.06。
-
-用法：
-    python3 percase910.py                 # 全表：按"可回收分"排序的 case
-    python3 percase910.py --op Cummin     # 只看一个算子
-    python3 percase910.py --rows          # 按行汇总 + 最烂 case
-    python3 percase910.py --grid          # 逐行倍率网格（1.3/2/5/20/100×）+ C/H
-    python3 percase910.py --oracle        # ★ 可达性神谕：逐行对比全场最好
-    python3 percase910.py --refresh       # 重新拉 job results（默认吃缓存）
-
-⚠ 只读，零 credit，不写 ledger.json / wavestate.json / cann.env。
-"""
+'Read source-bound per-case timings and score contributions from completed jobs.\n\nFilter by benchmark and hardware. Only the job owner can read full results;\nmissing timing or incomplete correctness must not count as performance evidence.'
 import os, sys, json, re, pathlib, collections
 import concurrent.futures as cf
 
@@ -100,6 +23,8 @@ def collect():
     BEST-of 中计分的老 job 挤出窗口。``solution/<id>/components`` 才是当前榜面的
     权威索引，并且同时给出 component job 的 owner，足以选对可见 results 的 token。
     """
+    if not W.SOL:
+        raise ValueError("Set CANN_SOLUTION_ID before collecting solution results")
     tk = toks()
     if not tk:
         raise RuntimeError("没有可用 GITCODE_TOKEN；请先 source cann_campaign/cann.env")
@@ -196,15 +121,6 @@ def s_of(B, C, H):
     return 1.0 if d <= 0 else (B - H) / d
 
 
-# 🔴 2026-08-08：**权重的分母必须是 total_cases，不是"我们加载到的 case 数"。**
-# 有的 case 有 B/H 但 `perf_score=None`（从未被计时）⇒ 它们不在 `load()` 的输出里，
-# 但**永远留在评分公式的分母里**。用 `50/len(cases)` 会把天花板系统性抬高。
-# 现场：Conv3DBackpropFilter|standard n_timed=17 而 n_all=20
-#   w=50/17 ⇒ 现 perf 1.3121、上限 50.00（**错**，我据此报了 +48.69）
-#   w=50/20 ⇒ 现 perf 1.1153（**= 榜面真值**）、上限 **42.50**、可涨 +41.38
-# 免费判别器：`perf != 50·csm·(passed/n)` 的行就有无计时 case，
-#   且可反解 `n_timed = perf/(50·csm)·n`（Conv3D 反解得 17.0000 逐位整数）。
-# ⚠ 全榜普查：我们 106 行里**只有 Conv3DBackpropFilter|standard 一个半场**中招。
 N_ALL = {}          # (算子小写, 用例集) -> total_cases（榜面权威值）
 
 
@@ -233,48 +149,26 @@ def load_n_all():
 
 
 def oracle():
-    """★ 可达性神谕：逐 (算子, 用例集) 对比**全场最好**的 case_score_mean。
-
-    为什么这是正确的锚：
-      * 不要追榜首**总分** —— 2026-08-03 实测，总分才 6584 的 dubinaibiancheng
-        在大量单行上压着我们。逐行取全场最好，可追 **+556.9**，
-        而追榜首总分只有 +1.55（我们 7015.84，榜首 yyzhang0715 7017.39）。
-      * 别人在**同一块硬件**上跑出来的数 = headroom 被证明了，不是推测。
-        这解决了"值得做"和"做得到"里的第二个。
-      * ⚠ 不要用 `mode=operator` 的榜（`target_hardware` 参数不生效、且不含榜首行）。
-        正确入口是 `/api/leaderboard?mode=solution&benchmark_slug=…&benchmark_version=…`，
-        每条 entry 的 `metric.operators`（standard）和 `hidden_metric.operators`（hidden）
-        里带逐算子 `case_score_mean`（×50 = 该行 perf 分）。
-    """
-    T = os.environ[toks()[0]]
+    """Compare each configured-account row against complete same-hardware results."""
+    US = os.environ.get("CANN_US", "")
+    if not US:
+        raise ValueError("Set CANN_US before comparing account results")
+    tk = toks()
+    if not tk:
+        raise ValueError("Set an owner GITCODE_TOKEN before comparing account results")
+    T = os.environ[tk[0]]
     s, d = W.api("/api/leaderboard?mode=solution&benchmark_slug=official-tasks"
                  "&benchmark_version=1.1.0&limit=100", T)
-    # 🔴 2026-08-07 两个静默失效的过滤条件，都会让本函数返回空表而不报错：
-    #  ① 硬件字段在 `e["metric"]["hardware"]`，**不在 `e["hardware"]`**。而 URL 里的
-    #     `target_hardware` 参数**服务端完全忽略**（=910c 与 =950pr 返回逐位相同的响应）
-    #     ⇒ 不按 metric.hardware 过滤会把 950pr 选手当成 910c 对手（曾凭空造出 +453.8 假头寸）。
-    #  ② 我们在这个榜上的账号是 **SLAI_5**，原来硬编码 `SLAI_3`（那是 910c@1.0.0 的旧账号）
-    #     ⇒ `mine` 恒为空 ⇒ 整张表恒为空，而且**不报错**。
-    # 两者都属于"零命中被读成没问题"这一类，所以下面加了硬失败。
     ent = [e for e in (d or {}).get("entries", [])
            if (e.get("metric") or {}).get("hardware") == HW
            and e.get("benchmark_version") == VER
            and e.get("leaderboard_mode") == "solution"]
     nm = lambda x: re.sub(r"[^a-z0-9]", "", str(x).lower())
-    US = os.environ.get("CANN_US", "SLAI_5")
     mine, best = {}, {}
     for e in ent:
         who = str(e.get("display_user"))
         for key, cs in (("metric", "standard"), ("hidden_metric", "hidden")):
             for o in ((e.get(key) or {}).get("operators") or []):
-                # 🔴 2026-08-08：**绝不能用 `case_score_mean` 选靶。**
-                # `perf_score = 50 · case_score_mean · (passed_cases / n)` —— csm 只在
-                # **通过的 case** 上求平均，所以**通过率越低它越虚高**（全场 548/558 行验过该恒等式）。
-                # 现场：`z1wz` 的 WQBMM `csm×50 = 24.805` 看着遥遥领先，实际 passed **2/20**、
-                # `perf = 2.481`、行分 25.48 —— 比我们低 33 分，因为 18 个 case 从未进入分母。
-                # 我据此给两条线派了虚高 6 倍和不存在的靶（+43.66 真值 +7.37；+30.71 真值 0）。
-                # ⇒ 用 `score`（行分）—— 那才是真正聚合进榜面的量。
-                # 便宜判别器：**若 `passed/n` 不是 n/n，那个数就不可比。**
                 v = o.get("score")
                 if v is None:
                     continue

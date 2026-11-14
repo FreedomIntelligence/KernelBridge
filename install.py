@@ -242,7 +242,7 @@ def install(bundle: Path, runtime: Path, python: Path, node: Path, npm: Path) ->
         environment,
     )
     execute(
-        [str(npm), "ci", "--include=dev", "--ignore-scripts", "--no-audit", "--no-fund"],
+        [str(npm), "ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"],
         source / "apps/agent",
         environment,
     )

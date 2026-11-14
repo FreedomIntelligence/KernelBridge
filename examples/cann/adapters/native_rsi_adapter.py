@@ -1,4 +1,4 @@
-"""Pinned opt-in RSI adapter for the native float32[128] vector-add acceptance fixture.
+"""Pinned opt-in RSI adapter for native CANN operators.
 
 Run only in a provisioned isolated NPU environment. Each cached build retains its
 original receipt; incomplete builds are never restarted. Timings alternate arms
@@ -17,7 +17,7 @@ import signal
 import subprocess
 import sys
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'source/packages/executor/src'))
 
 
@@ -31,7 +31,7 @@ def digest(value):
 
 def source(files):
     if len(files) != 1 or files[0]['path'] != 'solution.py':
-        raise ValueError('native fixture requires exactly solution.py')
+        raise ValueError('native adapter requires exactly solution.py')
     return files[0]['text']
 
 

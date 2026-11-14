@@ -49,16 +49,17 @@ def main():
         from diagnostics import main as diagnostics
         print(json.dumps(diagnostics(config)))
         return
-    sys.path.insert(0, str(bundle / 'validation'))
+    adapters = bundle / 'examples/cann/adapters'
+    sys.path.insert(0, str(adapters))
     name = 'cannbench_sigmoid_adapter.py' if config['kind'] == 'sigmoid' else 'native_rsi_adapter.py'
-    sys.argv = [str(bundle / 'validation' / name), '--state', config['state'],
+    sys.argv = [str(adapters / name), '--state', config['state'],
                 '--soc', config['soc'], '--device', str(config['device'])]
     if config['kind'] == 'sigmoid':
         sys.argv += ['--suite', config['suite']]
     else:
         sys.argv += ['--reference', config['reference'], '--operator', config['operator'],
                      '--atol', str(config['atol']), '--rtol', str(config['rtol'])]
-    runpy.run_path(str(bundle / 'validation' / name), run_name='__main__')
+    runpy.run_path(str(adapters / name), run_name='__main__')
 
 
 if __name__ == '__main__':

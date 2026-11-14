@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""910c 榜的逐行缺口（零 credit，只读榜）。
-
-⚠ gap.py 默认读 950pr 榜且硬编码过滤 `hardware=='950pr'` ⇒ 在 910c 上会说"榜上没找到"。
-本脚本按 910c + benchmark 1.1.0 过滤。
-"""
+'Compare per-operator leaderboard results for the account selected by CANN_US.'
 import os, sys, json, collections
 import wave as W
 
-TOK = os.environ["GITCODE_TOKEN_5"]
-US = "SLAI_5"
+TOK = os.environ.get("GITCODE_TOKEN") or next((os.environ[k] for k in W.ACCTS if os.environ.get(k)), "")
+US = os.environ.get("CANN_US", "")
+if not TOK or not US:
+    raise ValueError("Set CANN_US and an owner GITCODE_TOKEN")
 HW = "910c"
 VER = "1.1.0"
 

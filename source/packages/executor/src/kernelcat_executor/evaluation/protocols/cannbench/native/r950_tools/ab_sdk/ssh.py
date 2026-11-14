@@ -1,9 +1,4 @@
-"""demo1/demo2 SSH. sshd returns 255 even on success. No ControlMaster — this sshd hangs on -fN.
-
-Never nest SSH back to the machine we are already on. Nested ssh with
-BindInterface=en0 (Mac-only) fails as: ssh: connect to host 10.1.30.201
-port 31222: failure. Cross-host ssh (demo1 → demo2) is allowed.
-"""
+"""SSH transport for explicitly configured A/B hosts."""
 from __future__ import annotations
 
 import os
@@ -23,49 +18,38 @@ def redact(text: str) -> str:
 
 
 def on_demo1() -> bool:
-    """True when this process is already on the demo1 16-NPU host."""
-    return Path("/home/demo1/cann-bench-20260722").is_dir()
+    return current_host_name() == "demo1"
 
 
 def on_demo2() -> bool:
-    """True when this process is already on the demo2 16-NPU host."""
-    return Path("/home/demo2/cann-bench-20260722").is_dir()
+    return current_host_name() == "demo2"
 
 
 def current_host_name() -> str | None:
-    if on_demo1():
-        return "demo1"
-    if on_demo2():
-        return "demo2"
-    return None
+    """Local execution is an explicit deployment property, not a path guess."""
+    return os.environ.get("KB_AB_LOCAL_HOST") or None
 
 
 def on_codeserver() -> bool:
-    """True when we must not open another SSH to the same box (already there, or share-local)."""
     return local_exec()
 
 
 def _target_user(ssh_host: str) -> str:
-    return ssh_host.split("@", 1)[0]
+    return ssh_host.split("@", 1)[0] if "@" in ssh_host else ""
 
 
-def local_exec(target_host: str | None = None) -> bool:
-    """Never nest SSH to the machine we are already on.
-
-    BindInterface=en0 is Mac-only and fails inside demo1/demo2/KTP.
-    Cross-host (demo1 targeting demo2@…) still uses ssh.
-    """
+def local_exec(target_host: str | None = None, cfg: Config | None = None) -> bool:
+    """Execute locally only when the caller explicitly selected local execution."""
+    if os.environ.get("AB_LOCAL") == "1":
+        return True
     cur = current_host_name()
-    if cur is not None:
-        if target_host is None:
-            return True
-        return _target_user(target_host) == cur
-    share = Path("/models/share").is_dir() or Path("/models/share/ka").is_dir()
-    if share and Path("/usr/local/bin/ktp").is_file():
+    if cur is None:
+        return False
+    if target_host is None:
         return True
-    if share and os.environ.get("KUBERNETES_SERVICE_HOST"):
-        return True
-    return False
+    cfg = cfg or Config()
+    spec = cfg.hosts.get(cur)
+    return spec is not None and bool(spec.ssh) and target_host == spec.ssh
 
 
 def _iface_exists(name: str) -> bool:
@@ -87,7 +71,7 @@ def school_proxy_opts() -> list[str]:
 
 
 def effective_ssh_opts() -> list[str]:
-    """Drop BindInterface=en0 when that iface is absent (demo1 / KTP / Linux)."""
+    """Use the configured SSH options and omit unavailable bind interfaces."""
     out: list[str] = []
     opts = list(SSH_OPTS)
     i = 0
@@ -167,17 +151,24 @@ def _run(argv: list[str], *, timeout: int, stdin: bytes | None = None) -> CmdRes
 
 
 def _ssh_target(cfg: Config, host: str | None) -> tuple[str, int]:
-    if host:
-        if "@" in host:
-            name = host.split("@", 1)[0]
-            if name in cfg.hosts:
-                spec = cfg.host(name)
+    if host is not None:
+        if not host.strip():
+            if os.environ.get("AB_LOCAL") == "1":
+                return "", cfg.demo1_port
+            raise ValueError("An explicitly selected A/B host has no SSH target")
+        for spec in cfg.hosts.values():
+            if spec.ssh and spec.ssh == host:
                 return spec.ssh, spec.port
-            return host, cfg.demo1_port
         if host in cfg.hosts:
             spec = cfg.host(host)
+            if not spec.ssh:
+                if os.environ.get("AB_LOCAL") == "1":
+                    return "", spec.port
+                raise ValueError(f"A/B host {host!r} has no SSH target")
             return spec.ssh, spec.port
         return host, cfg.demo1_port
+    if not cfg.demo1_host and os.environ.get("AB_LOCAL") != "1":
+        raise ValueError("Configure KB_AB_HOST (or Config.demo1_host) before using remote A/B tools")
     return cfg.demo1_host, cfg.demo1_port
 
 
@@ -193,7 +184,7 @@ def ssh(
     """
     cfg = cfg or Config()
     ssh_host, port = _ssh_target(cfg, host)
-    if local_exec(ssh_host):
+    if local_exec(ssh_host, cfg):
         return _run(["bash", "-lc", script], timeout=timeout)
     _sx = _paramiko_exec_fn()
     if _sx is not None:
@@ -252,7 +243,7 @@ def scp_to(
 ) -> CmdResult:
     cfg = cfg or Config()
     ssh_host, port = _ssh_target(cfg, host)
-    if local_exec(ssh_host):
+    if local_exec(ssh_host, cfg):
         remote_path = remote.split(":", 1)[-1] if ":" in remote else remote
         Path(remote_path).parent.mkdir(parents=True, exist_ok=True)
         return _run(["cp", "-a", str(local), remote_path], timeout=timeout)

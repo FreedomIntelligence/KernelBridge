@@ -297,11 +297,17 @@ class LegacyToolAdapter:
         metric_groups: Sequence[str] = ("PipeUtilization",),
         action_cell: str = "",
         school_env: str | Path | None = None,
+        bench: str | Path | None = None,
     ) -> CommandRequest:
+        selected_bench = str(bench if bench is not None else os.environ.get("CANN_BENCH_HOME", "")).strip()
+        if not selected_bench:
+            raise ContractError("Profiler requires --bench or CANN_BENCH_HOME for the selected host")
         artifact = Path(artifact_dir).expanduser().resolve()
         argv: list[str] = [
             sys.executable,
             str(self.tools / "real_profiler_ab.py"),
+            "--bench",
+            selected_bench,
             "--base-source",
             self._source(base_source),
             "--candidate-source",
